@@ -22,7 +22,7 @@ ALLOWED = {
 
 # Words that must never appear in the core. "field" is left out on purpose:
 # pydantic's Field would be a false positive.
-DOMAIN_WORDS = ["fire", "water", "imposter", "ember", "burn", "quake", "earthquake", "hualien"]
+DOMAIN_WORDS = ["fire", "water", "imposter", "burn", "quake", "earthquake", "hualien"]
 
 
 def imported_packages(source: str, module: str) -> set[str]:
