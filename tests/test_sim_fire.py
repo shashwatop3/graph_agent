@@ -2,8 +2,9 @@ import heapq
 
 import pytest
 
-from graph_agent.sim.fire import FieldState, FireRules, FireSim, WaterRuleError, play
-from graph_agent.sim.policies import fixed_plan
+from graph_agent.sim.field import FieldState
+from graph_agent.sim.fire import FireRules, FireSim, WaterRuleError, play
+from graph_agent.sim.policies import scripted_watering
 from graph_agent.sim.world import Edge, World, WorldConfig, generate_world
 
 
@@ -17,8 +18,12 @@ def chain(weights):
     return [Edge(i, i + 1, w) for i, w in enumerate(weights)]
 
 
-def run(sim: FireSim, water_plan=None, max_days=200):
-    return play(sim, fixed_plan(water_plan or {}), max_days)
+def run(sim: FireSim, watering_plan=None, max_days=200):
+    return play(sim, scripted_watering(watering_plan or {}), max_days)
+
+
+def ignition_days(sim: FireSim) -> dict[int, int]:
+    return {f.id: f.ignited_on for f in sim.fields if f.ignited_on is not None}
 
 
 def dijkstra(world: World):
@@ -36,14 +41,21 @@ def dijkstra(world: World):
 
 
 def test_ignition_day_is_the_weighted_shortest_path():
-    config = WorldConfig(n_agents=12, fields_per_agent=3, n_hidden_edges=5, n_initial_fires=2)
-    # decay 1 and no fizzling: only distance decides who burns and when
-    rules = FireRules(decay=1.0, min_intensity=0.0, burn_days=3)
+    config = WorldConfig(
+        n_agents=12,
+        fields_per_agent=3,
+        spread_weight=(1, 3),
+        hidden_weight=(1, 2),
+        n_hidden_edges=5,
+        n_initial_fires=2,
+    )
+    # constant intensity and no fizzling: only distance decides who burns and when
+    rules = FireRules(growth_if_unwatered=1.0, min_intensity=0.0, burn_days=3)
     for seed in range(20):
         world = generate_world(config, seed)
         sim = FireSim(world, rules)
         run(sim)
-        assert sim.ignited_on == dijkstra(world), f"seed {seed}"
+        assert ignition_days(sim) == dijkstra(world), f"seed {seed}"
 
 
 def test_same_seed_gives_the_same_run():
@@ -59,29 +71,36 @@ def test_same_seed_gives_the_same_run():
 def test_fire_travels_down_a_chain_at_the_edge_weights():
     sim = FireSim(hand_world(chain([2, 3, 1])))
     run(sim)
-    assert sim.ignited_on == {0: 0, 1: 2, 2: 5, 3: 6}
+    assert ignition_days(sim) == {0: 0, 1: 2, 2: 5, 3: 6}
 
 
-def test_water_delays_the_arrival_and_everything_downstream():
+def test_water_does_not_delay_the_fire():
     sim = FireSim(hand_world(chain([2, 3, 1])))
     run(sim, {2: {1}})  # agent 1 owns field 1, which the fire reaches on day 2
-    assert sim.ignited_on == {0: 0, 1: 3, 2: 6, 3: 7}
+    assert ignition_days(sim) == {0: 0, 1: 2, 2: 5, 3: 6}
 
 
-def test_water_halves_intensity_but_does_not_stop_the_fire():
-    rules = FireRules(decay=1.0)
-    plain = FireSim(hand_world(chain([2, 3, 1])), rules)
-    watered = FireSim(hand_world(chain([2, 3, 1])), rules)
+def test_fire_doubles_when_unwatered_and_halves_when_watered():
+    plain = FireSim(hand_world(chain([2, 3, 1])))
+    watered = FireSim(hand_world(chain([2, 3, 1])))
     run(plain)
     run(watered, {2: {1}})
-    assert watered.intensity[1] == pytest.approx(plain.intensity[1] * 0.5)
-    assert 3 in watered.ignited_on
+    assert plain.fields[1].intensity == 2.0  # 1.0 * growth_if_unwatered
+    assert watered.fields[1].intensity == 0.5  # 1.0 * growth_if_watered
+    assert 3 in ignition_days(watered)  # water slows the fire's strength, not its route
+
+
+def test_intensity_never_exceeds_the_cap():
+    sim = FireSim(hand_world(chain([1] * 5), n_agents=6), FireRules(max_intensity=3.0))
+    run(sim)
+    # 1.0 doubles to 2.0, then would be 4.0 but is capped at 3.0 from there on
+    assert [f.intensity for f in sim.fields] == [1.0, 2.0, 3.0, 3.0, 3.0, 3.0]
 
 
 def test_water_on_the_wrong_day_changes_nothing():
     sim = FireSim(hand_world(chain([2, 3, 1])))
     run(sim, {1: {1}, 3: {1}})  # day 2 is the arrival day; neither of these hits it
-    assert sim.ignited_on == {0: 0, 1: 2, 2: 5, 3: 6}
+    assert ignition_days(sim) == {0: 0, 1: 2, 2: 5, 3: 6}
 
 
 def test_an_agent_cannot_water_on_consecutive_days():
@@ -108,7 +127,7 @@ def test_a_hidden_edge_is_revealed_the_day_fire_uses_it():
     edges = chain([3, 3, 3]) + [Edge(0, 3, 2, hidden=True)]
     sim = FireSim(hand_world(edges))
     reports = run(sim)
-    assert sim.ignited_on[3] == 2
+    assert sim.fields[3].ignited_on == 2
     revealed_days = [r.day for r in reports if r.revealed_hidden]
     assert revealed_days == [2]
     assert reports[2].ignited[0].via_hidden
@@ -126,25 +145,25 @@ def test_a_hidden_edge_skips_the_agents_between():
     edges = chain([3, 3, 3]) + [Edge(0, 3, 2, hidden=True)]
     sim = FireSim(hand_world(edges))
     run(sim)
-    assert sim.ignited_on[3] < sim.ignited_on[1] < sim.ignited_on[2]
+    assert sim.fields[3].ignited_on < sim.fields[1].ignited_on < sim.fields[2].ignited_on
 
 
 def test_fields_burn_out_after_burn_days_and_never_reburn():
     sim = FireSim(hand_world(chain([1, 1, 1])), FireRules(burn_days=2))
     reports = run(sim)
     assert [r.burnt_out for r in reports if r.burnt_out] == [(0,), (1,), (2,), (3,)]
-    assert all(s is FieldState.BURNT for s in sim.state)
-    ignitions = [i.field for r in reports for i in r.ignited]
+    assert all(f.state is FieldState.BURNT for f in sim.fields)
+    ignitions = [i.field_id for r in reports for i in r.ignited]
     assert len(ignitions) == len(set(ignitions))
 
 
 def test_a_weak_fire_fizzles_instead_of_igniting():
-    rules = FireRules(decay=0.5, min_intensity=0.3)
+    rules = FireRules(growth_if_unwatered=0.5, min_intensity=0.3)
     sim = FireSim(hand_world(chain([1, 1, 1])), rules)
     run(sim)
     # intensities 1.0, 0.5, 0.25: the third field is too weak to ignite
-    assert sorted(sim.ignited_on) == [0, 1]
-    assert sim.state[2] is FieldState.UNBURNT
+    assert sorted(ignition_days(sim)) == [0, 1]
+    assert sim.fields[2].state is FieldState.UNBURNT
 
 
 def test_simulation_terminates_even_with_heavy_watering():

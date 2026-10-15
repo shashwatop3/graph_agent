@@ -26,9 +26,9 @@ class Edge:
 class WorldConfig:
     n_agents: int = 8
     fields_per_agent: int = 3
-    spread_weight: tuple[int, int] = (1, 3)  # burn time in days, inclusive range
+    spread_weight: tuple[int, int] = (1, 1)  # burn time in days, inclusive range
     n_hidden_edges: int = 2
-    hidden_weight: tuple[int, int] = (1, 2)
+    hidden_weight: tuple[int, int] = (1, 1)
     min_hidden_span: int = 2  # a hidden edge skips at least this many agents (clockwise)
     n_initial_fires: int = 1
     initial_intensity: float = 1.0
@@ -53,14 +53,14 @@ class World:
     config: WorldConfig
     seed: int
     edges: tuple[Edge, ...]
-    initial_fires: tuple[tuple[int, float], ...]  # (field, intensity), ignite on day 0
+    initial_fires: tuple[tuple[int, float], ...]  # (field_id, intensity), ignite on day 0
 
     @property
     def n_fields(self) -> int:
         return self.config.n_agents * self.config.fields_per_agent
 
-    def owner(self, field: int) -> int:
-        return field // self.config.fields_per_agent
+    def owner(self, field_id: int) -> int:
+        return field_id // self.config.fields_per_agent
 
     def fields_of(self, agent: int) -> range:
         m = self.config.fields_per_agent

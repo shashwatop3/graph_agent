@@ -18,8 +18,8 @@ def test_spread_edges_form_one_clockwise_ring_over_all_fields():
     spread = {e.src: e for e in world.edges if not e.hidden}
     assert len(spread) == world.n_fields == 30
     low, high = CONFIG.spread_weight
-    for field, edge in spread.items():
-        assert edge.dst == (field + 1) % 30
+    for field_id, edge in spread.items():
+        assert edge.dst == (field_id + 1) % 30
         assert low <= edge.weight <= high
 
 
