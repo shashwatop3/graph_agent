@@ -1,0 +1,34 @@
+# Local services for development and tests. Ports are bound to 127.0.0.1 and
+# deliberately off the defaults (6379, 3000, 5432) so they cannot clash with
+# anything already running on this machine.
+#
+# Images are pinned by digest. Re-pin on purpose, not by accident:
+#   docker pull falkordb/falkordb:latest && docker image inspect falkordb/falkordb:latest --format '{{join .RepoDigests ","}}'
+# FalkorDB graph module at pin time: 6.0.2 (MODULE LIST reports ver 60002).
+# PostgreSQL at pin time: 17.11.
+
+services:
+  falkordb:
+    image: falkordb/falkordb@sha256:107455e862a824e45e8e9f5a7fbfdf5e00a08b14e13eae2577c72fd9e3f59ba6
+    ports:
+      - "127.0.0.1:16379:6379"   # Redis protocol (the Python client talks here)
+      - "127.0.0.1:13000:3000"   # FalkorDB browser UI
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  postgres:
+    image: postgres@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres   # local development only
+      POSTGRES_DB: graph_agent
+    ports:
+      - "127.0.0.1:15432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d graph_agent"]
+      interval: 5s
+      timeout: 3s
+      retries: 10

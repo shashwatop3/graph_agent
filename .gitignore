@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+
+# run outputs and caches (created in later stages)
+runs/
+.cache/
+
+# the docs symlink points into the Obsidian vault; the notes live there, not here
+docs
