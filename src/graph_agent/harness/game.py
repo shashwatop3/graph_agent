@@ -5,6 +5,11 @@ tools), and then the day is played: fire spreads, evidence is published, the bac
 is fixed (agent 0, 1, 2, ...) and each turn's tool calls run in the order the model gave them, so
 the same model answers give the same game.
 
+Messages sent during the turns are held until every agent has had its turn, then delivered together
+(before the fire is played). So nobody reads a message on the day it was sent by an agent with a
+lower number: the order of the turns decides nothing about who hears what first. The scripted sends
+at the start of the day come before every turn, so they are delivered at once.
+
 Imposters never use the model. Their lies are scripted (the scenario's "sends") and their other
 behaviour is a plain rule: pass on whatever they receive to every neighbour not already on its
 route. The network then applies their corruption (a shifted day, or silence).
@@ -68,7 +73,13 @@ def run_game(
 
     # ---- what the tools do in the game -----------------------------------------------------
 
+    held: list = []  # messages sent during this day's turns, delivered once they are all over
+    holding = False
+
     def deliver(message) -> None:
+        if holding:
+            held.append(message)
+            return
         received[(message.receiver, message.claim.field_id, message.claim.day)] = message
         backend.message(message)
 
@@ -129,6 +140,7 @@ def run_game(
             )
             if message is not None:
                 deliver(message)
+        holding = True
         for number in range(n_agents):
             if number in imposters:
                 imposter_turn(number)
@@ -137,6 +149,10 @@ def run_game(
             boxes[number].now = day
             turn = run_turn(client, boxes[number], context, max_steps)
             result.turns.append((day, f"A{number}", turn))
+        holding = False
+        for message in held:
+            deliver(message)
+        held.clear()
         day_result = game.step(set(water_today))
         result.days.append(day_result)
         backend.day(game, day_result)
