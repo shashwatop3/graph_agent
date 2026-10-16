@@ -10,6 +10,11 @@
 services:
   falkordb:
     image: falkordb/falkordb@sha256:107455e862a824e45e8e9f5a7fbfdf5e00a08b14e13eae2577c72fd9e3f59ba6
+    # FalkorDB's defaults silently cut results at 10000 rows and kill queries after 1 second. Both
+    # would corrupt benchmark answers without any error, so lift them (measured in S6).
+    # MAX_QUEUED_QUERIES is raised so a burst of parallel queries is queued, not rejected.
+    environment:
+      FALKORDB_ARGS: "RESULTSET_SIZE -1 TIMEOUT 0 MAX_QUEUED_QUERIES 200"
     ports:
       - "127.0.0.1:16379:6379"   # Redis protocol (the Python client talks here)
       - "127.0.0.1:13000:3000"   # FalkorDB browser UI

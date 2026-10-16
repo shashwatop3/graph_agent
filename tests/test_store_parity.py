@@ -12,7 +12,7 @@ import pytest
 from graph_agent.stores.falkor import FalkorStore
 from graph_agent.stores.memory import MemoryStore
 from graph_agent.stores.postgres import PostgresStore
-from random_graph import AGENTS, VIEWER, build_random_graph
+from random_graph import AGENTS, VIEWER, build_random_graph, build_random_map
 
 pytestmark = pytest.mark.integration
 
@@ -43,5 +43,22 @@ def test_store_matches_the_reference_store(name, seed):
             expected = reference.expose(VIEWER, agent, tick)
             assert other.expose(VIEWER, agent, tick) == expected, f"exposing {agent}"
             assert snapshot(other, ids) == snapshot(reference, ids), f"after exposing {agent}"
+    finally:
+        other.close()
+
+
+@pytest.mark.parametrize("name", OTHER_STORES)
+@pytest.mark.parametrize("seed", range(10))
+def test_shortest_distances_match_the_reference_store(name, seed):
+    reference, other = MemoryStore(), OTHER_STORES[name]()
+    try:
+        places = build_random_map(reference, seed)
+        build_random_map(other, seed)
+        for src in places:
+            for dst in places:
+                assert other.shortest_distance(src, dst) == reference.shortest_distance(src, dst), (
+                    src,
+                    dst,
+                )
     finally:
         other.close()

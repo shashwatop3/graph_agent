@@ -195,3 +195,34 @@ class StoreContract:
         store.add_node(belief("B91", "E1", "temperature", 41))  # within tolerance of B12
         assert [b.id for b in store.conflicts(VIEWER, "B12", predicates)] == ["B90"]
         assert store.conflicts(VIEWER, "missing", predicates) == []
+
+    # ---- shortest distance over entity relationships ----------------------------------------
+
+    def test_shortest_distance_follows_weights_around_a_cycle(self, store):
+        #   M0 -1-> M1 -2-> M2 -1-> M3 -1-> M4 -1-> M0   (a ring), plus a costly chord M0 -5-> M3
+        for i in range(5):
+            store.add_node(Entity(id=f"M{i}", type="place"))
+        for a, b, weight in [(0, 1, 1), (1, 2, 2), (2, 3, 1), (3, 4, 1), (4, 0, 1), (0, 3, 5)]:
+            store.add_edge(edge("RELATES", f"M{a}", f"M{b}", weight=weight))
+        assert store.shortest_distance("M0", "M3") == 4  # the ring (1+2+1) beats the chord (5)
+        assert store.shortest_distance("M3", "M2") == 5  # wraps all the way round: 1+1+1+2
+        assert store.shortest_distance("M2", "M2") == 0
+
+    def test_shortest_distance_is_none_when_there_is_no_path(self, store):
+        store.add_node(Entity(id="M0", type="place"))
+        store.add_node(Entity(id="M1", type="place"))
+        store.add_edge(edge("RELATES", "M0", "M1", weight=1))
+        assert store.shortest_distance("M1", "M0") is None  # edges are one-way
+        assert store.shortest_distance("M0", "E1") is None  # E1 exists but nothing leads there
+
+    def test_a_relationship_without_a_weight_costs_one(self, store):
+        store.add_node(Entity(id="M0", type="place"))
+        store.add_node(Entity(id="M1", type="place"))
+        store.add_edge(edge("RELATES", "M0", "M1"))
+        assert store.shortest_distance("M0", "M1") == 1
+
+    def test_shortest_distance_only_follows_the_requested_kind(self, store):
+        store.add_node(Entity(id="M0", type="place"))
+        store.add_node(Entity(id="M1", type="place"))
+        store.add_edge(edge("ABOUT", "B12", "M1"))  # a different kind of edge
+        assert store.shortest_distance("M0", "M1") is None

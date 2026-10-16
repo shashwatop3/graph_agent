@@ -18,7 +18,7 @@ from collections.abc import Mapping
 
 from pydantic import BaseModel
 
-from .model import Belief, BeliefStatus, Edge, Node
+from .model import Belief, BeliefStatus, Edge, EdgeKind, Node
 from .registry import Predicate, contradicts
 
 
@@ -63,6 +63,14 @@ class Store(ABC):
     @abstractmethod
     def dependents(self, viewer: str, belief_id: str) -> dict[str, int]:
         """Beliefs and actions derived from this belief, directly or not, with their hop count."""
+
+    @abstractmethod
+    def shortest_distance(self, src: str, dst: str, kind: EdgeKind = "RELATES") -> float | None:
+        """Total weight of the cheapest path from `src` to `dst` along `kind` edges, or None.
+
+        Each edge costs its `weight` property (1 if it has none). A node is 0 away from itself.
+        Entities and the RELATES edges between them are shared knowledge, so there is no viewer.
+        """
 
     @abstractmethod
     def expose(self, viewer: str, agent_id: str, tick: int, reason: str = "") -> list[Invalidation]:

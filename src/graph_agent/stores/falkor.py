@@ -31,6 +31,7 @@ from ..core.model import (
     Belief,
     Correction,
     Edge,
+    EdgeKind,
     Entity,
     Node,
     Observation,
@@ -172,25 +173,59 @@ class FalkorStore(Store):
     def dependents(self, viewer: str, belief_id: str) -> dict[str, int]:
         if self.get(viewer, belief_id) is None:
             return {}
-        return self._downstream(viewer, [belief_id])
+        return {
+            node_id: hops for node_id, (hops, _, _) in self._downstream(viewer, [belief_id]).items()
+        }
 
-    def _downstream(self, viewer: str, sources: list[str]) -> dict[str, int]:
-        """Everything derived from any of `sources`, with the fewest DERIVED_FROM hops.
+    def _downstream(
+        self, viewer: str, sources: list[str]
+    ) -> dict[str, tuple[int, str, str | None]]:
+        """Everything derived from any of `sources`: node id -> (fewest hops, node type, status).
 
         DERIVED_FROM points from the derived node to what it came from, so "downstream" means
-        walking those edges backwards: match paths that END at a source. A node reachable by
-        several paths gets the shortest one (min over the paths). Only the viewer's own nodes may
-        be on the path, as with the reference store.
+        walking those edges backwards. It is a breadth-first search done one level per query: the
+        frontier goes in as a list, the next frontier comes out. Only the viewer's own nodes are
+        followed, as with the reference store.
+
+        Why not one variable-length pattern, `(d)-[:DERIVED_FROM*1..32]->(s)`? That enumerates every
+        path, and the number of paths grows exponentially when beliefs have several parents (a
+        layered graph with two parents each has 2^depth paths). Measured in benchmarks/.
         """
+        found: dict[str, tuple[int, str, str | None]] = {}
+        seen = set(sources)
+        frontier = list(sources)
+        for hops in range(1, MAX_DEPTH + 1):
+            if not frontier:
+                break
+            rows = self._run(
+                "MATCH (s:Node)<-[:DERIVED_FROM]-(d) "
+                "WHERE s.id IN $frontier AND d.owner = $viewer "
+                "RETURN DISTINCT d.id, labels(d), d.status",
+                frontier=frontier,
+                viewer=viewer,
+            )
+            frontier = []
+            for node_id, labels, status in rows:
+                if node_id not in seen:
+                    seen.add(node_id)
+                    label = next(name for name in labels if name != "Node")
+                    found[node_id] = (hops, label, status)
+                    frontier.append(node_id)
+        return found
+
+    def shortest_distance(self, src: str, dst: str, kind: EdgeKind = "RELATES") -> float | None:
+        if src == dst:
+            return 0.0  # the procedure returns no path from a node to itself
+        # algo.SPpaths is FalkorDB's weighted shortest path. A relationship without a `weight`
+        # property costs 1, the same default as the reference store.
         rows = self._run(
-            f"MATCH p = (d)-[:DERIVED_FROM*1..{MAX_DEPTH}]->(s:Belief) "
-            "WHERE s.id IN $sources AND NOT d.id IN $sources "
-            "AND all(n IN nodes(p) WHERE n.owner = $viewer) "
-            "RETURN d.id, min(length(p))",
-            sources=sources,
-            viewer=viewer,
+            "MATCH (a:Node {id: $src}), (b:Node {id: $dst}) "
+            f"CALL algo.SPpaths({{sourceNode: a, targetNode: b, relTypes: ['{kind}'], "
+            "weightProp: 'weight', pathCount: 1}) YIELD pathWeight RETURN pathWeight",
+            src=src,
+            dst=dst,
         )
-        return {node_id: hops for node_id, hops in rows}
+        return float(rows[0][0]) if rows else None
 
     # ---- propagation -------------------------------------------------------------------------
 
@@ -246,9 +281,8 @@ class FalkorStore(Store):
 
         # 2. Everything derived from a stale belief becomes suspect (if it was active).
         if stale:
-            for bid, hops in self._downstream(viewer, list(stale)).items():
-                node = self._node(bid)
-                if isinstance(node, Belief) and node.status == "active" and bid not in changes:
+            for bid, (hops, label, status) in self._downstream(viewer, list(stale)).items():
+                if label == "Belief" and status == "active":
                     changes[bid] = Invalidation(
                         belief_id=bid, old_status="active", new_status="suspect", path_len=1 + hops
                     )
@@ -257,7 +291,9 @@ class FalkorStore(Store):
         if changes:
             self._run(
                 "UNWIND $changes AS ch "
-                "MATCH (c:Node {id: $cid}), (b:Belief {id: ch.id}) "
+                # match on :Node, not :Belief: the id index is on :Node, and a :Belief match would
+                # scan every belief once per change
+                "MATCH (c:Node {id: $cid}), (b:Node {id: ch.id}) "
                 "SET b.status = ch.status, b.updated_tick = $tick "
                 "CREATE (c)-[:INVALIDATED {new_status: ch.status, path_len: ch.path_len, "
                 "tick: $tick}]->(b)",

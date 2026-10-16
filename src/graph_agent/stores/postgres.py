@@ -31,6 +31,7 @@ from ..core.model import (
     Belief,
     Correction,
     Edge,
+    EdgeKind,
     Entity,
     Node,
     Observation,
@@ -118,7 +119,10 @@ WITH RECURSIVE downstream (id, hops) AS (
     JOIN nodes d ON d.id = e.src
     WHERE d.owner = %(viewer)s AND downstream.hops < {MAX_DEPTH}
 )
-SELECT id, min(hops) FROM downstream WHERE id <> ALL(%(sources)s) GROUP BY id
+SELECT d.id, min(downstream.hops), d.type, d.status
+FROM downstream JOIN nodes d ON d.id = downstream.id
+WHERE d.id <> ALL(%(sources)s)
+GROUP BY d.id, d.type, d.status
 """
 
 
@@ -135,6 +139,16 @@ class PostgresStore(Store):
         self._conn.execute(f"CREATE SCHEMA {self.schema}")
         self._conn.execute(f"SET search_path TO {self.schema}")
         self._conn.execute(_SCHEMA)
+
+    def analyze(self) -> None:
+        """Refresh the planner's statistics. Call after loading a lot of data at once.
+
+        Postgres plans from table statistics that it gathers in the background. Right after a bulk
+        load they can be missing or stale, and the planner then sometimes picks a very slow plan
+        (seen once in the benchmark: 54 s for a query that takes 1 s). A real deployment runs this
+        through autovacuum; a benchmark that loads and queries immediately should do it explicitly.
+        """
+        self._conn.execute("ANALYZE")
 
     def close(self) -> None:
         if not self._conn.closed:
@@ -238,7 +252,32 @@ class PostgresStore(Store):
     def dependents(self, viewer: str, belief_id: str) -> dict[str, int]:
         if self.get(viewer, belief_id) is None:
             return {}
-        return dict(self._rows(_DOWNSTREAM, sources=[belief_id], viewer=viewer))
+        rows = self._rows(_DOWNSTREAM, sources=[belief_id], viewer=viewer)
+        return {node_id: hops for node_id, hops, _, _ in rows}
+
+    def shortest_distance(self, src: str, dst: str, kind: EdgeKind = "RELATES") -> float | None:
+        # Postgres has no shortest-path operator, so walk every simple path (the `path` array stops
+        # a walk from revisiting a node, which also stops cycles) and take the cheapest.
+        # That is fine for a field map, where there are few routes between two fields.
+        if src == dst:
+            return 0.0
+        rows = self._rows(
+            """
+            WITH RECURSIVE walk (node, cost, path) AS (
+                SELECT %(src)s::text, 0::float8, ARRAY[%(src)s]::text[]
+              UNION ALL
+                SELECT e.dst, walk.cost + coalesce((e.props ->> 'weight')::float8, 1),
+                       walk.path || e.dst
+                FROM walk JOIN edges e ON e.kind = %(kind)s AND e.src = walk.node
+                WHERE NOT e.dst = ANY(walk.path)
+            )
+            SELECT min(cost) FROM walk WHERE node = %(dst)s
+            """,
+            src=src,
+            dst=dst,
+            kind=kind,
+        )
+        return None if rows[0][0] is None else float(rows[0][0])
 
     # ---- propagation -------------------------------------------------------------------------
 
@@ -281,27 +320,36 @@ class PostgresStore(Store):
         # 2. Everything derived from a stale belief becomes suspect (if it was active).
         if stale:
             downstream = self._rows(_DOWNSTREAM, sources=list(stale), viewer=viewer)
-            for bid, hops in downstream:
-                node = self._node(bid)
-                if isinstance(node, Belief) and node.status == "active" and bid not in changes:
+            for bid, hops, node_type, status in downstream:
+                if node_type == "Belief" and status == "active":
                     changes[bid] = Invalidation(
                         belief_id=bid, old_status="active", new_status="suspect", path_len=1 + hops
                     )
 
-        # 3. Write the status changes and the INVALIDATED edges (correction -> belief).
-        for change in changes.values():
+        # 3. Write the status changes and the INVALIDATED edges (correction -> belief), each as
+        #    one statement over arrays, not one round trip per belief.
+        if changes:
+            ids = [c.belief_id for c in changes.values()]
+            statuses = [c.new_status for c in changes.values()]
+            lengths = [c.path_len for c in changes.values()]
             self._conn.execute(
-                "UPDATE nodes SET status = %s, updated_tick = %s WHERE id = %s",
-                (change.new_status, tick, change.belief_id),
+                "UPDATE nodes n SET status = c.status, updated_tick = %(tick)s "
+                "FROM unnest(%(ids)s::text[], %(statuses)s::text[]) AS c(id, status) "
+                "WHERE n.id = c.id",
+                {"tick": tick, "ids": ids, "statuses": statuses},
             )
             self._conn.execute(
-                "INSERT INTO edges (kind, src, dst, props) VALUES ('INVALIDATED', %s, %s, %s)",
-                (
-                    correction_id,
-                    change.belief_id,
-                    Jsonb(
-                        {"new_status": change.new_status, "path_len": change.path_len, "tick": tick}
-                    ),
-                ),
+                "INSERT INTO edges (kind, src, dst, props) "
+                "SELECT 'INVALIDATED', %(cid)s, c.id, jsonb_build_object("
+                "'new_status', c.status, 'path_len', c.path_len, 'tick', %(tick)s::int) "
+                "FROM unnest(%(ids)s::text[], %(statuses)s::text[], %(lengths)s::int[]) "
+                "AS c(id, status, path_len)",
+                {
+                    "cid": correction_id,
+                    "tick": tick,
+                    "ids": ids,
+                    "statuses": statuses,
+                    "lengths": lengths,
+                },
             )
         return sorted(changes.values(), key=lambda c: (c.path_len, c.belief_id))

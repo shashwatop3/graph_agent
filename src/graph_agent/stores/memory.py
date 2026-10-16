@@ -4,6 +4,7 @@ It is deliberately simple and slow. Its job is to define the right answer, so th
 Postgres stores can be checked against it.
 """
 
+import heapq
 from collections import deque
 
 from ..core.model import (
@@ -67,6 +68,24 @@ class MemoryStore(Store):
         if self.get(viewer, belief_id) is None:
             return {}
         return self._walk_dependents(viewer, [belief_id])
+
+    def shortest_distance(self, src: str, dst: str, kind: EdgeKind = "RELATES") -> float | None:
+        # Dijkstra with a heap; `best` holds the cheapest known cost to each node.
+        best = {src: 0.0}
+        heap = [(0.0, src)]
+        while heap:
+            cost, node = heapq.heappop(heap)
+            if node == dst:
+                return cost
+            if cost > best.get(node, float("inf")):
+                continue  # a cheaper route to this node was already processed
+            for edge in self._edges:
+                if edge.kind == kind and edge.src == node:
+                    new_cost = cost + edge.props.get("weight", 1)
+                    if new_cost < best.get(edge.dst, float("inf")):
+                        best[edge.dst] = new_cost
+                        heapq.heappush(heap, (new_cost, edge.dst))
+        return None
 
     # ---- propagation -------------------------------------------------------------------------
 

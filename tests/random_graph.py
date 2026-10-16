@@ -55,3 +55,24 @@ def build_random_graph(store: Store, seed: int, n_beliefs: int = 14) -> list[str
                 store.add_edge(Edge(kind="SUPPORTS", src=oid, dst=bid))
         belief_ids.append(bid)
     return belief_ids
+
+
+def build_random_map(store: Store, seed: int, n: int = 14) -> list[str]:
+    """A ring of places with random weights plus a few one-way chords. Returns the place ids."""
+    rng = random.Random(seed)
+    ids = [f"M{i}" for i in range(n)]
+    for place in ids:
+        store.add_node(Entity(id=place, type="place"))
+    for i in range(n):
+        store.add_edge(
+            Edge(
+                kind="RELATES",
+                src=ids[i],
+                dst=ids[(i + 1) % n],
+                props={"weight": rng.randint(1, 4)},
+            )
+        )
+    for _ in range(4):
+        a, b = rng.sample(ids, 2)
+        store.add_edge(Edge(kind="RELATES", src=a, dst=b, props={"weight": rng.randint(1, 6)}))
+    return ids

@@ -46,3 +46,21 @@ def test_postgres_runs_a_recursive_query():
         assert rows == [(15,)]
         major = conn.execute("SHOW server_version_num").fetchone()[0]
         assert int(major) >= 170000
+
+
+def test_falkordb_does_not_silently_cut_results_or_kill_slow_queries():
+    """FalkorDB's defaults return at most 10000 rows without any error and abort queries that run
+    longer than 1 second. Either would quietly corrupt benchmark answers, so docker-compose.yml
+    lifts both (FALKORDB_ARGS). If this fails, recreate the container: docker compose up -d
+    --force-recreate falkordb
+    """
+    db = FalkorDB(host=FALKORDB_HOST, port=FALKORDB_PORT)
+    graph = db.select_graph("s6_limits")
+    try:
+        assert len(graph.query("UNWIND range(1, 25000) AS i RETURN i").result_set) == 25000
+        assert db.connection.execute_command("GRAPH.CONFIG", "GET", "TIMEOUT")[1] == 0
+    finally:
+        try:
+            graph.delete()
+        except Exception:
+            pass
