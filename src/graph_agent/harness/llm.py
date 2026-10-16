@@ -10,6 +10,7 @@ what makes a benchmark run reproducible and affordable. Cache files are plain JS
 
 import hashlib
 import json
+import urllib.error
 import urllib.request
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
@@ -95,6 +96,17 @@ class ScriptedModel:
         return self.policy(system, messages, tools)
 
 
+def _send(request: urllib.request.Request, timeout: float) -> dict:
+    """Send a request; on an HTTP error, raise it with the server's explanation (urllib hides it)."""
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(
+            f"HTTP {error.code}: {error.read().decode(errors='replace')[:500]}"
+        ) from None
+
+
 class OpenAICompatibleClient:
     """A real model behind any server that speaks the OpenAI chat API: llama.cpp's llama-server,
     Ollama (http://localhost:11434/v1), OpenRouter, and others. Only the base URL, the model name
@@ -130,8 +142,7 @@ class OpenAICompatibleClient:
                 **({"authorization": f"Bearer {self.api_key}"} if self.api_key else {}),
             },
         )
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
-            return json.load(response)
+        return _send(request, self.timeout)
 
     def complete(self, system: str, messages: list[dict], tools: list[dict]) -> ModelReply:
         wire = [{"role": "system", "content": system}]
@@ -195,7 +206,9 @@ class AnthropicClient:
         temperature: float = 0.0,
         timeout: float = 120,
         base_url: str = "https://api.anthropic.com/v1",
+        workspace_id: str = "",  # needed only for a key that is not scoped to one workspace
     ):
+        self.workspace_id = workspace_id
         self.model = model
         self.api_key = api_key
         self.max_tokens = max_tokens
@@ -211,10 +224,10 @@ class AnthropicClient:
                 "content-type": "application/json",
                 "x-api-key": self.api_key,
                 "anthropic-version": "2023-06-01",
+                **({"anthropic-workspace-id": self.workspace_id} if self.workspace_id else {}),
             },
         )
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
-            return json.load(response)
+        return _send(request, self.timeout)
 
     @staticmethod
     def _wire_messages(messages: list[dict]) -> list[dict]:

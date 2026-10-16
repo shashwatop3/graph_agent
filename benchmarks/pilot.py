@@ -41,7 +41,11 @@ if args.provider == "anthropic":
     if not os.environ.get("ANTHROPIC_API_KEY"):
         raise SystemExit("put ANTHROPIC_API_KEY=... in .env (see README) and run again")
     args.model = args.model or "claude-haiku-5-5"
-    real = AnthropicClient(args.model, os.environ["ANTHROPIC_API_KEY"])
+    real = AnthropicClient(
+        args.model,
+        os.environ["ANTHROPIC_API_KEY"],
+        workspace_id=os.environ.get("ANTHROPIC_WORKSPACE_ID", ""),
+    )
 else:
     args.model = args.model or "qwen3-14b"
     real = OpenAICompatibleClient(args.model, args.url, os.environ.get(args.key_env, ""))
