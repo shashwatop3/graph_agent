@@ -10,6 +10,7 @@ what makes a benchmark run reproducible and affordable. Cache files are plain JS
 
 import hashlib
 import json
+import urllib.request
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -92,3 +93,87 @@ class ScriptedModel:
 
     def complete(self, system: str, messages: list[dict], tools: list[dict]) -> ModelReply:
         return self.policy(system, messages, tools)
+
+
+class OpenAICompatibleClient:
+    """A real model behind any server that speaks the OpenAI chat API: llama.cpp's llama-server,
+    Ollama (http://localhost:11434/v1), OpenRouter, and others. Only the base URL, the model name
+    and the key (if the server wants one) change, so a local pilot and a paid run use this same
+    class. Standard library only, so there is nothing extra to install.
+
+    Our messages are already close to the OpenAI shape; the only translation is that a tool call's
+    arguments travel as a JSON string on the wire and as a dict inside the harness.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        base_url: str = "http://127.0.0.1:18080/v1",
+        api_key: str = "",
+        max_tokens: int = 400,  # a hard stop, so a model that loops cannot run away
+        temperature: float = 0.0,  # same request, same answer (as far as the server allows)
+        timeout: float = 300,
+    ):
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        self.api_key = api_key
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.timeout = timeout
+
+    def _post(self, body: dict) -> dict:
+        request = urllib.request.Request(
+            f"{self.base_url}/chat/completions",
+            data=json.dumps(body).encode(),
+            headers={
+                "content-type": "application/json",
+                **({"authorization": f"Bearer {self.api_key}"} if self.api_key else {}),
+            },
+        )
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            return json.load(response)
+
+    def complete(self, system: str, messages: list[dict], tools: list[dict]) -> ModelReply:
+        wire = [{"role": "system", "content": system}]
+        for m in messages:
+            if m["role"] == "assistant" and m.get("tool_calls"):
+                m = {
+                    "role": "assistant",
+                    "content": m["content"] or None,
+                    "tool_calls": [
+                        {
+                            "id": c["id"],
+                            "type": "function",
+                            "function": {
+                                "name": c["name"],
+                                "arguments": json.dumps(c["arguments"]),
+                            },
+                        }
+                        for c in m["tool_calls"]
+                    ],
+                }
+            wire.append(m)
+        body = {
+            "model": self.model,
+            "messages": wire,
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+        }
+        if tools:
+            body["tools"] = [{"type": "function", "function": t} for t in tools]
+        message = self._post(body)
+        choice = message["choices"][0]["message"]
+        calls = []
+        for i, call in enumerate(choice.get("tool_calls") or []):
+            try:
+                arguments = json.loads(call["function"]["arguments"] or "{}")
+            except json.JSONDecodeError:  # a malformed call: the tool will answer "bad arguments"
+                arguments = {}
+            calls.append(ToolCall(call["function"]["name"], arguments, call.get("id") or f"c{i}"))
+        usage = message.get("usage", {})
+        return ModelReply(
+            text=choice.get("content") or "",
+            tool_calls=calls,
+            tokens_in=usage.get("prompt_tokens", 0),
+            tokens_out=usage.get("completion_tokens", 0),
+        )
