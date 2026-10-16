@@ -177,3 +177,95 @@ class OpenAICompatibleClient:
             tokens_in=usage.get("prompt_tokens", 0),
             tokens_out=usage.get("completion_tokens", 0),
         )
+
+
+class AnthropicClient:
+    """Claude through Anthropic's own Messages API (standard library only).
+
+    The wire format differs from the OpenAI one: the system prompt is a separate field, tools take
+    an `input_schema`, an assistant's tool calls are `tool_use` blocks, and the results come back
+    in ONE user message of `tool_result` blocks, so consecutive tool messages are merged here.
+    """
+
+    def __init__(
+        self,
+        model: str = "claude-haiku-5-5",
+        api_key: str = "",
+        max_tokens: int = 600,
+        temperature: float = 0.0,
+        timeout: float = 120,
+        base_url: str = "https://api.anthropic.com/v1",
+    ):
+        self.model = model
+        self.api_key = api_key
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.timeout = timeout
+        self.base_url = base_url.rstrip("/")
+
+    def _post(self, body: dict) -> dict:
+        request = urllib.request.Request(
+            f"{self.base_url}/messages",
+            data=json.dumps(body).encode(),
+            headers={
+                "content-type": "application/json",
+                "x-api-key": self.api_key,
+                "anthropic-version": "2023-06-01",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            return json.load(response)
+
+    @staticmethod
+    def _wire_messages(messages: list[dict]) -> list[dict]:
+        wire: list[dict] = []
+        for m in messages:
+            if m["role"] == "assistant":
+                blocks = [{"type": "text", "text": m["content"]}] if m["content"] else []
+                blocks += [
+                    {"type": "tool_use", "id": c["id"], "name": c["name"], "input": c["arguments"]}
+                    for c in m.get("tool_calls", [])
+                ]
+                wire.append({"role": "assistant", "content": blocks})
+            elif m["role"] == "tool":
+                result = {"type": "tool_result", "tool_use_id": m["tool_call_id"]}
+                result["content"] = m["content"]
+                if wire and wire[-1]["role"] == "user" and isinstance(wire[-1]["content"], list):
+                    wire[-1]["content"].append(result)  # results of one assistant turn go together
+                else:
+                    wire.append({"role": "user", "content": [result]})
+            else:
+                wire.append({"role": "user", "content": m["content"]})
+        return wire
+
+    def complete(self, system: str, messages: list[dict], tools: list[dict]) -> ModelReply:
+        body = {
+            "model": self.model,
+            "system": system,
+            "messages": self._wire_messages(messages),
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+        }
+        if tools:
+            body["tools"] = [
+                {
+                    "name": t["name"],
+                    "description": t["description"],
+                    "input_schema": t["parameters"],
+                }
+                for t in tools
+            ]
+        data = self._post(body)
+        text = "".join(b["text"] for b in data["content"] if b["type"] == "text")
+        calls = [
+            ToolCall(b["name"], b["input"], b["id"])
+            for b in data["content"]
+            if b["type"] == "tool_use"
+        ]
+        usage = data.get("usage", {})
+        return ModelReply(
+            text=text,
+            tool_calls=calls,
+            tokens_in=usage.get("input_tokens", 0),
+            tokens_out=usage.get("output_tokens", 0),
+        )

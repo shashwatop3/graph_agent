@@ -12,3 +12,6 @@ runs/
 
 # the docs symlink points into the Obsidian vault; the notes live there, not here
 docs
+
+# API keys live here, never in git
+.env

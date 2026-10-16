@@ -61,3 +61,47 @@ def test_earlier_tool_calls_are_sent_back_with_json_string_arguments():
     assert sent[0] == {"role": "system", "content": "sys"}
     assert json.loads(sent[2]["tool_calls"][0]["function"]["arguments"]) == {"a": 1}
     assert "tools" not in seen[0]
+
+
+# ---- the Anthropic client ----------------------------------------------------------------------
+
+
+def test_anthropic_results_of_one_turn_are_merged_into_one_user_message():
+    from graph_agent.harness.llm import AnthropicClient
+
+    history = [
+        {"role": "user", "content": "hi"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "a", "name": "recall", "arguments": {}},
+                {"id": "b", "name": "send", "arguments": {"to": "A1"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "a", "name": "recall", "content": "r1"},
+        {"role": "tool", "tool_call_id": "b", "name": "send", "content": "r2"},
+    ]
+    wire = AnthropicClient._wire_messages(history)
+    assert [m["role"] for m in wire] == ["user", "assistant", "user"]
+    assert [b["type"] for b in wire[1]["content"]] == ["tool_use", "tool_use"]
+    assert [b["tool_use_id"] for b in wire[2]["content"]] == ["a", "b"]
+
+
+def test_anthropic_reply_is_parsed():
+    from graph_agent.harness.llm import AnthropicClient
+
+    client = AnthropicClient(api_key="k")
+    seen = []
+    reply = {
+        "content": [
+            {"type": "text", "text": "ok"},
+            {"type": "tool_use", "id": "t1", "name": "act", "input": {"type": "water"}},
+        ],
+        "usage": {"input_tokens": 7, "output_tokens": 2},
+    }
+    client._post = lambda body: (seen.append(body), reply)[1]
+    result = client.complete("sys", [], [{"name": "act", "description": "d", "parameters": {}}])
+    assert result.text == "ok" and result.tool_calls[0].arguments == {"type": "water"}
+    assert (result.tokens_in, result.tokens_out) == (7, 2)
+    assert seen[0]["system"] == "sys" and seen[0]["tools"][0]["input_schema"] == {}
