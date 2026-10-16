@@ -29,6 +29,7 @@ parser.add_argument("--seeds", type=int, nargs="+", default=[0])
 parser.add_argument("--behaviour", default="false_alarm")
 # how hard the game is: every knob of experiment.Knobs
 parser.add_argument("--fields-per-agent", type=int, default=1)
+parser.add_argument("--initial-fires", type=int, default=1, help="fields burning at the start")
 parser.add_argument("--hidden-edges", type=int, default=0)
 parser.add_argument("--imposters", type=int, default=1)
 parser.add_argument("--colluders", type=int, default=0)
@@ -41,6 +42,12 @@ parser.add_argument(
 parser.add_argument("--log", default="", help="log directory (default: <out>/logs)")
 parser.add_argument("--provider", choices=["local", "anthropic"], default="local")
 parser.add_argument("--model", default="")
+parser.add_argument(
+    "--max-output-tokens",
+    type=int,
+    default=2000,
+    help="per reply; a cut-off reply loses its tool call",
+)
 parser.add_argument(
     "--max-input-tokens", type=int, default=0, help="stop after this many (0=no cap)"
 )
@@ -56,12 +63,15 @@ if args.provider == "anthropic":
     real = AnthropicClient(
         args.model,
         os.environ["ANTHROPIC_API_KEY"],
+        max_tokens=args.max_output_tokens,
         workspace_id=os.environ.get("ANTHROPIC_WORKSPACE_ID", ""),
     )
 else:
     args.model = args.model or "qwen3-14b"
     real = OpenAICompatibleClient(args.model, args.url, os.environ.get(args.key_env, ""))
-client = CachedClient(real, f"runs/cache/{args.model}")
+# the cache key does not include the output cap, so each cap gets its own cache: a reply cut off
+# at a small cap must not be served to a run with a bigger one
+client = CachedClient(real, f"runs/cache/{args.model}-mt{args.max_output_tokens}")
 
 
 def guarded(inner, cap):
@@ -81,6 +91,7 @@ grid = [
     Knobs(
         n_agents=n,
         fields_per_agent=args.fields_per_agent,
+        initial_fires=args.initial_fires,
         hidden_edges=args.hidden_edges,
         imposters=args.imposters,
         behaviour=args.behaviour,

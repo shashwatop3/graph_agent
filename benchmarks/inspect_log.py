@@ -54,6 +54,8 @@ print(
 )
 
 print("\n== problems ==")
+cut = [e for e in calls if e.get("stop_reason") in ("max_tokens", "length")]
+print(f"replies cut off by the output cap: {len(cut)} of {len(calls)}")
 errors = [e for e in events if e["kind"] == "tool_result" and e["error"]]
 print(f"tool errors: {len(errors)}  by tool: {dict(Counter(e['tool'] for e in errors))}")
 for e in errors[:8]:

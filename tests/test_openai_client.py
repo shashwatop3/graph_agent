@@ -105,3 +105,17 @@ def test_anthropic_reply_is_parsed():
     assert result.text == "ok" and result.tool_calls[0].arguments == {"type": "water"}
     assert (result.tokens_in, result.tokens_out) == (7, 2)
     assert seen[0]["system"] == "sys" and seen[0]["tools"][0]["input_schema"] == {}
+
+
+def test_a_reply_cut_off_by_the_output_cap_says_so():
+    reply = {"choices": [{"message": {"content": "x"}, "finish_reason": "length"}]}
+    assert client_replying(reply, []).complete("s", [], []).stop_reason == "length"
+
+
+def test_the_anthropic_stop_reason_is_kept():
+    from graph_agent.harness.llm import AnthropicClient
+
+    client = AnthropicClient(api_key="k")
+    reply = {"content": [{"type": "text", "text": "hi"}], "stop_reason": "max_tokens"}
+    client._post = lambda body: reply
+    assert client.complete("s", [], []).stop_reason == "max_tokens"

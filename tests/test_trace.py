@@ -25,7 +25,8 @@ def run_logged(tmp_path, system="graph-memory"):
 def test_a_logged_game_records_every_step_of_the_story(tmp_path):
     events = run_logged(tmp_path)
     kinds = {e["kind"] for e in events}
-    assert {"game_start", "day_start", "turn_start", "model_call", "tool_result", "message"} <= kinds
+    assert {"game_start", "day_start", "turn_start", "model_call", "tool_result"} <= kinds
+    assert "message" in kinds
     assert {"turn_end", "day_end", "probe", "probe_scored", "beliefs", "score"} <= kinds
     assert events[0]["kind"] == "game_start" and events[-1]["kind"] == "score"
 

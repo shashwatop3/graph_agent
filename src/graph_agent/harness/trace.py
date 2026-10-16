@@ -97,5 +97,6 @@ class TracedClient:
             tool_calls=[{"name": c.name, "arguments": c.arguments} for c in reply.tool_calls],
             tokens_in=reply.tokens_in,
             tokens_out=reply.tokens_out,
+            stop_reason=reply.stop_reason,
         )
         return reply

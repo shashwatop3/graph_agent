@@ -38,6 +38,7 @@ class Knobs:
     n_agents: int = 8  # also the relay depth: a claim can travel up to n_agents - 1 hops
     fields_per_agent: int = 1
     hidden_edges: int = 0  # paths nobody knows about until fire uses one
+    initial_fires: int = 1  # fields already burning when the game starts
     imposters: int = 1  # how many imposters follow `behaviour`
     behaviour: str = "subtle_bias"  # subtle_bias, hide_fire or false_alarm
     colluders: int = 0  # adjacent imposters backing one false alarm, so counting sources is fooled
@@ -60,7 +61,7 @@ def make_scenario(knobs: Knobs, seed: int) -> Scenario:
             "n_agents": n,
             "fields_per_agent": knobs.fields_per_agent,
             "n_hidden_edges": knobs.hidden_edges,
-            "n_initial_fires": 1,
+            "n_initial_fires": knobs.initial_fires,
         },
         "imposters": imposters,
         "links": [],

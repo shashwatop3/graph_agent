@@ -59,6 +59,7 @@ class ModelReply:
     tool_calls: list[ToolCall] = field(default_factory=list[ToolCall])
     tokens_in: int = 0
     tokens_out: int = 0
+    stop_reason: str = ""  # why it stopped; "max_tokens" or "length" means it was cut off
 
 
 class ModelClient(Protocol):
@@ -154,6 +155,7 @@ class _OpenAIMessage(BaseModel):
 
 class _OpenAIChoice(BaseModel):
     message: _OpenAIMessage
+    finish_reason: str | None = None
 
 
 class _OpenAIUsage(BaseModel):
@@ -251,6 +253,7 @@ class OpenAICompatibleClient:
             tool_calls=calls,
             tokens_in=response.usage.prompt_tokens,
             tokens_out=response.usage.completion_tokens,
+            stop_reason=response.choices[0].finish_reason or "",
         )
 
 
@@ -269,6 +272,7 @@ class _AnthropicUsage(BaseModel):
 
 class _AnthropicResponse(BaseModel):
     content: list[_AnthropicBlock]
+    stop_reason: str | None = None
     usage: _AnthropicUsage = _AnthropicUsage()
 
 
@@ -375,4 +379,5 @@ class AnthropicClient:
             ],
             tokens_in=response.usage.input_tokens,
             tokens_out=response.usage.output_tokens,
+            stop_reason=response.stop_reason or "",
         )
