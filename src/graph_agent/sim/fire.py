@@ -1,8 +1,9 @@
 """Fire dynamics, stepped one day at a time. No randomness: the world already holds every draw.
 
 A field ignites on the earliest day a fire reaches it, which is the weighted shortest-path
-distance from the initial fires. Water does not delay the fire: it halves the intensity of the
-fire arriving at a watered field. An unwatered field catches fire twice as strong, up to a cap.
+distance from the initial fires. Water does not delay the fire, it puts it out: a fire reaching a
+field whose owner waters that day goes to zero and stops there, so the field is saved and nothing
+spreads from it. An unwatered field catches fire twice as strong, up to a cap.
 
 Attributes without an underscore (day, fields, revealed) are for reading.
 Only step() changes them.
@@ -23,7 +24,6 @@ class WaterRuleError(ValueError):
 class FireRules:
     burn_days: int = 2  # days a field stays burning before it is burnt out
     growth_if_unwatered: float = 2.0  # intensity multiplier when fire spreads to an unwatered field
-    growth_if_watered: float = 0.5  # intensity multiplier when fire spreads to a watered field
     min_intensity: float = 0.2  # a fire weaker than this fizzles out instead of igniting
     max_intensity: float = 4.0  # growth stops here
 
@@ -119,9 +119,10 @@ class FireSim:
             owner_waters_today = self.fields[field_id].owner in agents_water_today
             if owner_waters_today:
                 hit_while_watered.append(field_id)
+            if owner_waters_today:
+                continue  # put out: intensity 0, the field does not ignite and fire stops here
             rules = self.rules
-            factor = rules.growth_if_watered if owner_waters_today else rules.growth_if_unwatered
-            intensity = min(best.intensity * factor, self.rules.max_intensity)
+            intensity = min(best.intensity * rules.growth_if_unwatered, rules.max_intensity)
             if intensity < self.rules.min_intensity:
                 continue
             ignited.append(replace(best, intensity=intensity))

@@ -2,7 +2,7 @@
 
 import pytest
 
-from graph_agent.sim.fire import FireRules, FireSim, WaterRuleError, fields_saved, play
+from graph_agent.sim.fire import FireSim, WaterRuleError, fields_saved, play
 from graph_agent.sim.policies import never_water, scripted_watering, water_where_fire_arrives
 from graph_agent.sim.world import Edge, World, WorldConfig
 
@@ -47,22 +47,15 @@ def test_a_rejected_step_changes_nothing():
     assert sim.day == 1 and sim.can_water_today(2)
 
 
-def test_water_strength_is_a_rule_setting():
-    sim = FireSim(chain_world(3), FireRules(growth_if_watered=0.25))
-    play(sim, scripted_watering({1: {1}}))  # fire reaches field 1 on day 1
-    assert sim.fields[1].intensity == 0.25
-
-
 def test_watering_the_arrival_day_saves_fields_where_no_water_saves_none():
     def saved(policy):
         sim = FireSim(chain_world(7))
         play(sim, policy)
         return fields_saved(sim)
 
-    # unwatered fire doubles each hop; watering each arrival halves it: 1.0, 0.5, 0.25, 0.125
     assert saved(never_water) == 0
-    # field 3 would be 0.125, below the 0.2 minimum, so fields 3..7 never ignite
-    assert saved(water_where_fire_arrives) == 5
+    # field 1 is watered on arrival and the fire stops there, so fields 1..7 are all saved
+    assert saved(water_where_fire_arrives) == 7
 
 
 def test_a_badly_timed_plan_saves_nothing():

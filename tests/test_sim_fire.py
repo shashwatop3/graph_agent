@@ -74,20 +74,14 @@ def test_fire_travels_down_a_chain_at_the_edge_weights():
     assert ignition_days(sim) == {0: 0, 1: 2, 2: 5, 3: 6}
 
 
-def test_water_does_not_delay_the_fire():
-    sim = FireSim(hand_world(chain([2, 3, 1])))
-    run(sim, {2: {1}})  # agent 1 owns field 1, which the fire reaches on day 2
-    assert ignition_days(sim) == {0: 0, 1: 2, 2: 5, 3: 6}
-
-
-def test_fire_doubles_when_unwatered_and_halves_when_watered():
+def test_fire_doubles_when_unwatered_and_is_put_out_when_watered():
     plain = FireSim(hand_world(chain([2, 3, 1])))
     watered = FireSim(hand_world(chain([2, 3, 1])))
     run(plain)
     run(watered, {2: {1}})
     assert plain.fields[1].intensity == 2.0  # 1.0 * growth_if_unwatered
-    assert watered.fields[1].intensity == 0.5  # 1.0 * growth_if_watered
-    assert 3 in ignition_days(watered)  # water slows the fire's strength, not its route
+    assert watered.fields[1].ignited_on is None  # put out: intensity 0, the field never ignites
+    assert 3 not in ignition_days(watered)  # and nothing spreads on from it
 
 
 def test_intensity_never_exceeds_the_cap():

@@ -279,8 +279,9 @@ def role_card(agent: str, n_agents: int) -> str:
     return (
         f"You are {agent}, keeper of one segment of a ring of {n_agents} segments. Fire spreads "
         f"clockwise, one field per day, and can sometimes jump ahead along paths nobody knows "
-        f"about. You may water your own fields, but not on two days in a row. Watering halves "
-        f"the fire that reaches your field; unwatered fire doubles. Some agents lie. Messages "
-        f"show the route they travelled, and you can build a new link to skip an agent you no "
+        f"about. You may water your own fields, but not on two days in a row. Fire that "
+        f"reaches a field you are watering is put out and stops there; unwatered fire doubles. "
+        f"Some agents lie. Messages show the route they travelled, and you can build a new link "
+        f"to skip an agent you no "
         f"longer trust. Report what you learn to your neighbours."
     )
