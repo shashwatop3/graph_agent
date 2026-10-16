@@ -54,7 +54,7 @@ class StoreContract:
         raise NotImplementedError
 
     @pytest.fixture
-    def store(self) -> Store:
+    def store(self):
         store = self.make_store()
         for i in range(1, 9):
             store.add_node(Agent(id=f"A{i}"))
@@ -86,7 +86,8 @@ class StoreContract:
             store.add_node(belief(bid, "E1", f"derived_{bid}", 1, origin="derived"))
             for parent in parents:
                 store.add_edge(edge("DERIVED_FROM", bid, parent))
-        return store
+        yield store
+        store.close()
 
     # ---- writes and reads -------------------------------------------------------------------
 

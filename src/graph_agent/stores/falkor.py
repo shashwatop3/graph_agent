@@ -1,0 +1,271 @@
+"""The graph store: the same Store interface, backed by FalkorDB and Cypher.
+
+How the model maps onto the graph
+  * Every node gets two labels: `Node` (so one index on `id` finds any node) and its own type
+    (`Belief`, `Observation`, ...). Properties are the model's fields.
+  * FalkorDB properties must be scalars, so fields that hold arbitrary values (a belief's `value`,
+    an observation's `payload`, ...) are stored as JSON text and decoded on the way out. A field
+    that is None is simply not stored.
+  * Each of the nine relationship kinds is a relationship type of the same name. Their properties
+    (`hop`, `path_len`, ...) must be scalars.
+
+What is done by the database and what is not
+  * The expensive part of `expose` (counting surviving routes per belief, and walking
+    DERIVED_FROM edges backwards to find everything downstream of a stale belief) is Cypher.
+  * Python only decides which beliefs became stale, because that needs the "before" and "after"
+    counts side by side, and assembles the result list.
+
+One FalkorDB graph holds one run. Use a different `graph_name` for a different run.
+"""
+
+import json
+import os
+import uuid
+from typing import Any
+
+from falkordb import FalkorDB
+
+from ..core.model import (
+    Action,
+    Agent,
+    Belief,
+    Correction,
+    Edge,
+    Entity,
+    Node,
+    Observation,
+    check_edge,
+    visible,
+)
+from ..core.store import Invalidation, Store
+
+# Longest DERIVED_FROM chain the downstream walk will follow. Real chains are a handful of hops.
+MAX_DEPTH = 32
+
+_CLASSES = {c.__name__: c for c in (Agent, Observation, Entity, Belief, Action, Correction)}
+
+# Fields stored as JSON text, per node type (they can hold maps, lists or any value).
+_JSON_FIELDS = {
+    "Observation": ("payload",),
+    "Entity": ("aliases", "props"),
+    "Belief": ("value",),
+    "Action": ("params",),
+    "Correction": ("new_value",),
+}
+
+
+def _to_properties(node: Node) -> dict[str, Any]:
+    """Model -> flat scalar properties."""
+    data = node.model_dump()
+    for name in _JSON_FIELDS.get(type(node).__name__, ()):
+        data[name] = json.dumps(data[name], sort_keys=True)
+    return {k: v for k, v in data.items() if v is not None}  # FalkorDB cannot store null
+
+
+def _from_node(db_node) -> Node:
+    """FalkorDB node -> model."""
+    label = next(label for label in db_node.labels if label in _CLASSES)
+    data = dict(db_node.properties)
+    for name in _JSON_FIELDS.get(label, ()):
+        data[name] = json.loads(data[name])
+    return _CLASSES[label](**data)
+
+
+class FalkorStore(Store):
+    def __init__(
+        self,
+        graph_name: str | None = None,
+        host: str | None = None,
+        port: int | None = None,
+        reset: bool = True,
+    ):
+        self._db = FalkorDB(
+            host=host or os.environ.get("FALKORDB_HOST", "127.0.0.1"),
+            port=port or int(os.environ.get("FALKORDB_PORT", "16379")),
+        )
+        self.graph_name = graph_name or f"store_{uuid.uuid4().hex[:10]}"
+        if reset:
+            self._drop()
+        self._graph = self._db.select_graph(self.graph_name)
+        # Indexes: every lookup by id, and "all beliefs of one agent" (the viewer filter).
+        self._run("CREATE INDEX FOR (n:Node) ON (n.id)")
+        self._run("CREATE INDEX FOR (b:Belief) ON (b.owner)")
+
+    def close(self) -> None:
+        self._drop()
+
+    def _drop(self) -> None:
+        try:
+            self._db.select_graph(self.graph_name).delete()
+        except Exception:  # the graph does not exist yet
+            pass
+
+    def _run(self, query: str, **params: Any) -> list[list[Any]]:
+        return self._graph.query(query, params).result_set
+
+    def _node(self, node_id: str) -> Node | None:
+        """A node by id, ignoring visibility (used internally)."""
+        rows = self._run("MATCH (n:Node {id: $id}) RETURN n", id=node_id)
+        return _from_node(rows[0][0]) if rows else None
+
+    # ---- writes ------------------------------------------------------------------------------
+
+    def add_node(self, node: Node) -> None:
+        if self._node(node.id) is not None:
+            raise ValueError(f"node {node.id!r} already exists")
+        label = type(node).__name__  # taken from our own class names, so safe to put in the query
+        self._run(f"CREATE (n:Node:{label}) SET n = $props", props=_to_properties(node))
+
+    def add_edge(self, edge: Edge) -> None:
+        src, dst = self._node(edge.src), self._node(edge.dst)
+        for end, found in ((edge.src, src), (edge.dst, dst)):
+            if found is None:
+                raise ValueError(f"node {end!r} does not exist")
+        check_edge(edge, src, dst)
+        if not all(isinstance(v, str | int | float | bool) for v in edge.props.values()):
+            raise ValueError("relationship properties must be scalars")
+        # edge.kind is one of nine fixed names (checked by the model), so it is safe in the query
+        self._run(
+            f"MATCH (a:Node {{id: $src}}), (b:Node {{id: $dst}}) "
+            f"CREATE (a)-[r:{edge.kind}]->(b) SET r = $props",
+            src=edge.src,
+            dst=edge.dst,
+            props=edge.props,
+        )
+
+    # ---- reads -------------------------------------------------------------------------------
+
+    def get(self, viewer: str, node_id: str) -> Node | None:
+        node = self._node(node_id)
+        return node if node is not None and visible(viewer, node) else None
+
+    def beliefs(self, viewer, subject=None, predicate=None, status=None) -> list[Belief]:
+        # Only add a condition for the filters that were given.
+        conditions = ["b.owner = $viewer"]
+        params: dict[str, Any] = {"viewer": viewer}
+        for column, value in (("subject", subject), ("predicate", predicate), ("status", status)):
+            if value is not None:
+                conditions.append(f"b.{column} = ${column}")
+                params[column] = value
+        rows = self._run(
+            f"MATCH (b:Belief) WHERE {' AND '.join(conditions)} RETURN b ORDER BY b.id", **params
+        )
+        return [_from_node(row[0]) for row in rows]
+
+    def support_routes(self, viewer: str, belief_id: str) -> list[tuple[str, ...]]:
+        if self.get(viewer, belief_id) is None:
+            return []
+        # One row per supporting observation; a sensor observation has no RELAYED_VIA edges, which
+        # OPTIONAL MATCH turns into a single [null, null] pair that is dropped below.
+        rows = self._run(
+            "MATCH (o:Observation)-[:SUPPORTS]->(b:Belief {id: $id}) "
+            "OPTIONAL MATCH (o)-[r:RELAYED_VIA]->(a:Agent) "
+            "RETURN o.id, collect([r.hop, a.id])",
+            id=belief_id,
+        )
+        routes = []
+        for _, hops in rows:
+            ordered = sorted((hop, agent) for hop, agent in hops if agent is not None)
+            routes.append(tuple(agent for _, agent in ordered))
+        return sorted(routes)
+
+    def dependents(self, viewer: str, belief_id: str) -> dict[str, int]:
+        if self.get(viewer, belief_id) is None:
+            return {}
+        return self._downstream(viewer, [belief_id])
+
+    def _downstream(self, viewer: str, sources: list[str]) -> dict[str, int]:
+        """Everything derived from any of `sources`, with the fewest DERIVED_FROM hops.
+
+        DERIVED_FROM points from the derived node to what it came from, so "downstream" means
+        walking those edges backwards: match paths that END at a source. A node reachable by
+        several paths gets the shortest one (min over the paths). Only the viewer's own nodes may
+        be on the path, as with the reference store.
+        """
+        rows = self._run(
+            f"MATCH p = (d)-[:DERIVED_FROM*1..{MAX_DEPTH}]->(s:Belief) "
+            "WHERE s.id IN $sources AND NOT d.id IN $sources "
+            "AND all(n IN nodes(p) WHERE n.owner = $viewer) "
+            "RETURN d.id, min(length(p))",
+            sources=sources,
+            viewer=viewer,
+        )
+        return {node_id: hops for node_id, hops in rows}
+
+    # ---- propagation -------------------------------------------------------------------------
+
+    def expose(self, viewer: str, agent_id: str, tick: int, reason: str = "") -> list[Invalidation]:
+        # Agents this viewer already treats as exposed, before this call.
+        rows = self._run(
+            "MATCH (c:Correction {type: 'exposure'}) "
+            "WHERE c.observer IS NULL OR c.observer = $viewer RETURN c.target",
+            viewer=viewer,
+        )
+        before = [row[0] for row in rows]
+        exposed = sorted({*before, agent_id})
+
+        correction_id = f"C{self._run('MATCH (c:Correction) RETURN count(c)')[0][0] + 1}"
+        self.add_node(
+            Correction(
+                id=correction_id,
+                type="exposure",
+                issued_by="engine",
+                target=agent_id,
+                tick=tick,
+                reason=reason,
+                observer=viewer,
+            )
+        )
+
+        # 1. Recount support for every live belief that has supporting observations. A route is
+        #    the list of agents its observation passed through; it survives if none is exposed.
+        #    This also refreshes the cached `support_routes` count in the same query.
+        rows = self._run(
+            "MATCH (b:Belief {owner: $viewer}) WHERE b.status IN ['active', 'suspect'] "
+            "MATCH (o:Observation)-[:SUPPORTS]->(b) "
+            "OPTIONAL MATCH (o)-[:RELAYED_VIA]->(a:Agent) "
+            "WITH b, o, collect(a.id) AS route "
+            "WITH b, "
+            "  sum(CASE WHEN size([x IN route WHERE x IN $before]) = 0 THEN 1 ELSE 0 END) "
+            "    AS alive_before, "
+            "  sum(CASE WHEN size([x IN route WHERE x IN $exposed]) = 0 THEN 1 ELSE 0 END) "
+            "    AS alive_now "
+            "SET b.support_routes = alive_now "
+            "RETURN b.id, b.status, alive_before, alive_now",
+            viewer=viewer,
+            before=before,
+            exposed=exposed,
+        )
+        # Stale = had at least one surviving route before and has none now.
+        stale = {bid: status for bid, status, was, now in rows if was > 0 and now == 0}
+
+        changes: dict[str, Invalidation] = {
+            bid: Invalidation(belief_id=bid, old_status=status, new_status="stale", path_len=1)
+            for bid, status in stale.items()
+        }
+
+        # 2. Everything derived from a stale belief becomes suspect (if it was active).
+        if stale:
+            for bid, hops in self._downstream(viewer, list(stale)).items():
+                node = self._node(bid)
+                if isinstance(node, Belief) and node.status == "active" and bid not in changes:
+                    changes[bid] = Invalidation(
+                        belief_id=bid, old_status="active", new_status="suspect", path_len=1 + hops
+                    )
+
+        # 3. Write all status changes and the INVALIDATED edges (correction -> belief) at once.
+        if changes:
+            self._run(
+                "UNWIND $changes AS ch "
+                "MATCH (c:Node {id: $cid}), (b:Belief {id: ch.id}) "
+                "SET b.status = ch.status, b.updated_tick = $tick "
+                "CREATE (c)-[:INVALIDATED {new_status: ch.status, path_len: ch.path_len, "
+                "tick: $tick}]->(b)",
+                changes=[
+                    {"id": c.belief_id, "status": c.new_status, "path_len": c.path_len}
+                    for c in changes.values()
+                ],
+                cid=correction_id,
+                tick=tick,
+            )
+        return sorted(changes.values(), key=lambda c: (c.path_len, c.belief_id))

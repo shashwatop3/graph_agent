@@ -32,6 +32,9 @@ class Invalidation(BaseModel):
 
 
 class Store(ABC):
+    def close(self) -> None:  # noqa: B027 (optional on purpose; most stores need nothing)
+        """Release or delete whatever the store holds. Tests call this after each run."""
+
     @abstractmethod
     def add_node(self, node: Node) -> None: ...
 
