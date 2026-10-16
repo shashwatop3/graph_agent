@@ -37,6 +37,7 @@ class Knobs:
     behaviour: str = "subtle_bias"  # subtle_bias, hide_fire or false_alarm
     colluders: int = 0  # adjacent imposters backing one false alarm, so counting sources is fooled
     extra_links: int = 0  # shortcut links from the start: more routes to the same belief
+    water_per_agent: int | None = 2  # waterings each agent has; None = unlimited (water spam wins)
     evidence: str = "private"  # who is shown that fire reached a field: "private" or "public"
 
 
@@ -47,6 +48,7 @@ def make_scenario(knobs: Knobs, seed: int) -> dict:
     scenario = {
         "seed": seed,
         "evidence": knobs.evidence,
+        "rules": {"water_per_agent": knobs.water_per_agent},
         "world": {
             "n_agents": n,
             "fields_per_agent": knobs.fields_per_agent,

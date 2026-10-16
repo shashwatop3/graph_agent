@@ -17,7 +17,7 @@ from .world import Edge, World
 
 
 class WaterRuleError(ValueError):
-    """An agent tried to water on two consecutive days, or does not exist."""
+    """An agent tried to water on two consecutive days, with none left, or does not exist."""
 
 
 @dataclass(frozen=True)
@@ -26,6 +26,7 @@ class FireRules:
     growth_if_unwatered: float = 2.0  # intensity multiplier when fire spreads to an unwatered field
     min_intensity: float = 0.2  # a fire weaker than this fizzles out instead of igniting
     max_intensity: float = 4.0  # growth stops here
+    water_per_agent: int | None = None  # waterings per agent in total; None = no limit
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,7 @@ class FireSim:
         self.fields = [Field(f, world.owner(f)) for f in range(world.n_fields)]
         self.revealed: set[Edge] = set()
         self._last_watered_day: dict[int, int] = {}
+        self._times_watered: dict[int, int] = {}
         self._pending: dict[int, list[Ignition]] = {}
         self._out: dict[int, list[Edge]] = {}
         for edge in world.edges:
@@ -84,7 +86,13 @@ class FireSim:
 
     def can_water_today(self, agent: int) -> bool:
         known = 0 <= agent < self.world.config.n_agents
-        return known and self._last_watered_day.get(agent) != self.day - 1
+        rested = self._last_watered_day.get(agent) != self.day - 1
+        return known and rested and self.water_left(agent) != 0
+
+    def water_left(self, agent: int) -> int | None:
+        """Waterings this agent still has, or None if the rules set no limit."""
+        limit = self.rules.water_per_agent
+        return None if limit is None else limit - self._times_watered.get(agent, 0)
 
     def step(self, agents_water_today: Collection[int] = frozenset()) -> DayReport:
         """Resolve the current day. `agents_water_today` is the set of agents that water today."""
@@ -94,6 +102,7 @@ class FireSim:
                 raise WaterRuleError(f"agent {agent} cannot water on day {day}")
         for agent in agents_water_today:
             self._last_watered_day[agent] = day
+            self._times_watered[agent] = self._times_watered.get(agent, 0) + 1
 
         ignited, hit_while_watered, revealed = self._ignite_fields_today(
             day, frozenset(agents_water_today)

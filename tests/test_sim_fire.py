@@ -166,3 +166,21 @@ def test_simulation_terminates_even_with_heavy_watering():
     plan = {d: set(range(d % 2, 8, 2)) for d in range(60)}  # every agent every other day
     run(sim, plan)
     assert sim.finished
+
+
+def test_an_agent_can_water_only_as_often_as_its_budget_allows():
+    sim = FireSim(hand_world(chain([1] * 5), n_agents=6), FireRules(water_per_agent=2))
+    assert sim.water_left(1) == 2
+    sim.step({1})
+    sim.step()
+    sim.step({1})  # the second and last watering
+    assert sim.water_left(1) == 0 and sim.water_left(2) == 2  # only agent 1 used any
+    sim.step()
+    assert not sim.can_water_today(1)  # rested, but none left
+    with pytest.raises(WaterRuleError):
+        sim.step({1})
+
+
+def test_without_a_budget_there_is_no_limit():
+    sim = FireSim(hand_world(chain([1] * 5), n_agents=6))
+    assert sim.water_left(1) is None

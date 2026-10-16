@@ -275,18 +275,24 @@ def forecast_arrival(store: Store, ids: Ids, viewer: str, target_field: int, tic
 # ---- render and role card -----------------------------------------------------------------------
 
 
-def role_card(agent: str, n_agents: int, fields: tuple[int, ...] = ()) -> str:
+def role_card(
+    agent: str, n_agents: int, fields: tuple[int, ...] = (), water: int | None = None
+) -> str:
     """What an agent is told about itself. Both setups use this same text, including the list of
     actions: an agent that is never told it can water will never water."""
     own = ", ".join(f"F{f}" for f in fields) or "your segment's fields"
+    limit = f" You have only {water} waterings for the whole game." if water is not None else ""
     return (
         f"You are {agent}, keeper of one segment of a ring of {n_agents} segments. Your fields: "
         f"{own}. Fire spreads clockwise, one field per day, and can sometimes jump ahead along "
         f"paths nobody knows about. Fire that reaches a field on a day you water it is put out "
-        f"and stops there; otherwise it burns and doubles. You cannot water on two days in a row. "
+        f"and stops there; otherwise it burns and doubles. You cannot water on two days in a "
+        f"row.{limit} "
         f"Some agents lie. Messages show the route they travelled.\n"
         f"Each turn, decide: (1) water your fields today? Call the act tool with type 'water', "
         f"only on a day fire is due at one of them. (2) tell your neighbours what you know about "
         f"when fire reaches fields. (3) build a link to an agent you trust, with act type 'link', "
-        f"to skip an agent you no longer trust. Then reply with one short sentence."
+        f"to skip an agent you no longer trust. To record a conclusion with assert_belief, use "
+        f"predicate 'fire.arrival_day', subject a field such as 'F3', and value the day number. "
+        f"Then reply with one short sentence."
     )

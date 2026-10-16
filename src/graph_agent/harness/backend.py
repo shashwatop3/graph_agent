@@ -47,6 +47,7 @@ class GraphBackend:
         self.pipeline = Pipeline(store)
         self.n_agents = 0
         self.fields: dict[int, tuple[int, ...]] = {}
+        self.water: int | None = None  # waterings per agent, from the game's rules
 
     @property
     def exposures(self) -> list[Exposure]:
@@ -56,6 +57,7 @@ class GraphBackend:
         world = game.sim.world
         self.n_agents = world.config.n_agents
         self.fields = {n: tuple(world.fields_of(n)) for n in range(self.n_agents)}
+        self.water = game.sim.rules.water_per_agent
         self.pipeline.start(game)
         self.pipeline.publish_start_fires(game)
 
@@ -71,7 +73,9 @@ class GraphBackend:
             self.store,
             viewer,
             max(0, day - 1),  # what changed or arrived since yesterday
-            role_card=ringfire.role_card(viewer, self.n_agents, self.fields.get(number, ())),
+            role_card=ringfire.role_card(
+                viewer, self.n_agents, self.fields.get(number, ()), self.water
+            ),
             templates=ringfire.TEMPLATES,
             budget=budget,
         )

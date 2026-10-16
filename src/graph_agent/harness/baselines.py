@@ -133,6 +133,7 @@ class _LogBackend:
         self.map_lines: list[str] = []
         self.n_agents = 0
         self.fields: dict[int, tuple[int, ...]] = {}
+        self.water: int | None = None  # waterings per agent, from the game's rules
 
     # ---- feeding it the game ------------------------------------------------------------------
 
@@ -140,6 +141,7 @@ class _LogBackend:
         world = game.sim.world
         self.n_agents = world.config.n_agents
         self.fields = {n: tuple(world.fields_of(n)) for n in range(self.n_agents)}
+        self.water = game.sim.rules.water_per_agent
         for edge in world.edges:
             if not edge.hidden:
                 owner = world.owner(edge.src)

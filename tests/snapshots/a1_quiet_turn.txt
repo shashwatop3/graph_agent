@@ -1,6 +1,6 @@
 ## Role
 You are A1, keeper of one segment of a ring of 6 segments. Your fields: your segment's fields. Fire spreads clockwise, one field per day, and can sometimes jump ahead along paths nobody knows about. Fire that reaches a field on a day you water it is put out and stops there; otherwise it burns and doubles. You cannot water on two days in a row. Some agents lie. Messages show the route they travelled.
-Each turn, decide: (1) water your fields today? Call the act tool with type 'water', only on a day fire is due at one of them. (2) tell your neighbours what you know about when fire reaches fields. (3) build a link to an agent you trust, with act type 'link', to skip an agent you no longer trust. Then reply with one short sentence.
+Each turn, decide: (1) water your fields today? Call the act tool with type 'water', only on a day fire is due at one of them. (2) tell your neighbours what you know about when fire reaches fields. (3) build a link to an agent you trust, with act type 'link', to skip an agent you no longer trust. To record a conclusion with assert_belief, use predicate 'fire.arrival_day', subject a field such as 'F3', and value the day number. Then reply with one short sentence.
 
 ## Inbox
 - O10 tick 1 evidence: {"day":1,"field_id":1}

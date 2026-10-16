@@ -86,6 +86,8 @@ def run_game(
     def execute(action) -> str:
         agent = int(action.owner[1:])
         if action.type == "water":
+            if game.sim.water_left(agent) == 0:
+                raise ValueError("you have no waterings left")
             if not game.sim.can_water_today(agent):
                 raise ValueError("you watered yesterday, so you cannot water today")
             water_today.add(agent)
