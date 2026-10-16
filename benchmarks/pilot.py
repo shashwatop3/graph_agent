@@ -27,6 +27,18 @@ parser.add_argument("--systems", nargs="+", default=["graph-memory", "B0"])
 parser.add_argument("--agents", type=int, nargs="+", default=[6])
 parser.add_argument("--seeds", type=int, nargs="+", default=[0])
 parser.add_argument("--behaviour", default="false_alarm")
+# how hard the game is: every knob of experiment.Knobs
+parser.add_argument("--fields-per-agent", type=int, default=1)
+parser.add_argument("--hidden-edges", type=int, default=0)
+parser.add_argument("--imposters", type=int, default=1)
+parser.add_argument("--colluders", type=int, default=0)
+parser.add_argument("--extra-links", type=int, default=0)
+parser.add_argument("--water", type=int, default=2, help="waterings per agent")
+parser.add_argument("--probe-days", type=int, nargs="+", default=[2, 4])
+parser.add_argument(
+    "--no-contexts", action="store_true", help="leave the agents' contexts out of the log"
+)
+parser.add_argument("--log", default="", help="log directory (default: <out>/logs)")
 parser.add_argument("--provider", choices=["local", "anthropic"], default="local")
 parser.add_argument("--model", default="")
 parser.add_argument(
@@ -65,11 +77,30 @@ def guarded(inner, cap):
 
 
 guarded(real, args.max_input_tokens)
-grid = [Knobs(n_agents=n, behaviour=args.behaviour) for n in args.agents]
+grid = [
+    Knobs(
+        n_agents=n,
+        fields_per_agent=args.fields_per_agent,
+        hidden_edges=args.hidden_edges,
+        imposters=args.imposters,
+        behaviour=args.behaviour,
+        colluders=args.colluders,
+        extra_links=args.extra_links,
+        water_per_agent=args.water,
+    )
+    for n in args.agents
+]
 
 start = time.time()
 rows = run_experiment(
-    args.systems, grid, args.seeds, lambda system, knobs: client, out_dir=args.out
+    args.systems,
+    grid,
+    args.seeds,
+    lambda system, knobs: client,
+    probe_days=tuple(args.probe_days),
+    out_dir=args.out,
+    log_dir=args.log or f"{args.out}/logs",
+    log_contexts=not args.no_contexts,
 )
 print(open(f"{args.out}/summary.md").read())
 print(

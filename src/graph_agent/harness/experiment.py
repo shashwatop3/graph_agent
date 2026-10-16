@@ -26,7 +26,8 @@ from .backend import GraphBackend
 from .baselines import BASELINES
 from .game import run_game
 from .llm import ModelClient
-from .scoring import Probe, make_probe_hook, score_game
+from .scoring import Probe, make_probe_hook, score_game, trace_final_state
+from .trace import Trace, TracedClient
 from .types import Backend
 
 
@@ -143,23 +144,39 @@ def run_experiment(
     budget: int = 4000,
     probe_days: tuple[int, ...] = (2, 4),
     out_dir: str | Path | None = None,
+    log_dir: str | Path | None = None,
+    log_contexts: bool = True,
 ) -> list[Row]:
-    """One row per (knobs, seed, system). `client_for(system, knobs)` returns the model to use."""
+    """One row per (knobs, seed, system). `client_for(system, knobs)` returns the model to use.
+
+    With `log_dir`, every game writes a detailed log there (see trace.py), and the results so far
+    are saved after each game, so a run that is stopped part-way keeps what it finished."""
     rows: list[Row] = []
-    for knobs in grid:
+    for index, knobs in enumerate(grid):
         for seed in seeds:
             scenario = make_scenario(knobs, seed)
             for system in systems:
                 backend, cleanup = SYSTEMS[system]()
-                client = client_for(system, knobs)
+                log_name = f"{system}_g{index}_n{knobs.n_agents}_s{seed}.jsonl"
+                trace = Trace(Path(log_dir) / log_name if log_dir else None, contexts=log_contexts)
+                client = TracedClient(client_for(system, knobs), trace)
                 probes: list[Probe] = []
-                hook = make_probe_hook(client, probes, budget, set(probe_days))
+                hook = make_probe_hook(client, probes, budget, set(probe_days), trace)
                 try:
-                    result = run_game(scenario, backend, client, budget=budget, after_day=hook)
+                    result = run_game(
+                        scenario, backend, client, budget=budget, after_day=hook, trace=trace
+                    )
                     row = score_game(result, backend, probes)
+                    trace_final_state(trace, result, backend, probes, row)
+                except BaseException as error:  # also a spend cap (SystemExit) or Ctrl-C
+                    trace.emit("aborted", error=f"{type(error).__name__}: {error}")
+                    raise
                 finally:
                     cleanup()
+                    trace.close()
                 rows.append({"system": system, "seed": seed, **asdict(knobs), **row})
+                if out_dir is not None:
+                    save(rows, out_dir)
     if out_dir is not None:
         save(rows, out_dir)
     return rows

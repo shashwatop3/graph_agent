@@ -17,6 +17,7 @@ route. The network then applies their corruption (a shifted day, or silence).
 
 from dataclasses import dataclass, field
 
+from ..core.compiler import estimate_tokens
 from ..core.model import Action
 from ..sim.comms import Claim, LinkError, Message
 from ..sim.fire import fields_saved
@@ -25,6 +26,7 @@ from ..sim.scenario import Scenario, SendSpec, build_game
 from .agent import TurnResult, run_turn
 from .llm import ModelClient
 from .pipeline import Exposure
+from .trace import NO_TRACE, Trace
 from .types import AfterDay, Backend
 
 
@@ -61,11 +63,25 @@ def run_game(
     max_days: int = 100,
     max_steps: int = 6,
     after_day: AfterDay | None = None,
+    trace: Trace = NO_TRACE,
 ) -> GameResult:
     """Play the scenario to the end. `after_day(game, backend, day)`, if given, is called after
     every day (the experiment harness uses it to ask the agents probe questions)."""
     game = build_game(scenario)
     backend.start(game)
+    trace.emit(
+        "game_start",
+        system=backend.name,
+        model=client.model,
+        scenario=scenario,
+        budget=budget,
+        max_steps=max_steps,
+        n_fields=game.sim.world.n_fields,
+        edges=[[e.src, e.dst, e.weight, e.hidden] for e in game.sim.world.edges],
+        initial_fires=[list(f) for f in game.sim.world.initial_fires],
+        imposters={str(a): b.value for a, b in game.net.imposters.items()},
+    )
+    seen_exposures = 0
     n_agents = game.sim.world.config.n_agents
     imposters = game.net.imposters
     water_today: set[int] = set()
@@ -79,12 +95,21 @@ def run_game(
 
     # ---- what the tools do in the game -----------------------------------------------------
 
-    held: list[
-        Message
-    ] = []  # messages sent during this day's turns, delivered once they are all over
+    # messages sent during this day's turns, delivered once they are all over
+    held: list[Message] = []
     holding = False
 
     def deliver(message: Message) -> None:
+        trace.emit(
+            "message",
+            sender=message.sender,
+            receiver=message.receiver,
+            route=list(message.route),
+            field=message.claim.field_id,
+            claim_day=message.claim.day,
+            altered_by=list(message.altered_by),
+            held=holding,
+        )
         if holding:
             held.append(message)
             return
@@ -103,6 +128,11 @@ def run_game(
         return f"sent to A{receiver}"
 
     def execute(action: Action) -> str:
+        reply = do_action(action)
+        trace.emit("action", type=action.type, target=action.target, reply=reply)
+        return reply
+
+    def do_action(action: Action) -> str:
         agent = int(action.owner[1:])
         if action.type == "water":
             if game.sim.water_left(agent) == 0:
@@ -133,6 +163,14 @@ def run_game(
                 if neighbour == message.sender or neighbour in message.route:
                     continue
                 sent = game.send(number, neighbour, message.claim, message)
+                trace.emit(
+                    "imposter_relay",
+                    imposter=number,
+                    to=neighbour,
+                    field=message.claim.field_id,
+                    claim_day=message.claim.day,
+                    delivered=sent is not None,
+                )
                 if sent is not None:
                     deliver(sent)
 
@@ -142,6 +180,8 @@ def run_game(
     while not game.finished and game.day < max_days:
         day = game.day
         water_today.clear()
+        trace.bind(day=day)
+        trace.emit("day_start", scripted_sends=len(scripted_sends.get(day, [])))
         for scripted in scripted_sends.get(day, []):  # the imposters' scripted lies
             message = game.send(
                 scripted["sender"], scripted["receiver"], Claim(**scripted["claim"])
@@ -155,8 +195,25 @@ def run_game(
                 continue
             context = backend.context(number, day, budget) + f"\n\nIt is day {day}."
             boxes[number].now = day
-            turn = run_turn(client, boxes[number], context, max_steps)
+            trace.bind(agent=f"A{number}")
+            trace.emit(
+                "turn_start",
+                context_tokens=estimate_tokens(context),
+                context=context if trace.contexts else None,
+            )
+            turn = run_turn(client, boxes[number], context, max_steps, trace)
             result.turns.append((day, f"A{number}", turn))
+            trace.emit(
+                "turn_end",
+                steps=turn.steps,
+                hit_step_cap=turn.hit_step_cap,
+                tool_calls=len(turn.calls),
+                tool_errors=sum(out.startswith("error") for _, _, out in turn.calls),
+                tokens_in=turn.tokens_in,
+                tokens_out=turn.tokens_out,
+                final_text=turn.final_text,
+            )
+            trace.unbind("agent")
         holding = False
         for message in held:
             deliver(message)
@@ -164,6 +221,28 @@ def run_game(
         day_result = game.step(set(water_today))
         result.days.append(day_result)
         backend.day(game, day_result)
+        report = day_result.report
+        trace.emit(
+            "day_end",
+            ignited=[[e.field_id, e.intensity, list(e.audience)] for e in day_result.evidence],
+            burnt_out=list(report.burnt_out),
+            hit_while_watered=list(report.hit_while_watered),
+            revealed_hidden=[[e.src, e.dst] for e in report.revealed_hidden],
+            watered=sorted(water_today),
+            links=[sorted(link) for link in game.net.links],
+        )
+        for exposure in backend.exposures[seen_exposures:]:
+            trace.emit(
+                "exposure",
+                viewer=exposure.viewer,
+                distrusted=exposure.agent,
+                reason=exposure.reason,
+                changes=[
+                    [c.belief_id, c.old_status, c.new_status, c.path_len] for c in exposure.changes
+                ],
+            )
+        seen_exposures = len(backend.exposures)
         if after_day is not None:
             after_day(game, backend, day)
+        trace.unbind("day")
     return result

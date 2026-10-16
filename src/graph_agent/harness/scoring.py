@@ -19,6 +19,8 @@ import statistics
 from dataclasses import dataclass
 from typing import TypedDict
 
+from ..adapters import ringfire
+from ..core.compiler import estimate_tokens
 from ..sim.comms import Claim, Message
 from ..sim.game import Game
 from ..sim.oracle import Oracle
@@ -26,6 +28,7 @@ from .backend import GraphBackend
 from .game import GameResult
 from .llm import ModelClient
 from .pipeline import Exposure
+from .trace import NO_TRACE, Trace
 from .types import AfterDay, Backend
 
 
@@ -101,7 +104,11 @@ def parse_answer(text: str) -> int | str:
 
 
 def make_probe_hook(
-    client: ModelClient, probes: list[Probe], budget: int, probe_days: set[int]
+    client: ModelClient,
+    probes: list[Probe],
+    budget: int,
+    probe_days: set[int],
+    trace: Trace = NO_TRACE,
 ) -> AfterDay:
     """An `after_day` hook for run_game that asks each honest agent, on the given days, when fire
     will reach its first field that has not burnt yet. Answers are appended to `probes`."""
@@ -121,8 +128,19 @@ def make_probe_hook(
             question = (
                 f"\n\nIt is the end of day {day}. On what day will fire first reach F{unburnt[0]}?"
             )
+            trace.bind(agent=f"A{number}")
             reply = client.complete(
                 PROBE_SYSTEM, [{"role": "user", "content": context + question}], []
+            )
+            trace.unbind("agent")
+            trace.emit(
+                "probe",
+                agent=f"A{number}",
+                field=unburnt[0],
+                asked_day=day,
+                reply=reply.text,
+                answer=parse_answer(reply.text),
+                context_tokens=estimate_tokens(context),
             )
             probes.append(
                 Probe(
@@ -302,3 +320,41 @@ def score_game(result: GameResult, backend: Backend, probes: list[Probe] | None 
         **propagation(result.game, backend),
         **score_probes(result.game, probes),
     }
+
+
+def trace_final_state(
+    trace: Trace, result: GameResult, backend: Backend, probes: list[Probe], row: ScoreRow
+) -> None:
+    """Write what a finished game ended up with: each probe next to the truth, every arrival belief
+    each agent holds next to whether the oracle says it is true, and the score."""
+    game = result.game
+    for p in probes:
+        ignited = game.sim.fields[p.field_id].ignited_on
+        trace.emit(
+            "probe_scored",
+            agent=f"A{p.agent}",
+            asked_day=p.day,
+            field=p.field_id,
+            answer=p.answer,
+            truth="never" if ignited is None else ignited,
+            correct=p.answer == ("never" if ignited is None else ignited),
+        )
+    if isinstance(backend, GraphBackend):
+        oracle = Oracle(game)
+        for number in range(game.sim.world.config.n_agents):
+            viewer = ringfire.agent_id(number)
+            for belief in backend.store.beliefs(viewer, predicate=ringfire.ARRIVAL):
+                truth = oracle.claim_is_true(Claim(int(belief.subject[1:]), int(belief.value)))
+                trace.emit(
+                    "beliefs",
+                    agent=viewer,
+                    belief=belief.id,
+                    subject=belief.subject,
+                    value=belief.value,
+                    origin=belief.origin,
+                    status=belief.status,
+                    support_routes=belief.support_routes,
+                    claim_true=truth,
+                    routes=[list(r) for r in backend.store.support_routes(viewer, belief.id)],
+                )
+    trace.emit("score", **row)

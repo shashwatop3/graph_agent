@@ -14,6 +14,7 @@ from pydantic import TypeAdapter
 
 from ..core.compiler import estimate_tokens
 from .llm import ChatMessage, Json, ModelClient, ToolSchema
+from .trace import NO_TRACE, Trace
 from .types import Tools
 
 SYSTEM_PROMPT = (
@@ -53,6 +54,7 @@ class TurnResult:
     )
     final_text: str = ""
     steps: int = 0
+    hit_step_cap: bool = False  # still calling tools when it ran out of steps
     tokens_in: int = 0
     tokens_out: int = 0
 
@@ -66,11 +68,18 @@ def call_tool(box: Tools, name: str, arguments: dict[str, Json]) -> str:
         return f"error: bad arguments for {name}: {error}"
 
 
-def run_turn(client: ModelClient, box: Tools, context: str, max_steps: int = 6) -> TurnResult:
+def run_turn(
+    client: ModelClient,
+    box: Tools,
+    context: str,
+    max_steps: int = 6,
+    trace: Trace = NO_TRACE,
+) -> TurnResult:
     schemas = tool_schemas(box)
     messages: list[ChatMessage] = [{"role": "user", "content": context}]
     result = TurnResult()
-    for _ in range(max_steps):
+    for step in range(1, max_steps + 1):
+        trace.bind(step=step)
         reply = client.complete(SYSTEM_PROMPT, messages, schemas)
         result.steps += 1
         # tokens are the provider's count when it gives one, else an estimate of what was sent
@@ -91,7 +100,17 @@ def run_turn(client: ModelClient, box: Tools, context: str, max_steps: int = 6) 
         for call in reply.tool_calls:  # in the order the model gave them: deterministic
             output = call_tool(box, call.name, call.arguments)
             result.calls.append((call.name, call.arguments, output))
+            trace.emit(
+                "tool_result",
+                tool=call.name,
+                arguments=call.arguments,
+                result=output,
+                error=output.startswith("error"),
+            )
             messages.append(
                 {"role": "tool", "tool_call_id": call.id, "name": call.name, "content": output}
             )
+    else:
+        result.hit_step_cap = True
+    trace.unbind("step")
     return result
