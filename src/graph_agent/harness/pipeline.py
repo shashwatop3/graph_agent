@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from ..adapters import ringfire
 from ..core.ids import Ids
 from ..core.store import Invalidation, Store
+from ..sim.comms import Message
+from ..sim.game import DayResult, Game
 
 
 @dataclass
@@ -37,14 +39,14 @@ class Pipeline:
         self.game = None
         self._exposed: set[tuple[str, str]] = set()  # (viewer, agent) pairs already acted on
 
-    def start(self, game) -> None:
+    def start(self, game: Game) -> None:
         self.game = game
         world = game.sim.world
         fields = [(f, world.owner(f)) for f in range(world.n_fields)]
         spread = [(e.src, e.dst, e.weight) for e in world.edges if not e.hidden]
         ringfire.setup_map(self.store, world.config.n_agents, fields, spread)
 
-    def publish_start_fires(self, game) -> None:
+    def publish_start_fires(self, game: Game) -> None:
         """Tell everyone about the fires burning before day 0, so agents can act on day 0.
 
         Used by runs with live agents. The engine also reports these fires when it plays day 0,
@@ -56,7 +58,7 @@ class Pipeline:
                 ringfire.record_evidence(self.store, self.ids, published, number)
         self._start_fires_published = True
 
-    def message(self, message) -> None:
+    def message(self, message: Message) -> None:
         viewer = ringfire.agent_id(message.receiver)
         belief = ringfire.record_message(
             self.store,
@@ -93,7 +95,7 @@ class Pipeline:
         )
         self._distrust(viewer, ringfire.agents_to_distrust(self.store, viewer, belief), today)
 
-    def day(self, game, result) -> None:
+    def day(self, game: Game, result: DayResult) -> None:
         day = result.report.day
         n_agents = game.sim.world.config.n_agents
         for edge in result.report.revealed_hidden:

@@ -38,7 +38,10 @@ from functools import partial
 from ..adapters import ringfire
 from ..core.compiler import estimate_tokens
 from ..core.model import Action
+from ..sim.comms import Message
+from ..sim.game import DayResult, Game
 from .pipeline import Exposure
+from .types import ExecuteFn, SendFn
 
 CHECKLIST = (
     "Before you act on any claim, check it against the PUBLISHED evidence. A claim whose day "
@@ -49,11 +52,11 @@ CHECKLIST = (
 )
 
 
-def _route(message) -> str:
+def _route(message: Message) -> str:
     return ">".join(f"A{agent}" for agent in message.route)
 
 
-def _message_line(message) -> str:
+def _message_line(message: Message) -> str:
     claim = message.claim
     return (
         f"day {message.day}: A{message.sender} told A{message.receiver} "
@@ -77,7 +80,13 @@ def _fit_last(lines: list[str], budget_tokens: int) -> tuple[list[str], int]:
 class BaselineTools:
     """The tools a baseline agent has: tell a neighbour something, and act. No memory tools."""
 
-    def __init__(self, agent: int, send, execute, names=("send", "act")):
+    def __init__(
+        self,
+        agent: int,
+        send: SendFn,
+        execute: ExecuteFn,
+        names: tuple[str, ...] = ("send", "act"),
+    ):
         self.agent = agent
         self._send = send
         self._execute = execute
@@ -137,7 +146,7 @@ class _LogBackend:
 
     # ---- feeding it the game ------------------------------------------------------------------
 
-    def start(self, game) -> None:
+    def start(self, game: Game) -> None:
         world = game.sim.world
         self.n_agents = world.config.n_agents
         self.fields = {n: tuple(world.fields_of(n)) for n in range(self.n_agents)}
@@ -158,7 +167,7 @@ class _LogBackend:
         self.lines.append(f"day {day}: PUBLISHED: field F{field_number} caught fire on day {day}")
         self.audience.append(set(audience))
 
-    def message(self, message) -> None:
+    def message(self, message: Message) -> None:
         self.lines.append(_message_line(message))
         # in the global log everyone reads every message; in the own-inbox log only its two ends do
         self.audience.append(None if self.scope == "global" else {message.sender, message.receiver})
@@ -167,7 +176,7 @@ class _LogBackend:
         if line is not None and self.audience[line] is not None:
             self.audience[line].add(message.receiver)
 
-    def day(self, game, result) -> None:
+    def day(self, game: Game, result: DayResult) -> None:
         for edge in result.report.revealed_hidden:
             self.map_lines.append(
                 f"F{edge.src} -> F{edge.dst}: a hidden path, now revealed; "
@@ -206,7 +215,7 @@ class _LogBackend:
 
     section_title = "Log"
 
-    def toolbox(self, number: int, send, execute) -> BaselineTools:
+    def toolbox(self, number: int, send: SendFn, execute: ExecuteFn) -> BaselineTools:
         return BaselineTools(number, send, execute, self.tool_names)
 
 

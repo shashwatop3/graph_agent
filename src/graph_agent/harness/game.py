@@ -17,21 +17,26 @@ route. The network then applies their corruption (a shifted day, or silence).
 
 from dataclasses import dataclass, field
 
-from ..sim.comms import Claim, LinkError
+from ..core.model import Action
+from ..sim.comms import Claim, LinkError, Message
 from ..sim.fire import fields_saved
+from ..sim.game import DayResult, Game
 from ..sim.scenario import build_game
 from .agent import TurnResult, run_turn
 from .backend import Backend
 from .llm import ModelClient
 from .pipeline import Exposure
+from .types import AfterDay
 
 
 @dataclass
 class GameResult:
-    game: object
+    game: Game
     exposures: list[Exposure]
     turns: list[tuple[int, str, TurnResult]] = field(default_factory=list)  # (day, agent, result)
-    days: list = field(default_factory=list)  # the engine's DayResult for every day played
+    days: list[DayResult] = field(
+        default_factory=list
+    )  # the engine's DayResult for every day played
 
     @property
     def fields_saved(self) -> int:
@@ -54,7 +59,7 @@ def run_game(
     budget: int = 4000,
     max_days: int = 100,
     max_steps: int = 6,
-    after_day=None,
+    after_day: AfterDay | None = None,
 ) -> GameResult:
     """Play the scenario to the end. `after_day(game, backend, day)`, if given, is called after
     every day (the experiment harness uses it to ask the agents probe questions)."""
@@ -63,20 +68,22 @@ def run_game(
     n_agents = game.sim.world.config.n_agents
     imposters = game.net.imposters
     water_today: set[int] = set()
-    relayed: set[tuple] = set()
+    relayed: set[tuple[int, int, int]] = set()
     # the latest message each agent received about a claim, so it can pass it on with its route
-    received: dict[tuple[int, int, int], object] = {}
+    received: dict[tuple[int, int, int], Message] = {}
 
     scripted_sends: dict[int, list[dict]] = {}
-    for send in scenario.get("sends", []):
-        scripted_sends.setdefault(send["day"], []).append(send)
+    for scripted in scenario.get("sends", []):
+        scripted_sends.setdefault(scripted["day"], []).append(scripted)
 
     # ---- what the tools do in the game -----------------------------------------------------
 
-    held: list = []  # messages sent during this day's turns, delivered once they are all over
+    held: list[
+        Message
+    ] = []  # messages sent during this day's turns, delivered once they are all over
     holding = False
 
-    def deliver(message) -> None:
+    def deliver(message: Message) -> None:
         if holding:
             held.append(message)
             return
@@ -94,7 +101,7 @@ def run_game(
             deliver(message)
         return f"sent to A{receiver}"
 
-    def execute(action) -> str:
+    def execute(action: Action) -> str:
         agent = int(action.owner[1:])
         if action.type == "water":
             if game.sim.water_left(agent) == 0:

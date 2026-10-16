@@ -19,12 +19,16 @@ from typing import Protocol
 
 from ..adapters import ringfire
 from ..core.compiler import compile_context
+from ..core.model import Belief
 from ..core.store import Store
 from ..core.tools import Toolbox
+from ..sim.comms import Message
+from ..sim.game import DayResult, Game
 from .pipeline import Exposure, Pipeline
+from .types import ExecuteFn, SendFn, Tools
 
 
-def _transport(send, sender_id: str, receiver_id: str, belief) -> str:
+def _transport(send: SendFn, sender_id: str, receiver_id: str, belief: Belief) -> str:
     """Hand a belief to the game's `send`, translating ids ("A3") and the belief into plain ints."""
     if belief.predicate != ringfire.ARRIVAL:
         raise ValueError("only beliefs about when fire arrives can be sent")
@@ -42,15 +46,15 @@ class Backend(Protocol):
     name: str
     exposures: list[Exposure]
 
-    def start(self, game) -> None: ...
+    def start(self, game: Game) -> None: ...
 
-    def message(self, message) -> None: ...
+    def message(self, message: Message) -> None: ...
 
-    def day(self, game, result) -> None: ...
+    def day(self, game: Game, result: DayResult) -> None: ...
 
     def context(self, number: int, day: int, budget: int) -> str: ...
 
-    def toolbox(self, number: int, send, execute): ...
+    def toolbox(self, number: int, send: SendFn, execute: ExecuteFn) -> Tools: ...
 
 
 class GraphBackend:
@@ -68,7 +72,7 @@ class GraphBackend:
     def exposures(self) -> list[Exposure]:
         return self.pipeline.exposures
 
-    def start(self, game) -> None:
+    def start(self, game: Game) -> None:
         world = game.sim.world
         self.n_agents = world.config.n_agents
         self.fields = {n: tuple(world.fields_of(n)) for n in range(self.n_agents)}
@@ -76,10 +80,10 @@ class GraphBackend:
         self.pipeline.start(game)
         self.pipeline.publish_start_fires(game)
 
-    def message(self, message) -> None:
+    def message(self, message: Message) -> None:
         self.pipeline.message(message)
 
-    def day(self, game, result) -> None:
+    def day(self, game: Game, result: DayResult) -> None:
         self.pipeline.day(game, result)
 
     def context(self, number: int, day: int, budget: int) -> str:
@@ -95,7 +99,7 @@ class GraphBackend:
             budget=budget,
         )
 
-    def toolbox(self, number: int, send, execute) -> Toolbox:
+    def toolbox(self, number: int, send: SendFn, execute: ExecuteFn) -> Toolbox:
         return Toolbox(
             self.store,
             ringfire.agent_id(number),

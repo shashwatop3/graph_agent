@@ -14,6 +14,7 @@ from pydantic import TypeAdapter
 
 from ..core.compiler import estimate_tokens
 from .llm import ModelClient
+from .types import Tools
 
 SYSTEM_PROMPT = (
     "You are one agent in a multi-agent game. You act only by calling tools. Read your situation, "
@@ -22,7 +23,7 @@ SYSTEM_PROMPT = (
 )
 
 
-def tool_schemas(box) -> list[dict]:
+def tool_schemas(box: Tools) -> list[dict]:
     """The tools `box` offers, as JSON schemas built from its method signatures and docstrings."""
     schemas = []
     for name in box.names:
@@ -52,7 +53,7 @@ class TurnResult:
     tokens_out: int = 0
 
 
-def call_tool(box, name: str, arguments: dict) -> str:
+def call_tool(box: Tools, name: str, arguments: dict) -> str:
     if name not in box.names:
         return f"error: unknown tool {name!r}; the tools are {', '.join(box.names)}"
     try:
@@ -61,7 +62,7 @@ def call_tool(box, name: str, arguments: dict) -> str:
         return f"error: bad arguments for {name}: {error}"
 
 
-def run_turn(client: ModelClient, box, context: str, max_steps: int = 6) -> TurnResult:
+def run_turn(client: ModelClient, box: Tools, context: str, max_steps: int = 6) -> TurnResult:
     schemas = tool_schemas(box)
     messages = [{"role": "user", "content": context}]
     result = TurnResult()
