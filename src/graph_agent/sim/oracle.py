@@ -23,12 +23,22 @@ class Oracle:
     # ---- what is true -------------------------------------------------------------------------
 
     def ignition_day(self, field_id: int) -> int | None:
+        """The day the field last caught fire (it can burn more than once if fields regrow)."""
         return self._game.sim.fields[field_id].ignited_on
 
+    def next_ignition(self, field_id: int, after: int) -> int | None:
+        """The first day after day `after` on which the field caught fire, if it did."""
+        return next((d for d in self._game.sim.fields[field_id].ignitions if d > after), None)
+
     def claim_is_true(self, claim: Claim) -> bool | None:
-        """True or False once the day has passed (or the fire is over). None while still open."""
-        known = claim.day < self._game.day or self._game.sim.finished
-        return self.ignition_day(claim.field_id) == claim.day if known else None
+        """True or False once the day has passed, or the fire is over for good. None while open.
+
+        A game with a horizon ends with fire still about, so a claim about a day after the end is
+        never settled."""
+        sim = self._game.sim
+        over = sim.finished and sim.world.config.horizon is None
+        known = claim.day < self._game.day or over
+        return claim.day in sim.fields[claim.field_id].ignitions if known else None
 
     def false_messages(self) -> list[Message]:
         """Messages whose claim turned out wrong, whoever sent them and whyever."""

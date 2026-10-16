@@ -8,9 +8,22 @@ from graph_agent.sim.policies import scripted_watering
 from graph_agent.sim.world import Edge, World, WorldConfig, generate_world
 
 
-def hand_world(edges, fires=((0, 1.0),), n_agents=4, fields_per_agent=1) -> World:
-    config = WorldConfig(n_agents=n_agents, fields_per_agent=fields_per_agent)
-    return World(config=config, seed=0, edges=tuple(edges), initial_fires=tuple(fires))
+def hand_world(
+    edges, fires=((0, 1.0),), n_agents=4, fields_per_agent=1, horizon=None, random_ignitions=()
+) -> World:
+    config = WorldConfig(n_agents=n_agents, fields_per_agent=fields_per_agent, horizon=horizon)
+    return World(
+        config=config,
+        seed=0,
+        edges=tuple(edges),
+        initial_fires=tuple(fires),
+        random_ignitions=tuple(random_ignitions),
+    )
+
+
+def ring(n):
+    """Fields 0..n-1 in a closed loop, one field per agent, every edge one day."""
+    return [Edge(i, (i + 1) % n, 1) for i in range(n)]
 
 
 def chain(weights):
@@ -184,3 +197,95 @@ def test_an_agent_can_water_only_as_often_as_its_budget_allows():
 def test_without_a_budget_there_is_no_limit():
     sim = FireSim(hand_world(chain([1] * 5), n_agents=6))
     assert sim.water_left(1) is None
+
+
+# ---- the long game: regrowth, random ignitions, cooldown, horizon -----------------------------
+
+
+def test_without_regrowth_a_ring_fire_goes_round_once_and_dies():
+    sim = FireSim(hand_world(ring(6), n_agents=6))
+    run(sim)
+    assert [f.ignitions for f in sim.fields] == [[0], [1], [2], [3], [4], [5]]
+
+
+def test_a_regrown_field_burns_again_when_the_fire_comes_round():
+    # F0 burns out on day 2 and regrows on day 4, so the fire from F5 on day 6 finds it unburnt
+    rules = FireRules(burn_days=2, regrow_days=2)
+    sim = FireSim(hand_world(ring(6), n_agents=6, horizon=13), rules)
+    reports = run(sim)
+    assert sim.fields[0].ignitions == [0, 6, 12]
+    assert sim.fields[0].ignited_on == 12  # the latest
+    assert reports[4].regrown == (0,)
+
+
+def test_fire_reaching_a_field_that_has_not_regrown_yet_does_nothing():
+    # ring of 4: the fire is back at F0 on day 4, the day F0 regrows, which is too late
+    rules = FireRules(burn_days=2, regrow_days=2)
+    sim = FireSim(hand_world(ring(4), horizon=12), rules)
+    run(sim)
+    assert [f.ignitions for f in sim.fields] == [[0], [1], [2], [3]]
+
+
+def test_the_horizon_ends_the_game_on_that_day_even_while_fire_burns():
+    rules = FireRules(regrow_days=2)
+    sim = FireSim(hand_world(ring(6), n_agents=6, horizon=15), rules)
+    reports = run(sim)
+    assert len(reports) == 15 and sim.day == 15 and sim.finished
+    assert any(f.state is FieldState.BURNING for f in sim.fields)
+
+
+def test_a_random_ignition_starts_a_fire_from_nowhere_at_the_starting_strength():
+    world = hand_world(chain([1]), n_agents=4, horizon=6, random_ignitions=[(3, 3)])
+    sim = FireSim(world)
+    reports = run(sim)
+    (ignition,) = reports[3].ignited
+    assert (ignition.field_id, ignition.intensity, ignition.edge) == (3, 1.0, None)
+    assert ignition.source is None and not ignition.via_hidden
+    assert sim.fields[3].ignitions == [3]
+
+
+def test_a_random_ignition_is_put_out_if_the_owner_waters_that_day():
+    world = hand_world(chain([1]), n_agents=4, horizon=6, random_ignitions=[(3, 3)])
+    sim = FireSim(world)
+    reports = run(sim, {3: {3}})
+    assert reports[3].hit_while_watered == (3,)
+    assert sim.fields[3].ignitions == []
+
+
+def test_a_random_ignition_on_a_field_already_burning_changes_nothing():
+    world = hand_world(chain([1, 1]), n_agents=4, horizon=6, random_ignitions=[(1, 1)])
+    sim = FireSim(world)
+    run(sim)
+    assert sim.fields[1].ignitions == [1]  # once, from the spread
+
+
+def test_a_cooldown_of_two_days_means_watering_every_third_day_at_most():
+    sim = FireSim(hand_world(chain([5])), FireRules(water_cooldown=2))
+    sim.step({1})  # day 0
+    assert not sim.can_water_today(1)  # day 1
+    sim.step()
+    assert not sim.can_water_today(1)  # day 2
+    sim.step()
+    assert sim.can_water_today(1)  # day 3
+    sim.step({1})
+
+
+def test_watering_during_the_cooldown_is_refused():
+    sim = FireSim(hand_world(chain([5])), FireRules(water_cooldown=2))
+    sim.step({1})
+    sim.step()
+    with pytest.raises(WaterRuleError):
+        sim.step({1})
+
+
+def test_no_cooldown_allows_watering_every_day():
+    sim = FireSim(hand_world(chain([5])), FireRules(water_cooldown=0))
+    for _ in range(3):
+        sim.step({1})
+
+
+def test_rules_reject_nonsense():
+    with pytest.raises(ValueError):
+        FireRules(water_cooldown=-1)
+    with pytest.raises(ValueError):
+        FireRules(regrow_days=0)

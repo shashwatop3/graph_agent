@@ -42,6 +42,8 @@ class WorldSpec(TypedDict, total=False):
     initial_intensity: float
     edges: list[list[int]]  # [src, dst, weight] or [src, dst, weight, hidden]
     initial_fires: list[list[float]]  # [field, intensity]
+    horizon: int  # days the game lasts
+    random_ignition_chance: float  # chance each day that one random field ignites
 
 
 class RulesSpec(TypedDict, total=False):
@@ -50,6 +52,9 @@ class RulesSpec(TypedDict, total=False):
     min_intensity: float
     max_intensity: float
     water_per_agent: int | None
+    water_cooldown: int
+    regrow_days: int | None
+    waste_penalty: float
 
 
 class ImposterSpec(TypedDict):
@@ -102,6 +107,8 @@ def build_world(spec: WorldSpec, seed: int) -> World:
         min_hidden_span=spec.get("min_hidden_span", defaults.min_hidden_span),
         n_initial_fires=spec.get("n_initial_fires", defaults.n_initial_fires),
         initial_intensity=spec.get("initial_intensity", defaults.initial_intensity),
+        horizon=spec.get("horizon", defaults.horizon),
+        random_ignition_chance=spec.get("random_ignition_chance", defaults.random_ignition_chance),
     )
     world = generate_world(config, seed)
     edges = spec.get("edges")

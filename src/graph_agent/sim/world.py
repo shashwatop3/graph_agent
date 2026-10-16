@@ -32,6 +32,8 @@ class WorldConfig:
     min_hidden_span: int = 2  # a hidden edge skips at least this many agents (clockwise)
     n_initial_fires: int = 1
     initial_intensity: float = 1.0
+    horizon: int | None = None  # days the game lasts; None = until the fire is out
+    random_ignition_chance: float = 0.0  # chance each day (1 .. horizon-1) that one field ignites
 
     def __post_init__(self):
         if self.n_agents < 3:
@@ -46,6 +48,12 @@ class WorldConfig:
             raise ValueError("min_hidden_span must be between 1 and n_agents - 1")
         if not 1 <= self.n_initial_fires <= self.n_agents * self.fields_per_agent:
             raise ValueError("n_initial_fires must be between 1 and the number of fields")
+        if self.horizon is not None and self.horizon < 1:
+            raise ValueError("horizon must be at least 1")
+        if not 0.0 <= self.random_ignition_chance <= 1.0:
+            raise ValueError("random_ignition_chance must be between 0 and 1")
+        if self.random_ignition_chance and self.horizon is None:
+            raise ValueError("random ignitions need a horizon, or the game would never end")
 
 
 @dataclass(frozen=True)
@@ -54,6 +62,9 @@ class World:
     seed: int
     edges: tuple[Edge, ...]
     initial_fires: tuple[tuple[int, float], ...]  # (field_id, intensity), ignite on day 0
+    # (day, field_id): a fire starting from nothing that day, e.g. lightning. Drawn up front so
+    # every system faces the same ones; it ignites only if the field is unburnt then.
+    random_ignitions: tuple[tuple[int, int], ...] = ()
 
     @property
     def n_fields(self) -> int:
@@ -93,9 +104,18 @@ def generate_world(config: WorldConfig, seed: int) -> World:
         hidden_edges.append(Edge(src, dst, rng.randint(*config.hidden_weight), hidden=True))
 
     starts = sorted(rng.sample(range(n_fields), config.n_initial_fires))
+
+    # Drawn last, so a world without random ignitions is the same as before they existed.
+    random_ignitions: list[tuple[int, int]] = []
+    if config.random_ignition_chance and config.horizon is not None:
+        for day in range(1, config.horizon):
+            if rng.random() < config.random_ignition_chance:
+                random_ignitions.append((day, rng.randrange(n_fields)))
+
     return World(
         config=config,
         seed=seed,
         edges=tuple(edges + hidden_edges),
         initial_fires=tuple((f, config.initial_intensity) for f in starts),
+        random_ignitions=tuple(random_ignitions),
     )

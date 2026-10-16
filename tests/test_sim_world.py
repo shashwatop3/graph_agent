@@ -60,3 +60,38 @@ def test_ownership_partitions_the_fields():
 def test_invalid_config_is_rejected(kwargs):
     with pytest.raises(ValueError):
         WorldConfig(**kwargs)
+
+
+# ---- random ignitions -------------------------------------------------------------------------
+
+
+def test_random_ignitions_are_drawn_from_the_seed_one_at_most_per_day():
+    config = WorldConfig(n_agents=10, fields_per_agent=3, horizon=15, random_ignition_chance=0.5)
+    world = generate_world(config, seed=4)
+    assert world == generate_world(config, seed=4)
+    days = [day for day, _ in world.random_ignitions]
+    assert days == sorted(set(days)) and all(1 <= d < 15 for d in days)
+    assert all(0 <= f < world.n_fields for _, f in world.random_ignitions)
+    assert world.random_ignitions  # 14 days at even odds: some fire is all but certain
+
+
+def test_adding_random_ignitions_leaves_the_rest_of_the_world_unchanged():
+    plain = generate_world(CONFIG, seed=5)
+    long_game = WorldConfig(
+        n_agents=10,
+        fields_per_agent=3,
+        n_hidden_edges=4,
+        n_initial_fires=2,
+        horizon=15,
+        random_ignition_chance=0.5,
+    )
+    world = generate_world(long_game, seed=5)
+    assert (world.edges, world.initial_fires) == (plain.edges, plain.initial_fires)
+    assert plain.random_ignitions == ()
+
+
+def test_random_ignitions_need_a_horizon():
+    with pytest.raises(ValueError):
+        WorldConfig(random_ignition_chance=0.5)
+    with pytest.raises(ValueError):
+        WorldConfig(horizon=10, random_ignition_chance=1.5)
