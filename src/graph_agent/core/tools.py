@@ -101,7 +101,7 @@ class Toolbox:
     def recall(
         self, subject: str | None = None, predicate: str | None = None, status: str | None = None
     ) -> str:
-        """List your beliefs, newest status first. Without `status`, only live ones."""
+        """List your beliefs, filtered. Without `status`, only the ones that are still live."""
         found = self.store.beliefs(self.viewer, subject, predicate, status)
         if status is None:
             found = [b for b in found if b.status in _LIVE]

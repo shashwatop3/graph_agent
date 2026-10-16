@@ -124,8 +124,14 @@ def _believe(store, ids, viewer, field, value, origin, tick, obs_id=None) -> Bel
     return belief
 
 
-def record_message(store: Store, ids: Ids, message: dict) -> Belief:
-    """The receiver now holds an observation (with its route) and a told belief it supports."""
+def record_message(store: Store, ids: Ids, message: dict, distrusted=()) -> Belief | None:
+    """The receiver now holds an observation (with its route) and a told belief it supports.
+
+    If the route passes through an agent the receiver already distrusts (`distrusted`, agent ids
+    such as "A2"), the message is still recorded and shown in its inbox, but it forms no belief:
+    a claim that arrived through someone you have stopped trusting is not support for anything.
+    Returns the belief, or None in that case.
+    """
     viewer = agent_id(message["receiver"])
     claim = message["claim"]
     observation = Observation(
@@ -150,6 +156,8 @@ def record_message(store: Store, ids: Ids, message: dict) -> Belief:
             props={"role": "mentioned"},
         )
     )
+    if any(agent_id(agent) in distrusted for agent in message["route"]):
+        return None
     return _believe(
         store, ids, viewer, claim["field_id"], claim["day"], "told", message["day"], observation.id
     )

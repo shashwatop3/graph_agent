@@ -42,6 +42,21 @@ def test_hearing_the_same_claim_by_another_route_adds_a_route_to_the_same_belief
     assert sorted(store.support_routes("A3", first.id)) == [("A0", "A1", "A2"), ("A5", "A4")]
 
 
+def test_a_message_routed_through_a_distrusted_agent_is_seen_but_believed_by_nobody(store):
+    ids = rf.Ids()
+    belief = rf.record_message(
+        store, ids, message(2, 3, [0, 1, 2], field=3, day=4), distrusted={"A1"}
+    )
+    assert belief is None and store.beliefs("A3") == []
+    (seen,) = store.observations("A3", since_tick=0)
+    assert seen.sender == "A2"  # it is in the inbox, with its route, just not a belief
+    # the same claim by a route the agent does trust is believed as usual
+    trusted = rf.record_message(
+        store, ids, message(4, 3, [5, 4], field=3, day=4), distrusted={"A1"}
+    )
+    assert trusted is not None and trusted.value == 4
+
+
 def test_evidence_is_a_route_less_observation_that_always_counts(store):
     belief = rf.record_evidence(store, rf.Ids(), {"day": 0, "field_id": 0}, 3)
     assert (belief.origin, belief.value) == ("observed", 0)

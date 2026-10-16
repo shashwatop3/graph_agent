@@ -1,0 +1,93 @@
+"""One agent's turn: show it its context, let it call tools until it is done.
+
+The loop is deliberately plain. The model sees the compiled context, may call tools (each one is
+executed against the agent's own toolbox and the result goes back to it), and its turn ends when it
+replies without calling a tool or after `max_steps` rounds. Nothing carries over between turns
+except what the agent wrote into the store, because the next context is compiled from the store.
+"""
+
+import inspect
+from dataclasses import dataclass, field
+from typing import get_type_hints
+
+from pydantic import TypeAdapter
+
+from ..core.compiler import estimate_tokens
+from ..core.tools import TOOL_NAMES, Toolbox
+from .llm import ModelClient
+
+SYSTEM_PROMPT = (
+    "You are one agent in a multi-agent game. You act only by calling tools. Read your situation, "
+    "call the tools you need, and when you are finished for today reply with a short sentence and "
+    "no tool call. Do not repeat a tool call that already succeeded."
+)
+
+
+def tool_schemas() -> list[dict]:
+    """The eight tools as JSON schemas, built from the Toolbox method signatures and docstrings."""
+    schemas = []
+    for name in TOOL_NAMES:
+        method = getattr(Toolbox, name)
+        hints = get_type_hints(method)
+        properties, required = {}, []
+        for parameter in list(inspect.signature(method).parameters.values())[1:]:  # skip self
+            properties[parameter.name] = TypeAdapter(hints[parameter.name]).json_schema()
+            if parameter.default is inspect.Parameter.empty:
+                required.append(parameter.name)
+        schemas.append(
+            {
+                "name": name,
+                "description": inspect.getdoc(method),
+                "parameters": {"type": "object", "properties": properties, "required": required},
+            }
+        )
+    return schemas
+
+
+@dataclass
+class TurnResult:
+    calls: list[tuple[str, dict, str]] = field(default_factory=list)  # (tool, arguments, result)
+    final_text: str = ""
+    steps: int = 0
+    tokens_in: int = 0
+    tokens_out: int = 0
+
+
+def call_tool(box: Toolbox, name: str, arguments: dict) -> str:
+    if name not in TOOL_NAMES:
+        return f"error: unknown tool {name!r}; the tools are {', '.join(TOOL_NAMES)}"
+    try:
+        return getattr(box, name)(**arguments)
+    except TypeError as error:  # wrong or missing arguments
+        return f"error: bad arguments for {name}: {error}"
+
+
+def run_turn(client: ModelClient, box: Toolbox, context: str, max_steps: int = 6) -> TurnResult:
+    schemas = tool_schemas()
+    messages = [{"role": "user", "content": context}]
+    result = TurnResult()
+    for _ in range(max_steps):
+        reply = client.complete(SYSTEM_PROMPT, messages, schemas)
+        result.steps += 1
+        # tokens are the provider's count when it gives one, else an estimate of what was sent
+        result.tokens_in += reply.tokens_in or estimate_tokens(context)
+        result.tokens_out += reply.tokens_out
+        if not reply.tool_calls:
+            result.final_text = reply.text
+            break
+        messages.append(
+            {
+                "role": "assistant",
+                "content": reply.text,
+                "tool_calls": [
+                    {"id": c.id, "name": c.name, "arguments": c.arguments} for c in reply.tool_calls
+                ],
+            }
+        )
+        for call in reply.tool_calls:  # in the order the model gave them: deterministic
+            output = call_tool(box, call.name, call.arguments)
+            result.calls.append((call.name, call.arguments, output))
+            messages.append(
+                {"role": "tool", "tool_call_id": call.id, "name": call.name, "content": output}
+            )
+    return result

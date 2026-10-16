@@ -50,6 +50,20 @@ def build_world(spec: dict, seed: int) -> World:
     return world
 
 
+def build_game(scenario: dict) -> Game:
+    """The game a scenario describes: world, rules, imposters and any starting shortcut links."""
+    game = Game(
+        build_world(scenario["world"], scenario.get("seed", 0)),
+        FireRules(**scenario.get("rules", {})),
+        tuple(
+            Imposter(i["agent"], Behaviour(i["behaviour"])) for i in scenario.get("imposters", [])
+        ),
+    )
+    for a, b in scenario.get("links", []):
+        game.net.add_link(a, b)
+    return game
+
+
 def run_scenario(
     scenario: dict,
     max_days: int = 1000,
@@ -62,16 +76,7 @@ def run_scenario(
     The three optional callbacks let something outside the simulator (the harness, feeding an
     adapter and a store) watch the game as it happens, without the simulator knowing about it.
     """
-    game = Game(
-        build_world(scenario["world"], scenario.get("seed", 0)),
-        FireRules(**scenario.get("rules", {})),
-        tuple(
-            Imposter(i["agent"], Behaviour(i["behaviour"])) for i in scenario.get("imposters", [])
-        ),
-    )
-    for a, b in scenario.get("links", []):
-        game.net.add_link(a, b)
-
+    game = build_game(scenario)
     watering = {int(day): agents for day, agents in scenario.get("watering", {}).items()}
     sends: dict[int, list[dict]] = {}
     for s in scenario.get("sends", []):
