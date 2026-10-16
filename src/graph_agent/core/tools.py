@@ -20,11 +20,11 @@ the functions that do that. The core knows nothing about what a message or an ac
 
 from collections.abc import Callable, Mapping, Sequence
 from functools import wraps
-from typing import Any
+from typing import Any, cast, get_args
 
 from .compiler import render_belief
 from .ids import Ids
-from .model import Action, Belief, Edge, Entity
+from .model import Action, Belief, BeliefStatus, Edge, Entity
 from .registry import Predicate
 from .store import Store
 
@@ -104,7 +104,11 @@ class Toolbox:
         self, subject: str | None = None, predicate: str | None = None, status: str | None = None
     ) -> str:
         """List your beliefs, filtered. Without `status`, only the ones that are still live."""
-        found = self.store.beliefs(self.viewer, subject, predicate, status)
+        if status is not None and status not in get_args(BeliefStatus):
+            raise ValueError(f"status must be one of {', '.join(get_args(BeliefStatus))}")
+        found = self.store.beliefs(
+            self.viewer, subject, predicate, cast(BeliefStatus | None, status)
+        )
         if status is None:
             found = [b for b in found if b.status in _LIVE]
         if not found:
@@ -120,12 +124,12 @@ class Toolbox:
         belief = self._belief(belief_id)
         lines = [self._line(belief)]
         for source in self.store.sources(self.viewer, belief_id):
-            parent = self.store.get(self.viewer, source)
+            parent = self.store.belief(self.viewer, source)
             lines.append(f"  derived from {source} ({parent.status if parent else 'unknown'})")
         for dependent, hops in self.store.dependents(self.viewer, belief_id).items():
             node = self.store.get(self.viewer, dependent)
             kind = "belief" if isinstance(node, Belief) else "action"
-            state = node.status if node else "unknown"
+            state = node.status if isinstance(node, Belief | Action) else "unknown"
             lines.append(f"  {kind} {dependent} ({state}) rests on it, {hops} step(s) down")
         for change in self.store.changes_since(self.viewer, 0):
             if change.belief_id == belief_id:

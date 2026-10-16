@@ -35,6 +35,7 @@ from ..core.model import (
     Entity,
     Node,
     Observation,
+    as_type,
     check_edge,
     visible,
 )
@@ -121,9 +122,10 @@ class FalkorStore(Store):
 
     def add_edge(self, edge: Edge) -> None:
         src, dst = self._node(edge.src), self._node(edge.dst)
-        for end, found in ((edge.src, src), (edge.dst, dst)):
-            if found is None:
-                raise ValueError(f"node {end!r} does not exist")
+        if src is None:
+            raise ValueError(f"node {edge.src!r} does not exist")
+        if dst is None:
+            raise ValueError(f"node {edge.dst!r} does not exist")
         check_edge(edge, src, dst)
         if not all(isinstance(v, str | int | float | bool) for v in edge.props.values()):
             raise ValueError("relationship properties must be scalars")
@@ -153,7 +155,7 @@ class FalkorStore(Store):
         rows = self._run(
             f"MATCH (b:Belief) WHERE {' AND '.join(conditions)} RETURN b ORDER BY b.id", **params
         )
-        return [_from_node(row[0]) for row in rows]
+        return [as_type(_from_node(row[0]), Belief) for row in rows]
 
     def support_routes(self, viewer: str, belief_id: str) -> list[tuple[str, ...]]:
         if self.get(viewer, belief_id) is None:
@@ -221,7 +223,7 @@ class FalkorStore(Store):
             condition += " AND a.status = $status"
             params["status"] = status
         rows = self._run(f"MATCH (a:Action) WHERE {condition} RETURN a ORDER BY a.id", **params)
-        return [_from_node(row[0]) for row in rows]
+        return [as_type(_from_node(row[0]), Action) for row in rows]
 
     def observations(self, viewer: str, since_tick: int) -> list[Observation]:
         rows = self._run(
@@ -230,7 +232,7 @@ class FalkorStore(Store):
             viewer=viewer,
             since=since_tick,
         )
-        return [_from_node(row[0]) for row in rows]
+        return [as_type(_from_node(row[0]), Observation) for row in rows]
 
     def sources(self, viewer: str, node_id: str) -> list[str]:
         if self.get(viewer, node_id) is None:

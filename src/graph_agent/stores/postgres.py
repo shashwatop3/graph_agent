@@ -20,9 +20,10 @@ How `expose` maps to SQL (the same rules as the reference store)
 import json
 import os
 import uuid
-from typing import Any
+from typing import Any, LiteralString, cast
 
 import psycopg
+from psycopg import sql
 from psycopg.types.json import Jsonb
 
 from ..core.model import (
@@ -35,6 +36,7 @@ from ..core.model import (
     Entity,
     Node,
     Observation,
+    as_type,
     check_edge,
     visible,
 )
@@ -138,8 +140,8 @@ class PostgresStore(Store):
             ),
             autocommit=True,
         )
-        self._conn.execute(f"CREATE SCHEMA {self.schema}")
-        self._conn.execute(f"SET search_path TO {self.schema}")
+        self._conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(self.schema)))
+        self._conn.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(self.schema)))
         self._conn.execute(_SCHEMA)
 
     def analyze(self) -> None:
@@ -154,11 +156,14 @@ class PostgresStore(Store):
 
     def close(self) -> None:
         if not self._conn.closed:
-            self._conn.execute(f"DROP SCHEMA IF EXISTS {self.schema} CASCADE")
+            self._conn.execute(
+                sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(self.schema))
+            )
             self._conn.close()
 
-    def _rows(self, sql: str, **params: Any) -> list[tuple]:
-        return self._conn.execute(sql, params).fetchall()
+    def _rows(self, query: str, **params: Any) -> list[tuple]:
+        # `query` is our own text (column names and %(name)s placeholders); values go in `params`
+        return self._conn.execute(cast(LiteralString, query), params).fetchall()
 
     def _node(self, node_id: str) -> Node | None:
         """A node by id, ignoring visibility (used internally)."""
@@ -205,9 +210,10 @@ class PostgresStore(Store):
 
     def add_edge(self, edge: Edge) -> None:
         src, dst = self._node(edge.src), self._node(edge.dst)
-        for end, found in ((edge.src, src), (edge.dst, dst)):
-            if found is None:
-                raise ValueError(f"node {end!r} does not exist")
+        if src is None:
+            raise ValueError(f"node {edge.src!r} does not exist")
+        if dst is None:
+            raise ValueError(f"node {edge.dst!r} does not exist")
         check_edge(edge, src, dst)
         self._conn.execute(
             "INSERT INTO edges (kind, src, dst, props) VALUES (%s, %s, %s, %s)",
@@ -231,7 +237,7 @@ class PostgresStore(Store):
         ids = self._rows(
             f"SELECT id FROM nodes WHERE {' AND '.join(conditions)} ORDER BY id", **params
         )
-        return [self._node(row[0]) for row in ids]
+        return [as_type(self._node(row[0]), Belief) for row in ids]
 
     def support_routes(self, viewer: str, belief_id: str) -> list[tuple[str, ...]]:
         if self.get(viewer, belief_id) is None:
@@ -263,7 +269,7 @@ class PostgresStore(Store):
             condition += " AND data ->> 'status' = %(status)s"
             params["status"] = status
         ids = self._rows(f"SELECT id FROM nodes WHERE {condition} ORDER BY id", **params)
-        return [self._node(row[0]) for row in ids]
+        return [as_type(self._node(row[0]), Action) for row in ids]
 
     def observations(self, viewer: str, since_tick: int) -> list[Observation]:
         ids = self._rows(
@@ -274,7 +280,7 @@ class PostgresStore(Store):
             viewer=viewer,
             since=since_tick,
         )
-        return [self._node(row[0]) for row in ids]
+        return [as_type(self._node(row[0]), Observation) for row in ids]
 
     def sources(self, viewer: str, node_id: str) -> list[str]:
         if self.get(viewer, node_id) is None:

@@ -145,7 +145,9 @@ class FireSim:
         done = [
             f
             for f in self.fields
-            if f.state is FieldState.BURNING and day - f.ignited_on >= self.rules.burn_days
+            if f.state is FieldState.BURNING
+            and f.ignited_on is not None
+            and day - f.ignited_on >= self.rules.burn_days
         ]
         for f in done:
             f.state = FieldState.BURNT

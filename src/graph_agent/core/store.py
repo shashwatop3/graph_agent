@@ -58,6 +58,11 @@ class Store(ABC):
     def get(self, viewer: str, node_id: str) -> Node | None:
         """A copy of the node, or None if it does not exist or `viewer` may not see it."""
 
+    def belief(self, viewer: str, node_id: str) -> Belief | None:
+        """The belief with this id if `viewer` can see it, else None."""
+        node = self.get(viewer, node_id)
+        return node if isinstance(node, Belief) else None
+
     @abstractmethod
     def beliefs(
         self,

@@ -64,7 +64,7 @@ def call_tool(box: Tools, name: str, arguments: dict) -> str:
 
 def run_turn(client: ModelClient, box: Tools, context: str, max_steps: int = 6) -> TurnResult:
     schemas = tool_schemas(box)
-    messages = [{"role": "user", "content": context}]
+    messages: list[dict] = [{"role": "user", "content": context}]
     result = TurnResult()
     for _ in range(max_steps):
         reply = client.complete(SYSTEM_PROMPT, messages, schemas)

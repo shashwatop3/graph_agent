@@ -16,6 +16,7 @@ from ..core.model import (
     EdgeKind,
     Node,
     Observation,
+    as_type,
     check_edge,
     visible,
 )
@@ -99,7 +100,8 @@ class MemoryStore(Store):
         for edge in self._edges:
             if edge.kind != "INVALIDATED" or edge.props["tick"] < since_tick:
                 continue
-            belief, correction = self._nodes[edge.dst], self._nodes[edge.src]
+            belief = self._nodes[edge.dst]
+            correction = as_type(self._nodes[edge.src], Correction)
             if visible(viewer, belief):
                 found.append(
                     Change(
@@ -255,7 +257,7 @@ class MemoryStore(Store):
     def _invalidate(
         self, correction: Correction, belief_id: str, new_status: BeliefStatus, path_len: int
     ) -> Invalidation:
-        belief = self._nodes[belief_id]
+        belief = as_type(self._nodes[belief_id], Belief)
         change = Invalidation(
             belief_id=belief_id,
             old_status=belief.status,

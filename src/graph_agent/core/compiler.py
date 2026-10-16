@@ -139,7 +139,7 @@ def compile_context(
 
     # ---- changes since last turn (always shown, within a quarter of the budget) ----
     changes = store.changes_since(viewer, since_tick)
-    tombstones = [_tombstone(c, store.get(viewer, c.belief_id), templates) for c in changes]
+    tombstones = [_tombstone(c, store.belief(viewer, c.belief_id), templates) for c in changes]
     shown, hidden = _fit(tombstones, budget // 4, keep="first")
     if shown:
         extra = [f"(+{hidden} more changes not shown)"] if hidden else []
@@ -164,7 +164,7 @@ def compile_context(
     live = [b for b in store.beliefs(viewer) if b.status in _LIVE]
     seeds = {b.subject for b in live if b.updated_tick >= since_tick}
     seeds |= {a.target for a in store.actions(viewer) if a.target}
-    seeds |= {b.subject for c in changes if (b := store.get(viewer, c.belief_id))}
+    seeds |= {b.subject for c in changes if (b := store.belief(viewer, c.belief_id))}
     distance = store.entity_distances(sorted(seeds), max_hops)
     far = max_hops + 1  # beliefs about entities nowhere near the seeds go last
     status_rank = {"suspect": 0, "active": 1}  # a suspect belief needs attention first

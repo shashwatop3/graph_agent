@@ -173,8 +173,9 @@ class _LogBackend:
         self.audience.append(None if self.scope == "global" else {message.sender, message.receiver})
         # told about a field that has already burnt: the engine shows them the truth at once
         line = self._evidence_line.get(message.claim.field_id)
-        if line is not None and self.audience[line] is not None:
-            self.audience[line].add(message.receiver)
+        readers = self.audience[line] if line is not None else None
+        if readers is not None:
+            readers.add(message.receiver)
 
     def day(self, game: Game, result: DayResult) -> None:
         for edge in result.report.revealed_hidden:
@@ -202,7 +203,8 @@ class _LogBackend:
         """Indexes of the lines this agent may read: messages, and evidence it is entitled to."""
         return [i for i, who in enumerate(self.audience) if who is None or number in who]
 
-    def visible_lines(self, number: int, budget_tokens: int) -> list[str]:
+    def visible_lines(self, number: int, budget_tokens: int) -> tuple[list[str], int]:
+        """The lines to show and how many older ones had to be left out."""
         raise NotImplementedError
 
     def context(self, number: int, day: int, budget: int) -> str:
@@ -226,7 +228,7 @@ class IsolatedBackend(_LogBackend):
     tool_names = ("act",)
     section_title = "Published evidence"
 
-    def visible_lines(self, number, budget_tokens):
+    def visible_lines(self, number: int, budget_tokens: int) -> tuple[list[str], int]:
         mine = [self.lines[i] for i in self.readable(number) if "PUBLISHED" in self.lines[i]]
         return _fit_last(mine, budget_tokens)
 
@@ -237,7 +239,7 @@ class SharedLogBackend(_LogBackend):
     name = "B1-shared-log"
     section_title = "Shared log (everything said and published, oldest first)"
 
-    def visible_lines(self, number, budget_tokens):
+    def visible_lines(self, number: int, budget_tokens: int) -> tuple[list[str], int]:
         return _fit_last([self.lines[i] for i in self.readable(number)], budget_tokens)
 
 
@@ -290,7 +292,7 @@ class VectorMemoryBackend(_LogBackend):
     section_title = "Memory (the lines most relevant to you, then the latest)"
     recent = 4  # always show this many of the newest lines
 
-    def visible_lines(self, number, budget_tokens):
+    def visible_lines(self, number: int, budget_tokens: int) -> tuple[list[str], int]:
         mine = self.readable(number)
         docs = [self.lines[i] for i in mine]
         # the agent's situation as a query: its own field and its neighbours' fields

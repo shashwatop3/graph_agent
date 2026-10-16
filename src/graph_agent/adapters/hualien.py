@@ -184,7 +184,7 @@ def assess_exposure(store: Store, ids: Ids, viewer: str, fab: str, tick: int) ->
     """
     entity = store.get(viewer, fab)
     quake = next(iter(store.beliefs(viewer, predicate=MAGNITUDE)), None)
-    if entity is None or quake is None:
+    if not isinstance(entity, Entity) or quake is None:
         return None
     figures = {}
     for predicate in (MAGNITUDE, DEPTH):

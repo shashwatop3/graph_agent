@@ -110,6 +110,13 @@ class Correction(Strict):
 Node = Agent | Observation | Entity | Belief | Action | Correction
 
 
+def as_type[N: Node](node: Node | None, kind: type[N]) -> N:
+    """`node` as a `kind`, or TypeError if it is missing or something else (a store bug)."""
+    if not isinstance(node, kind):
+        raise TypeError(f"expected a {kind.__name__}, found {node!r}")
+    return node
+
+
 # ---- relationships ----------------------------------------------------------------------------
 
 
