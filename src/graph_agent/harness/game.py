@@ -26,6 +26,7 @@ class GameResult:
     game: object
     exposures: list[Exposure]
     turns: list[tuple[int, str, TurnResult]] = field(default_factory=list)  # (day, agent, result)
+    days: list = field(default_factory=list)  # the engine's DayResult for every day played
 
     @property
     def fields_saved(self) -> int:
@@ -48,7 +49,10 @@ def run_game(
     budget: int = 4000,
     max_days: int = 100,
     max_steps: int = 6,
+    after_day=None,
 ) -> GameResult:
+    """Play the scenario to the end. `after_day(game, backend, day)`, if given, is called after
+    every day (the experiment harness uses it to ask the agents probe questions)."""
     game = build_game(scenario)
     backend.start(game)
     n_agents = game.sim.world.config.n_agents
@@ -131,5 +135,9 @@ def run_game(
             boxes[number].now = day
             turn = run_turn(client, boxes[number], context, max_steps)
             result.turns.append((day, f"A{number}", turn))
-        backend.day(game, game.step(set(water_today)))
+        day_result = game.step(set(water_today))
+        result.days.append(day_result)
+        backend.day(game, day_result)
+        if after_day is not None:
+            after_day(game, backend, day)
     return result

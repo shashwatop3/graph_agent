@@ -8,6 +8,7 @@ is roughly what a model with only a log to go on does.
 import re
 
 from graph_agent.harness.llm import ModelReply, ScriptedModel, ToolCall
+from probe_answer import is_probe, probe_answer
 
 PUBLISHED = re.compile(r"PUBLISHED: field F(\d+) caught fire on day (\d+)")
 TOLD = re.compile(r"A\d+ told A\d+ that fire reaches F(\d+) on day (\d+)")
@@ -18,6 +19,8 @@ def log_reader(n_agents: int, can_send: bool = True) -> ScriptedModel:
 
     def policy(system, messages, tools):
         first = messages[0]["content"]
+        if is_probe(first):  # a question, not a turn: just answer it
+            return ModelReply(text=probe_answer(first, n_agents), tokens_in=len(first) // 4)
         me = int(re.search(r"You are A(\d+)", first).group(1))
         day = int(re.search(r"It is day (\d+)", first).group(1))
         facts = [(int(f), int(d)) for f, d in PUBLISHED.findall(first)]

@@ -1,0 +1,256 @@
+"""Run every system on the same generated games and tabulate the results.
+
+A game is generated from `Knobs` (the scale settings in game.md) and a seed, so the same knobs and
+seed give the same world, the same imposters and the same lies for every system. The runner plays
+each (knobs, seed, system) combination, scores it (scoring.py) and collects one row per game.
+
+The model is passed in per game (`client_for`), so the same runner serves a free stand-in in tests
+and a real cached model for a real experiment.
+"""
+
+import csv
+import json
+import random
+import statistics
+from collections import defaultdict
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+from ..stores.falkor import FalkorStore
+from ..stores.memory import MemoryStore
+from ..stores.postgres import PostgresStore
+from .backend import GraphBackend
+from .baselines import BASELINES
+from .game import run_game
+from .scoring import Probe, make_probe_hook, score_game
+
+
+@dataclass(frozen=True)
+class Knobs:
+    """The scale settings. The defaults are the easy end; each can be turned up."""
+
+    n_agents: int = 8  # also the relay depth: a claim can travel up to n_agents - 1 hops
+    fields_per_agent: int = 1
+    hidden_edges: int = 0  # paths nobody knows about until fire uses one
+    imposters: int = 1  # how many imposters follow `behaviour`
+    behaviour: str = "subtle_bias"  # subtle_bias, hide_fire or false_alarm
+    colluders: int = 0  # adjacent imposters backing one false alarm, so counting sources is fooled
+    extra_links: int = 0  # shortcut links from the start: more routes to the same belief
+
+
+def make_scenario(knobs: Knobs, seed: int) -> dict:
+    """The scenario dict (the format sim/scenario.py reads) for these knobs and this seed."""
+    rng = random.Random(seed)
+    n = knobs.n_agents
+    scenario = {
+        "seed": seed,
+        "world": {
+            "n_agents": n,
+            "fields_per_agent": knobs.fields_per_agent,
+            "n_hidden_edges": knobs.hidden_edges,
+            "n_initial_fires": 1,
+        },
+        "imposters": [],
+        "links": [],
+        "sends": [],
+    }
+    taken: set[int] = set()
+    liars: list[int] = []
+
+    # the colluding block: adjacent agents who all back the same false alarm
+    if knobs.colluders:
+        start = rng.randrange(n)
+        block = [(start + i) % n for i in range(knobs.colluders)]
+        taken |= set(block)
+        liars += block
+        scenario["imposters"] += [{"agent": a, "behaviour": "false_alarm"} for a in block]
+    others = rng.sample([a for a in range(n) if a not in taken], knobs.imposters)
+    scenario["imposters"] += [{"agent": a, "behaviour": knobs.behaviour} for a in others]
+    if knobs.behaviour == "false_alarm":
+        liars += others
+
+    # the lie: fire "will reach" a field on the far side of the ring, earlier than it really could
+    n_fields = n * knobs.fields_per_agent
+    lie = {"field_id": n_fields // 2, "day": max(1, n_fields // 4)}
+    for liar in liars:
+        for neighbour in ((liar - 1) % n, (liar + 1) % n):
+            if neighbour not in liars:
+                scenario["sends"].append(
+                    {"day": 1, "sender": liar, "receiver": neighbour, "claim": dict(lie)}
+                )
+
+    chosen: set[tuple[int, int]] = set()
+    while len(chosen) < knobs.extra_links:
+        a, b = sorted(rng.sample(range(n), 2))
+        if (b - a) % n not in (1, n - 1):  # not already ring neighbours
+            chosen.add((a, b))
+    scenario["links"] = sorted(chosen)
+    return scenario
+
+
+# ---- the systems ---------------------------------------------------------------------------------
+
+
+def _graph(store_class):
+    def make():
+        store = store_class()
+        return GraphBackend(
+            store, name=f"graph-{store_class.__name__.removesuffix('Store').lower()}"
+        ), store.close
+
+    return make
+
+
+# name -> function returning (backend, cleanup)
+SYSTEMS: dict[str, Callable] = {
+    "graph-memory": _graph(MemoryStore),
+    "graph-falkor": _graph(FalkorStore),
+    "graph-postgres": _graph(PostgresStore),
+    **{name: (lambda cls=cls: (cls(), lambda: None)) for name, cls in BASELINES.items()},
+}
+
+
+def run_experiment(
+    systems: list[str],
+    grid: list[Knobs],
+    seeds: list[int],
+    client_for: Callable,
+    *,
+    budget: int = 4000,
+    probe_days: tuple[int, ...] = (2, 4),
+    out_dir: str | Path | None = None,
+) -> list[dict]:
+    """One row per (knobs, seed, system). `client_for(system, knobs)` returns the model to use."""
+    rows = []
+    for knobs in grid:
+        for seed in seeds:
+            scenario = make_scenario(knobs, seed)
+            for system in systems:
+                backend, cleanup = SYSTEMS[system]()
+                client = client_for(system, knobs)
+                probes: list[Probe] = []
+                hook = make_probe_hook(client, probes, budget, set(probe_days))
+                try:
+                    result = run_game(scenario, backend, client, budget=budget, after_day=hook)
+                    row = score_game(result, backend, probes)
+                finally:
+                    cleanup()
+                rows.append({"system": system, "seed": seed, **asdict(knobs), **row})
+    if out_dir is not None:
+        save(rows, out_dir)
+    return rows
+
+
+# ---- tables and plots ----------------------------------------------------------------------------
+
+KNOB_NAMES = list(Knobs.__dataclass_fields__)
+DEFAULT_METRICS = [
+    "fields_saved",
+    "water_wasted",
+    "lies_relayed",
+    "false_beliefs_remaining",
+    "propagation_precision",
+    "propagation_recall",
+    "probe_accuracy",
+    "stale_leakage",
+    "tokens_in",
+    "model_calls",
+]
+
+
+def save(rows: list[dict], out_dir: str | Path) -> None:
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "results.json").write_text(json.dumps(rows, indent=1, sort_keys=True))
+    columns = sorted({k for r in rows for k in r})
+    with (out / "results.csv").open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, columns)
+        writer.writeheader()
+        writer.writerows(rows)
+    (out / "summary.md").write_text(summary_table(rows))
+
+
+def _mean_range(values: list) -> str:
+    values = [v for v in values if v is not None]
+    if not values:
+        return "n/a"
+    low, high = min(values), max(values)
+    mean = statistics.mean(values)
+    return f"{mean:.2f}" if low == high else f"{mean:.2f} ({low:.2f}-{high:.2f})"
+
+
+def summary_table(rows: list[dict], metrics: list[str] | None = None) -> str:
+    """Markdown: one block per knob setting, one row per system, mean (min-max) over seeds."""
+    metrics = metrics or DEFAULT_METRICS
+    by_knobs: dict[tuple, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
+    for row in rows:
+        by_knobs[tuple(row[k] for k in KNOB_NAMES)][row["system"]].append(row)
+    seeds = len({r["seed"] for r in rows})
+    out = []
+    for knob_values, systems in by_knobs.items():
+        out.append(
+            "### " + ", ".join(f"{k}={v}" for k, v in zip(KNOB_NAMES, knob_values, strict=True))
+        )
+        out.append("")
+        out.append("| system | " + " | ".join(metrics) + " |")
+        out.append("|---|" + "---|" * len(metrics))
+        for system, group in systems.items():
+            cells = [_mean_range([r.get(m) for r in group]) for m in metrics]
+            out.append(f"| {system} | " + " | ".join(cells) + " |")
+        out.append("")
+    out.append(f"Mean (min-max) over {seeds} seed(s). The sample is small: read ranges, not means.")
+    return "\n".join(out) + "\n"
+
+
+def plot_svg(rows: list[dict], x: str, y: str, title: str = "") -> str:
+    """A standalone SVG line chart of metric `y` against knob `x`, one line per system (mean over
+    seeds). Pure Python so there is nothing to install."""
+    series: dict[str, dict[float, list[float]]] = defaultdict(lambda: defaultdict(list))
+    for row in rows:
+        if row.get(y) is not None:
+            series[row["system"]][row[x]].append(row[y])
+    points = {s: sorted((xv, statistics.mean(v)) for xv, v in d.items()) for s, d in series.items()}
+    xs = sorted({xv for p in points.values() for xv, _ in p})
+    ys = [yv for p in points.values() for _, yv in p]
+    if not xs or not ys:
+        return "<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'/>"
+    low, high = min(0, min(ys)), max(ys) or 1
+    left, top, width, height = 50, 30, 520, 260
+
+    def px(v):
+        return left + (width * (v - xs[0]) / ((xs[-1] - xs[0]) or 1))
+
+    def py(v):
+        return top + height - height * (v - low) / ((high - low) or 1)
+
+    colours = ["#1b6ef3", "#d9480f", "#2b8a3e", "#862e9c", "#e67700", "#0b7285", "#495057"]
+    parts = [
+        f"<svg xmlns='http://www.w3.org/2000/svg' "
+        f"viewBox='0 0 {left + width + 150} {top + height + 40}' "
+        "font-family='sans-serif' font-size='12'>",
+        f"<text x='{left}' y='18' font-weight='bold'>{title or y + ' by ' + x}</text>",
+        f"<line x1='{left}' y1='{top + height}' x2='{left + width}' y2='{top + height}' "
+        "stroke='#888'/>",
+        f"<line x1='{left}' y1='{top}' x2='{left}' y2='{top + height}' stroke='#888'/>",
+        f"<text x='{left - 6}' y='{top + 4}' text-anchor='end'>{high:g}</text>",
+        f"<text x='{left - 6}' y='{top + height}' text-anchor='end'>{low:g}</text>",
+    ]
+    for xv in xs:
+        parts.append(
+            f"<text x='{px(xv)}' y='{top + height + 16}' text-anchor='middle'>{xv:g}</text>"
+        )
+    for i, (system, pts) in enumerate(sorted(points.items())):
+        colour = colours[i % len(colours)]
+        path = " ".join(f"{px(a):.1f},{py(b):.1f}" for a, b in pts)
+        parts.append(f"<polyline points='{path}' fill='none' stroke='{colour}' stroke-width='2'/>")
+        parts += [
+            f"<circle cx='{px(a):.1f}' cy='{py(b):.1f}' r='3' fill='{colour}'/>" for a, b in pts
+        ]
+        parts.append(
+            f"<rect x='{left + width + 14}' y='{top + 16 * i}' width='10' height='10' "
+            f"fill='{colour}'/>"
+        )
+        parts.append(f"<text x='{left + width + 30}' y='{top + 16 * i + 9}'>{system}</text>")
+    parts.append("</svg>")
+    return "".join(parts)
