@@ -50,8 +50,18 @@ def build_world(spec: dict, seed: int) -> World:
     return world
 
 
-def run_scenario(scenario: dict, max_days: int = 1000) -> Game:
-    """Play the scenario to the end and return the finished game."""
+def run_scenario(
+    scenario: dict,
+    max_days: int = 1000,
+    on_start=None,  # called once with the game before day 0
+    on_send=None,  # called with (game, message) for every message that was sent
+    on_day=None,  # called with (game, day result) after every day is played
+) -> Game:
+    """Play the scenario to the end and return the finished game.
+
+    The three optional callbacks let something outside the simulator (the harness, feeding an
+    adapter and a store) watch the game as it happens, without the simulator knowing about it.
+    """
     game = Game(
         build_world(scenario["world"], scenario.get("seed", 0)),
         FireRules(**scenario.get("rules", {})),
@@ -68,6 +78,8 @@ def run_scenario(scenario: dict, max_days: int = 1000) -> Game:
         sends.setdefault(s["day"], []).append(s)
     last_event = max([*sends, *watering], default=0)
 
+    if on_start:
+        on_start(game)
     sent: dict[str, Message | None] = {}
     while not (game.finished and game.day > last_event):
         if game.day >= max_days:
@@ -79,5 +91,9 @@ def run_scenario(scenario: dict, max_days: int = 1000) -> Game:
             message = game.send(s["sender"], s["receiver"], Claim(**s["claim"]), relaying)
             if "label" in s:
                 sent[s["label"]] = message
-        game.step(watering.get(game.day, ()))
+            if message is not None and on_send:
+                on_send(game, message)
+        result = game.step(watering.get(game.day, ()))
+        if on_day:
+            on_day(game, result)
     return game

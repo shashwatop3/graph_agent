@@ -4,7 +4,7 @@ A domain-agnostic graph layer that keeps the beliefs of several LLM agents consi
 correction arrives, plus a benchmark game (Ring Fire) that runs the same agents on two backends:
 a graph store (FalkorDB) and a relational store (PostgreSQL).
 
-Status: stages S0 to S5 done (skeleton, fire engine, messages and oracle, core model, FalkorDB and Postgres stores). Design notes live in the Obsidian vault and are reachable through the
+Status: stages S0 to S7 done (skeleton, fire engine, messages and oracle, core model, three stores, scenarios and benchmark, Ring Fire adapter).
 `docs` symlink in this folder (not tracked by git).
 
 ## Layout

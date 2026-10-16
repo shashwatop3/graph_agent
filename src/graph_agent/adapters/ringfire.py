@@ -1,0 +1,288 @@
+"""The Ring Fire adapter: everything the core does not know about fire.
+
+The core stores generic beliefs and propagates corrections along routes and dependencies. This
+module is the only place that says what a belief in this game means:
+
+  * the predicates (what a claim can say, and when two claims contradict),
+  * parsers that turn what the engine delivered into core nodes,
+  * the evidence rule (when is a claim refuted, and whom do we stop trusting),
+  * one derived computation (forecast when fire reaches a field),
+  * one-line render templates and the role card.
+
+It imports only the core. It never sees the simulator's classes: the harness converts those to the
+plain dicts described below, so the engine and the adapter stay independent.
+
+Naming: agent 3 is the node "A3", field 7 is the entity "F7". The one claim in this game is
+`fire.arrival_day(F7) = 4`: "fire reaches field 7 on day 4".
+
+Plain dicts the harness supplies
+  message   {"sender": 2, "receiver": 3, "route": [0, 1, 2], "day": 2,
+             "claim": {"field_id": 7, "day": 4}}
+            `route` is every agent the claim passed through, ending with the sender.
+  evidence  {"day": 3, "field_id": 7}      the engine published that field 7 ignited on day 3
+"""
+
+from ..core.model import Agent, Belief, Edge, Entity, Observation
+from ..core.registry import Predicate
+from ..core.store import Store
+
+# ---- predicates ---------------------------------------------------------------------------------
+
+# A field ignites once, so it has one arrival day; two different days contradict. No tolerance:
+# being a day off is exactly the lie a subtle-bias imposter tells.
+PREDICATES = {"fire.arrival_day": Predicate(name="fire.arrival_day", single_valued=True)}
+
+ARRIVAL = "fire.arrival_day"
+
+# One line per predicate, used by the context compiler to show a belief to the model.
+TEMPLATES = {ARRIVAL: "fire reaches {subject} on day {value}"}
+
+
+def agent_id(n: int) -> str:
+    return f"A{n}"
+
+
+def field_id(n: int) -> str:
+    return f"F{n}"
+
+
+class Ids:
+    """Hands out ids such as O1, O2, B1 for the nodes the adapter creates."""
+
+    def __init__(self) -> None:
+        self._counts: dict[str, int] = {}
+
+    def next(self, prefix: str) -> str:
+        self._counts[prefix] = self._counts.get(prefix, 0) + 1
+        return f"{prefix}{self._counts[prefix]}"
+
+
+# ---- the map ------------------------------------------------------------------------------------
+
+
+def setup_map(store: Store, n_agents: int, fields: list[tuple[int, int]], spread: list[tuple]):
+    """Create agents, fields and the known spread edges.
+
+    fields: (field number, owner agent number); spread: (from field, to field, days) triples.
+    Hidden edges are not known yet; `reveal_hidden_edge` adds each one when fire first uses it.
+    """
+    for n in range(n_agents):
+        store.add_node(Agent(id=agent_id(n), role="segment keeper"))
+    for number, owner in fields:
+        store.add_node(Entity(id=field_id(number), type="Field", owner=agent_id(owner)))
+    for src, dst, weight in spread:
+        _relate(store, src, dst, weight, "spread")
+
+
+def reveal_hidden_edge(store: Store, src: int, dst: int, weight: int) -> None:
+    """Fire used a hidden path, so everyone now knows it exists."""
+    _relate(store, src, dst, weight, "hidden")
+
+
+def _relate(store: Store, src: int, dst: int, weight: int, kind: str) -> None:
+    store.add_edge(
+        Edge(
+            kind="RELATES",
+            src=field_id(src),
+            dst=field_id(dst),
+            props={"type": kind, "weight": weight},
+        )
+    )
+
+
+# ---- parsers ------------------------------------------------------------------------------------
+
+
+def _live(belief: Belief) -> bool:
+    return belief.status in ("active", "suspect")
+
+
+def _find_live(store: Store, viewer: str, subject: str, value: int, origin: str):
+    """The viewer's live arrival-day belief with this value and origin, if there is one."""
+    for belief in store.beliefs(viewer, subject=subject, predicate=ARRIVAL):
+        if _live(belief) and belief.value == value and belief.origin == origin:
+            return belief
+    return None
+
+
+def _believe(store, ids, viewer, field, value, origin, tick, obs_id=None) -> Belief:
+    """Find or create the belief, and attach an observation as support if one is given.
+
+    Hearing the same claim again, from another route, adds a second supporting observation to
+    the SAME belief instead of creating a duplicate. That is how a belief comes to have several
+    routes, and why losing one route does not necessarily lose the belief.
+    """
+    subject = field_id(field)
+    belief = _find_live(store, viewer, subject, value, origin)
+    if belief is None:
+        belief = Belief(
+            id=ids.next("B"),
+            owner=viewer,
+            subject=subject,
+            predicate=ARRIVAL,
+            value=value,
+            unit="day",
+            origin=origin,
+            kind="forecast" if origin != "observed" else "fact",
+            created_tick=tick,
+            updated_tick=tick,
+        )
+        store.add_node(belief)
+        store.add_edge(Edge(kind="ABOUT", src=belief.id, dst=subject, props={"role": "subject"}))
+    if obs_id is not None:
+        store.add_edge(Edge(kind="SUPPORTS", src=obs_id, dst=belief.id, props={"tick": tick}))
+    return belief
+
+
+def record_message(store: Store, ids: Ids, message: dict) -> Belief:
+    """The receiver now holds an observation (with its route) and a told belief it supports."""
+    viewer = agent_id(message["receiver"])
+    claim = message["claim"]
+    observation = Observation(
+        id=ids.next("O"),
+        kind="message",
+        payload=message,
+        received_by=viewer,
+        sender=agent_id(message["sender"]),
+        about_tick=claim["day"],
+        received_tick=message["day"],
+    )
+    store.add_node(observation)
+    for hop, agent in enumerate(message["route"]):  # the route, as edges, so it can be walked
+        store.add_edge(
+            Edge(kind="RELAYED_VIA", src=observation.id, dst=agent_id(agent), props={"hop": hop})
+        )
+    store.add_edge(
+        Edge(
+            kind="ABOUT",
+            src=observation.id,
+            dst=field_id(claim["field_id"]),
+            props={"role": "mentioned"},
+        )
+    )
+    return _believe(
+        store, ids, viewer, claim["field_id"], claim["day"], "told", message["day"], observation.id
+    )
+
+
+def record_evidence(store: Store, ids: Ids, evidence: dict, viewer_number: int) -> Belief:
+    """Published truth, as seen by one agent: an observation with no route (it always counts)."""
+    viewer = agent_id(viewer_number)
+    observation = Observation(
+        id=ids.next("O"),
+        kind="evidence",
+        payload=evidence,
+        received_by=viewer,
+        about_tick=evidence["day"],
+        received_tick=evidence["day"],
+    )
+    store.add_node(observation)
+    return _believe(
+        store,
+        ids,
+        viewer,
+        evidence["field_id"],
+        evidence["day"],
+        "observed",
+        evidence["day"],
+        observation.id,
+    )
+
+
+# ---- evidence rule ------------------------------------------------------------------------------
+
+
+def _senders(store: Store, viewer: str, belief_id: str) -> set[str]:
+    """The agents that directly told the viewer this belief: the last agent on each route."""
+    return {route[-1] for route in store.support_routes(viewer, belief_id) if route}
+
+
+def agents_to_distrust(store: Store, viewer: str, evidence_belief: Belief):
+    """Who reported something that the evidence just proved wrong?
+
+    Rule (the same for every setup): when evidence arrives, every told belief that contradicts it
+    is refuted, and the agents that told it to the viewer lose the viewer's trust. Returns
+    (agent, reason) pairs. The viewer cannot tell who along the route lied, so it blames the one
+    that told it, and a later correction can still repair that.
+    """
+    found: dict[str, str] = {}
+    for belief in store.conflicts(viewer, evidence_belief.id, PREDICATES):
+        if belief.origin != "told":
+            continue
+        for sender in _senders(store, viewer, belief.id):
+            found.setdefault(
+                sender,
+                f"told {belief.subject} on day {belief.value}; evidence says day "
+                f"{evidence_belief.value}",
+            )
+    return sorted(found.items())
+
+
+def agents_with_expired_claims(store: Store, viewer: str, today: int):
+    """Who made a claim about a day that is over, with no evidence of it?
+
+    `today` is the day that has just been played. A claim "fire reaches F on day d" is refuted
+    once day d is over and no evidence says F ignited on d. This is how a false alarm gets caught:
+    the fire never comes. Same blame rule as above.
+    """
+    found: dict[str, str] = {}
+    for belief in store.beliefs(viewer, predicate=ARRIVAL):
+        if belief.origin != "told" or not _live(belief) or belief.value > today:
+            continue
+        if _find_live(store, viewer, belief.subject, belief.value, "observed") is not None:
+            continue
+        for sender in _senders(store, viewer, belief.id):
+            found.setdefault(
+                sender, f"told {belief.subject} on day {belief.value}; no fire came that day"
+            )
+    return sorted(found.items())
+
+
+# ---- derived computation ------------------------------------------------------------------------
+
+
+def forecast_arrival(store: Store, ids: Ids, viewer: str, target_field: int, tick: int):
+    """When will fire reach `target_field`, given the fires the viewer has seen?
+
+    For each field the viewer knows burned (an evidence belief), arrival there plus the shortest
+    path to the target is a candidate; the earliest wins. The result is a derived belief, linked
+    DERIVED_FROM the evidence it used, so if that evidence is ever corrected the forecast is
+    flagged. Returns None when the viewer knows no fire that can reach the target.
+    """
+    target = field_id(target_field)
+    best = None  # (arrival day, source belief)
+    for belief in store.beliefs(viewer, predicate=ARRIVAL):
+        if belief.origin != "observed" or not _live(belief):
+            continue
+        distance = store.shortest_distance(belief.subject, target)
+        if distance is not None and (best is None or belief.value + distance < best[0]):
+            best = (belief.value + distance, belief)
+    if best is None:
+        return None
+    day, source = best
+    forecast = _find_live(store, viewer, target, int(day), "derived")
+    if forecast is None:
+        forecast = _believe(store, ids, viewer, target_field, int(day), "derived", tick)
+        store.add_edge(
+            Edge(
+                kind="DERIVED_FROM",
+                src=forecast.id,
+                dst=source.id,
+                props={"via": "shortest_path", "tick": tick},
+            )
+        )
+    return forecast
+
+
+# ---- render and role card -----------------------------------------------------------------------
+
+
+def role_card(agent: str, n_agents: int) -> str:
+    return (
+        f"You are {agent}, keeper of one segment of a ring of {n_agents} segments. Fire spreads "
+        f"clockwise, one field per day, and can sometimes jump ahead along paths nobody knows "
+        f"about. You may water your own fields, but not on two days in a row. Watering halves "
+        f"the fire that reaches your field; unwatered fire doubles. Some agents lie. Messages "
+        f"show the route they travelled, and you can build a new link to skip an agent you no "
+        f"longer trust. Report what you learn to your neighbours."
+    )
