@@ -41,7 +41,15 @@ from ..core.compiler import estimate_tokens
 from ..core.model import Action
 from ..sim.comms import Message
 from ..sim.game import DayResult, Game
-from .pipeline import Exposure
+from .pipeline import (
+    CardRules,
+    Exposure,
+    card_rules,
+    hidden_map_line,
+    map_line,
+    outlook,
+    role_card,
+)
 from .types import ExecuteFn, SendFn
 
 CHECKLIST = (
@@ -142,9 +150,12 @@ class _LogBackend:
         self.audience: list[set[int] | None] = []  # per line: who may read it (None = everyone)
         self._evidence_line: dict[int, int] = {}  # field -> index of its "PUBLISHED" line
         self.map_lines: list[str] = []
+        self.edges: list[tuple[int, int, int]] = []  # the paths agents know: (src, dst, days)
+        # every published fire: (field, day, who may read it), sharing the set with its log line
+        self.evidence: list[tuple[int, int, set[int]]] = []
         self.n_agents = 0
         self.fields: dict[int, tuple[int, ...]] = {}
-        self.water: int | None = None  # waterings per agent, from the game's rules
+        self.rules: CardRules | None = None  # what the role card says about the rules
 
     # ---- feeding it the game ------------------------------------------------------------------
 
@@ -152,14 +163,12 @@ class _LogBackend:
         world = game.sim.world
         self.n_agents = world.config.n_agents
         self.fields = {n: tuple(world.fields_of(n)) for n in range(self.n_agents)}
-        self.water = game.sim.rules.water_per_agent
+        self.rules = card_rules(game)
         for edge in world.edges:
             if not edge.hidden:
                 owner = world.owner(edge.src)
-                self.map_lines.append(
-                    f"F{edge.src} -> F{edge.dst}: fire takes {edge.weight} day(s) "
-                    f"(A{owner} owns F{edge.src})"
-                )
+                self.map_lines.append(map_line(edge.src, edge.dst, edge.weight, owner))
+                self.edges.append((edge.src, edge.dst, edge.weight))
         self.game = game
         for field_number, _ in world.initial_fires:
             self._publish(0, field_number, game.audience(field_number, 0))
@@ -167,7 +176,9 @@ class _LogBackend:
     def _publish(self, day: int, field_number: int, audience: Collection[int]) -> None:
         self._evidence_line[field_number] = len(self.lines)
         self.lines.append(f"day {day}: PUBLISHED: field F{field_number} caught fire on day {day}")
-        self.audience.append(set(audience))
+        readers = set(audience)
+        self.audience.append(readers)
+        self.evidence.append((field_number, day, readers))
 
     def message(self, message: Message) -> None:
         self.lines.append(_message_line(message))
@@ -181,10 +192,8 @@ class _LogBackend:
 
     def day(self, game: Game, result: DayResult) -> None:
         for edge in result.report.revealed_hidden:
-            self.map_lines.append(
-                f"F{edge.src} -> F{edge.dst}: a hidden path, now revealed; "
-                f"takes {edge.weight} day(s)"
-            )
+            self.map_lines.append(hidden_map_line(edge.src, edge.dst, edge.weight))
+            self.edges.append((edge.src, edge.dst, edge.weight))
         start = (
             {f for f, _ in game.sim.world.initial_fires} if result.report.day == 0 else set[int]()
         )
@@ -195,8 +204,8 @@ class _LogBackend:
     # ---- what the agent reads -----------------------------------------------------------------
 
     def role(self, number: int) -> str:
-        card = ringfire.role_card(
-            ringfire.agent_id(number), self.n_agents, self.fields.get(number, ())
+        card = role_card(
+            ringfire.agent_id(number), self.n_agents, self.fields.get(number, ()), self.rules
         )
         return f"## Role\n{card}" + (f"\n\n## Checklist\n{CHECKLIST}" if self.strong_prompt else "")
 
@@ -212,7 +221,9 @@ class _LogBackend:
         raise NotImplementedError
 
     def context(self, number: int, day: int, budget: int) -> str:
-        head = f"{self.role(number)}\n\n{self.map_section()}"
+        seen = [(f, d) for f, d, readers in self.evidence if number in readers]
+        fire_outlook = outlook(self.edges, seen, self.fields.get(number, ()), day)
+        head = f"{self.role(number)}\n\n{self.map_section()}\n\n{fire_outlook}"
         room = budget - estimate_tokens(head) - 12
         lines, left_out = self.visible_lines(number, max(room, 0))
         title = self.section_title

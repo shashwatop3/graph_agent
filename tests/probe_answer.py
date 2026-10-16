@@ -7,7 +7,7 @@ a context leak into the answer, while a context that has had it removed does not
 
 import re
 
-QUESTION = re.compile(r"On what day will fire first reach F(\d+)\?")
+QUESTION = re.compile(r"On what day will fire (?:first|next) reach F(\d+)\?")
 CLAIM = r"fire reaches F{field} on day (\d+)"
 BURNING = re.compile(
     r"(?:PUBLISHED: field F(\d+) caught fire on day (\d+))|"

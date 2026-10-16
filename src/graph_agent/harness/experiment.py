@@ -40,11 +40,19 @@ class Knobs:
     hidden_edges: int = 0  # paths nobody knows about until fire uses one
     initial_fires: int = 1  # fields already burning when the game starts
     imposters: int = 1  # how many imposters follow `behaviour`
-    behaviour: str = "subtle_bias"  # subtle_bias, hide_fire or false_alarm
-    colluders: int = 0  # adjacent imposters backing one false alarm, so counting sources is fooled
+    behaviour: str = "subtle_bias"  # subtle_bias, hide_fire, false_alarm or saboteur
+    # adjacent imposters backing one false alarm, so counting sources is fooled (with saboteur
+    # behaviour: an adjacent block of saboteurs)
+    colluders: int = 0
     extra_links: int = 0  # shortcut links from the start: more routes to the same belief
     water_per_agent: int | None = 2  # waterings each agent has; None = unlimited (water spam wins)
     evidence: str = "private"  # who is shown that fire reached a field: "private" or "public"
+    # the long game: fields regrow, fires start at random, the game ends on a fixed day
+    horizon: int | None = None  # days the game lasts; None = until the fire is out
+    random_fire_chance: float = 0.0  # chance each day that one random field catches fire
+    regrow_days: int | None = None  # days a burnt-out field takes to grow back; None = never
+    water_cooldown: int = 1  # days an agent must rest after watering
+    waste_penalty: float = 0.0  # a wasted watering counts as this many burnt fields in `loss`
 
 
 def make_scenario(knobs: Knobs, seed: int) -> Scenario:
@@ -56,7 +64,12 @@ def make_scenario(knobs: Knobs, seed: int) -> Scenario:
     scenario: Scenario = {
         "seed": seed,
         "evidence": knobs.evidence,
-        "rules": {"water_per_agent": knobs.water_per_agent},
+        "rules": {
+            "water_per_agent": knobs.water_per_agent,
+            "water_cooldown": knobs.water_cooldown,
+            "regrow_days": knobs.regrow_days,
+            "waste_penalty": knobs.waste_penalty,
+        },
         "world": {
             "n_agents": n,
             "fields_per_agent": knobs.fields_per_agent,
@@ -70,13 +83,21 @@ def make_scenario(knobs: Knobs, seed: int) -> Scenario:
     taken: set[int] = set()
     liars: list[int] = []
 
+    if knobs.horizon is not None:
+        scenario["world"]["horizon"] = knobs.horizon
+        scenario["world"]["random_ignition_chance"] = knobs.random_fire_chance
+    # saboteurs plan their own lies as the game goes (sim/saboteur.py): no scripted alarm
+    saboteurs = knobs.behaviour == "saboteur"
+
     # the colluding block: adjacent agents who all back the same false alarm
     if knobs.colluders:
         start = rng.randrange(n)
         block = [(start + i) % n for i in range(knobs.colluders)]
         taken |= set(block)
-        liars += block
-        imposters += [ImposterSpec(agent=a, behaviour="false_alarm") for a in block]
+        if not saboteurs:
+            liars += block
+        block_behaviour = "saboteur" if saboteurs else "false_alarm"
+        imposters += [ImposterSpec(agent=a, behaviour=block_behaviour) for a in block]
     others = rng.sample([a for a in range(n) if a not in taken], knobs.imposters)
     imposters += [ImposterSpec(agent=a, behaviour=knobs.behaviour) for a in others]
     if knobs.behaviour == "false_alarm":
@@ -108,11 +129,13 @@ def make_scenario(knobs: Knobs, seed: int) -> Scenario:
 type MadeSystem = tuple[Backend, Callable[[], None]]
 
 
-def _graph(store_class: type[Store]) -> Callable[[], MadeSystem]:
+def _graph(store_class: type[Store], warn_quorum: int | None = None) -> Callable[[], MadeSystem]:
     def make() -> MadeSystem:
         store = store_class()
         name = f"graph-{store_class.__name__.removesuffix('Store').lower()}"
-        return GraphBackend(store, name=name), store.close
+        if warn_quorum is not None:
+            name += "-group"
+        return GraphBackend(store, name=name, warn_quorum=warn_quorum), store.close
 
     return make
 
@@ -129,6 +152,9 @@ SYSTEMS: dict[str, Callable[[], MadeSystem]] = {
     "graph-memory": _graph(MemoryStore),
     "graph-falkor": _graph(FalkorStore),
     "graph-postgres": _graph(PostgresStore),
+    # the same, plus group correction: honest agents warn each other about liars they caught
+    "graph-memory-group": _graph(MemoryStore, warn_quorum=1),
+    "graph-falkor-group": _graph(FalkorStore, warn_quorum=1),
     **{name: _baseline(make_backend) for name, make_backend in BASELINES.items()},
 }
 
@@ -187,12 +213,18 @@ def run_experiment(
 
 KNOB_NAMES = list(Knobs.__dataclass_fields__)
 DEFAULT_METRICS = [
+    "loss",
+    "honest_ignitions",
     "fields_saved",
+    "ignitions",
+    "fires_put_out",
     "water_wasted",
     "lies_relayed",
     "false_beliefs_remaining",
     "propagation_precision",
     "propagation_recall",
+    "liar_coverage",
+    "honest_distrusted",
     "probe_accuracy",
     "stale_leakage",
     "tokens_in",

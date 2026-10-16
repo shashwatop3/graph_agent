@@ -23,7 +23,7 @@ if env_file.exists():
             os.environ.setdefault(key.strip(), value.strip())
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--systems", nargs="+", default=["graph-memory", "B0"])
+parser.add_argument("--systems", nargs="+", default=["graph-falkor", "B1"])
 parser.add_argument("--agents", type=int, nargs="+", default=[6])
 parser.add_argument("--seeds", type=int, nargs="+", default=[0])
 parser.add_argument("--behaviour", default="false_alarm")
@@ -34,7 +34,22 @@ parser.add_argument("--hidden-edges", type=int, default=0)
 parser.add_argument("--imposters", type=int, default=1)
 parser.add_argument("--colluders", type=int, default=0)
 parser.add_argument("--extra-links", type=int, default=0)
-parser.add_argument("--water", type=int, default=2, help="waterings per agent")
+parser.add_argument(
+    "--water",
+    type=lambda v: None if v == "none" else int(v),
+    default=2,
+    help="waterings per agent, or 'none' for no limit",
+)
+parser.add_argument("--cooldown", type=int, default=1, help="days to rest after watering")
+parser.add_argument(
+    "--waste-penalty", type=float, default=0.0, help="a wasted watering, in burnt fields"
+)
+# the long game
+parser.add_argument("--horizon", type=int, default=None, help="days the game lasts")
+parser.add_argument(
+    "--random-fire-chance", type=float, default=0.0, help="per day (needs --horizon)"
+)
+parser.add_argument("--regrow-days", type=int, default=None, help="burnt fields grow back after")
 parser.add_argument("--probe-days", type=int, nargs="+", default=[2, 4])
 parser.add_argument(
     "--no-contexts", action="store_true", help="leave the agents' contexts out of the log"
@@ -98,6 +113,11 @@ grid = [
         colluders=args.colluders,
         extra_links=args.extra_links,
         water_per_agent=args.water,
+        water_cooldown=args.cooldown,
+        horizon=args.horizon,
+        random_fire_chance=args.random_fire_chance,
+        regrow_days=args.regrow_days,
+        waste_penalty=args.waste_penalty,
     )
     for n in args.agents
 ]

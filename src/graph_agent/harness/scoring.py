@@ -6,8 +6,10 @@ oracle, never from what an agent says about itself. That is what lets a chat log
 and a knowledge graph be compared on one scale.
 
 Two kinds of metric
-  * Game outcome, for every system:   fields saved, water wasted, how far lies spread, tokens,
-                                      and what agents answer when asked a question (probes).
+  * Game outcome, for every system:   fields saved (never burnt), ignitions (fires that took,
+                                      counting a field each time it burns), fires put out, water
+                                      wasted, how far lies spread, tokens, and what agents answer
+                                      when asked a question (probes).
   * Belief handling, graph setups only: propagation precision and recall, false invalidations,
                                       false beliefs still held, how fast an imposter is isolated.
     These need a belief store to look inside. The baselines have none, so they are measured by
@@ -21,7 +23,9 @@ from typing import TypedDict
 
 from ..adapters import ringfire
 from ..core.compiler import estimate_tokens
+from ..core.model import Belief
 from ..sim.comms import Claim, Message
+from ..sim.field import FieldState
 from ..sim.game import Game
 from ..sim.oracle import Oracle
 from .backend import GraphBackend
@@ -59,10 +63,21 @@ class Propagation(TypedDict):
     propagation_recall: float | None
     false_invalidations: int | None
     false_beliefs_remaining: int | None
+    # of every (honest agent, imposter) pair, the share where the honest agent distrusts the
+    # imposter by the end: how far the honest agents converged on who the liars are
+    liar_coverage: float | None
+    honest_distrusted: int | None  # (honest agent, honest agent) pairs wrongly distrusted
+    warnings: int | None  # warnings sent between agents (group correction)
 
 
 class Totals(TypedDict):
+    # honest_ignitions + waste_penalty x water_wasted: the one number to minimise (lower is
+    # better). Only honest agents' fields count: nobody protects an imposter's fields.
+    loss: float
+    honest_ignitions: int
     fields_saved: int
+    ignitions: int  # every time a field caught fire, start fires included
+    fires_put_out: int  # every time fire reached a field on a day its owner watered
     fields: int
     days: int
     tokens_in: int
@@ -74,6 +89,7 @@ class ScoreRow(Totals, WaterUse, LieSpread, Isolation, Propagation, ProbeScores)
     """One game's results: every metric, by name."""
 
 
+_LIVE = ("active", "suspect")
 WATERED = "you will water your fields today"  # what the water action replies when it succeeds
 
 PROBE_SYSTEM = (
@@ -111,7 +127,8 @@ def make_probe_hook(
     trace: Trace = NO_TRACE,
 ) -> AfterDay:
     """An `after_day` hook for run_game that asks each honest agent, on the given days, when fire
-    will reach its first field that has not burnt yet. Answers are appended to `probes`."""
+    will next reach its first field that is not burning or burnt now. Answers are appended to
+    `probes`."""
 
     def hook(game: Game, backend: Backend, day: int) -> None:
         if day not in probe_days:
@@ -120,7 +137,9 @@ def make_probe_hook(
             if number in game.net.imposters:
                 continue
             unburnt = [
-                f for f in game.sim.world.fields_of(number) if game.sim.fields[f].ignited_on is None
+                f
+                for f in game.sim.world.fields_of(number)
+                if game.sim.fields[f].state is FieldState.UNBURNT
             ]
             if not unburnt:
                 continue
@@ -128,6 +147,11 @@ def make_probe_hook(
             question = (
                 f"\n\nIt is the end of day {day}. On what day will fire first reach F{unburnt[0]}?"
             )
+            if game.sim.world.config.horizon is not None:  # a long game: fire can come back
+                question = (
+                    f"\n\nIt is the end of day {day}. On what day will fire next reach "
+                    f"F{unburnt[0]}? Say never if not before the game ends."
+                )
             trace.bind(agent=f"A{number}")
             reply = client.complete(
                 PROBE_SYSTEM, [{"role": "user", "content": context + question}], []
@@ -156,6 +180,12 @@ def make_probe_hook(
     return hook
 
 
+def probe_truth(game: Game, probe: Probe) -> int | str:
+    """The right answer: the first day after the question on which the field caught fire."""
+    ignited = Oracle(game).next_ignition(probe.field_id, after=probe.day)
+    return "never" if ignited is None else ignited
+
+
 def score_probes(game: Game, probes: list[Probe]) -> ProbeScores:
     """Accuracy, and stale leakage: how often an agent that had been told something false about a
     field then answers with exactly that false value."""
@@ -163,8 +193,7 @@ def score_probes(game: Game, probes: list[Probe]) -> ProbeScores:
         return {"probe_accuracy": None, "stale_leakage": None, "probes": 0}
     correct = told_false = leaked = 0
     for p in probes:
-        ignited = game.sim.fields[p.field_id].ignited_on
-        truth = "never" if ignited is None else ignited
+        truth = probe_truth(game, p)
         correct += p.answer == truth
         false_days = {
             m.claim.day
@@ -220,6 +249,18 @@ def lie_spread(game: Game) -> LieSpread:
 # ---- belief-handling metrics (graph setups) ------------------------------------------------------
 
 
+def as_claim(belief: Belief) -> Claim | None:
+    """The claim an arrival belief makes, or None if it names no day: an agent can assert
+    anything, such as the value "unknown"."""
+    value = belief.value
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
+        return None
+    try:
+        return Claim(int(belief.subject[1:]), int(value))
+    except ValueError:
+        return None
+
+
 def isolation(game: Game, exposures: list[Exposure]) -> Isolation:
     """How quickly each imposter was distrusted by anybody."""
     imposters = sorted(game.net.imposters)
@@ -250,6 +291,9 @@ def propagation(game: Game, backend: Backend) -> Propagation:
             "propagation_recall": None,
             "false_invalidations": None,
             "false_beliefs_remaining": None,
+            "liar_coverage": None,
+            "honest_distrusted": None,
+            "warnings": None,
         }
     store = backend.store
     oracle = Oracle(game)
@@ -275,9 +319,11 @@ def propagation(game: Game, backend: Backend) -> Propagation:
             belief = store.belief(e.viewer, change.belief_id)
             if belief is None or belief.origin != "told":
                 continue
-            claim = (int(belief.subject[1:]), int(belief.value))
-            stale.add(claim)
-            false_invalidations += oracle.claim_is_true(Claim(*claim)) is True
+            claim = as_claim(belief)
+            if claim is None:
+                continue
+            stale.add((claim.field_id, claim.day))
+            false_invalidations += oracle.claim_is_true(claim) is True
         reported += len(stale)
         matched += len(stale & expected)
         expected_total += len(expected)
@@ -285,15 +331,25 @@ def propagation(game: Game, backend: Backend) -> Propagation:
     remaining = 0
     for number in range(game.sim.world.config.n_agents):
         for belief in store.beliefs(f"A{number}", predicate="fire.arrival_day"):
-            if belief.origin == "told" and belief.status in ("active", "suspect"):
-                remaining += (
-                    oracle.claim_is_true(Claim(int(belief.subject[1:]), int(belief.value))) is False
-                )
+            claim = as_claim(belief)
+            if claim is not None and belief.origin == "told" and belief.status in _LIVE:
+                remaining += oracle.claim_is_true(claim) is False
+    imposters = set(game.net.imposters)
+    honest = [n for n in range(game.sim.world.config.n_agents) if n not in imposters]
+    distrusts = {(int(v[1:]), int(a[1:])) for v, a in backend.pipeline.exposed}
+    pairs = len(honest) * len(imposters)
     return {
         "propagation_precision": matched / reported if reported else None,
         "propagation_recall": matched / expected_total if expected_total else None,
         "false_invalidations": false_invalidations,
         "false_beliefs_remaining": remaining,
+        "liar_coverage": (
+            sum(1 for v, a in distrusts if v in honest and a in imposters) / pairs
+            if pairs
+            else None
+        ),
+        "honest_distrusted": sum(1 for v, a in distrusts if v in honest and a not in imposters),
+        "warnings": len(backend.pipeline.warnings),
     }
 
 
@@ -304,8 +360,18 @@ def score_game(result: GameResult, backend: Backend, probes: list[Probe] | None 
     """One row of results for one game."""
     probes = probes or []
     steps = sum(t.steps for _, _, t in result.turns)
+    water = water_use(result)
+    ignitions = sum(len(f.ignitions) for f in result.game.sim.fields)
+    honest_ignitions = sum(
+        len(f.ignitions) for f in result.game.sim.fields if f.owner not in result.game.net.imposters
+    )
+    penalty = result.game.sim.rules.waste_penalty
     base: Totals = {
+        "loss": honest_ignitions + penalty * water["water_wasted"],
+        "honest_ignitions": honest_ignitions,
         "fields_saved": result.fields_saved,
+        "ignitions": ignitions,
+        "fires_put_out": sum(len(d.report.hit_while_watered) for d in result.days),
         "fields": result.game.sim.world.n_fields,
         "days": result.game.day,
         "tokens_in": result.tokens_in + sum(p.tokens_in for p in probes),
@@ -314,7 +380,7 @@ def score_game(result: GameResult, backend: Backend, probes: list[Probe] | None 
     }
     return {
         **base,
-        **water_use(result),
+        **water,
         **lie_spread(result.game),
         **isolation(result.game, backend.exposures),
         **propagation(result.game, backend),
@@ -329,22 +395,23 @@ def trace_final_state(
     each agent holds next to whether the oracle says it is true, and the score."""
     game = result.game
     for p in probes:
-        ignited = game.sim.fields[p.field_id].ignited_on
+        truth = probe_truth(game, p)
         trace.emit(
             "probe_scored",
             agent=f"A{p.agent}",
             asked_day=p.day,
             field=p.field_id,
             answer=p.answer,
-            truth="never" if ignited is None else ignited,
-            correct=p.answer == ("never" if ignited is None else ignited),
+            truth=truth,
+            correct=p.answer == truth,
         )
     if isinstance(backend, GraphBackend):
         oracle = Oracle(game)
         for number in range(game.sim.world.config.n_agents):
             viewer = ringfire.agent_id(number)
             for belief in backend.store.beliefs(viewer, predicate=ringfire.ARRIVAL):
-                truth = oracle.claim_is_true(Claim(int(belief.subject[1:]), int(belief.value)))
+                claim = as_claim(belief)
+                truth = None if claim is None else oracle.claim_is_true(claim)
                 trace.emit(
                     "beliefs",
                     agent=viewer,
@@ -356,5 +423,7 @@ def trace_final_state(
                     support_routes=belief.support_routes,
                     claim_true=truth,
                     routes=[list(r) for r in backend.store.support_routes(viewer, belief.id)],
+                    created_tick=belief.created_tick,
+                    sources=backend.store.sources(viewer, belief.id),  # what it is DERIVED_FROM
                 )
     trace.emit("score", **row)

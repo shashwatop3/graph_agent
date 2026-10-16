@@ -37,6 +37,10 @@ class Behaviour(Enum):
     FALSE_ALARM = "false_alarm"  # everything it originates is a scripted lie; relays are honest
     HIDE_FIRE = "hide_fire"  # sends and relays nothing
     SUBTLE_BIAS = "subtle_bias"  # the day in every claim it sends is one day later
+    # wants fields to burn: everything it originates is a lie timed to waste a watering (see
+    # saboteur.py), and every claim it relays says one day earlier, so the receiver waters too
+    # soon and is still resting when the fire really comes
+    SABOTEUR = "saboteur"
 
 
 @dataclass(frozen=True)
@@ -111,6 +115,9 @@ class Network:
         if behaviour is Behaviour.SUBTLE_BIAS:
             claim = Claim(message.claim.field_id, message.claim.day + 1)
             return replace(message, claim=claim, altered_by=(*message.altered_by, message.sender))
-        if behaviour is Behaviour.FALSE_ALARM and originating:
+        if behaviour is Behaviour.SABOTEUR and not originating:
+            claim = Claim(message.claim.field_id, message.claim.day - 1)
+            return replace(message, claim=claim, altered_by=(*message.altered_by, message.sender))
+        if behaviour in (Behaviour.FALSE_ALARM, Behaviour.SABOTEUR) and originating:
             return replace(message, altered_by=(*message.altered_by, message.sender))
         return message

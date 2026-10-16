@@ -32,11 +32,21 @@ from ..core.store import Store
 
 # ---- predicates ---------------------------------------------------------------------------------
 
-# A field ignites once, so it has one arrival day; two different days contradict. No tolerance:
-# being a day off is exactly the lie a subtle-bias imposter tells.
-PREDICATES = {"fire.arrival_day": Predicate(name="fire.arrival_day", single_valued=True)}
-
 ARRIVAL = "fire.arrival_day"
+
+
+def predicates(episode: int | None = None) -> dict[str, Predicate]:
+    """The predicates of this game.
+
+    A field that cannot burn again has one arrival day, so two different days contradict. No
+    tolerance: being a day off is exactly the lie a subtle-bias imposter tells. A field that
+    regrows can burn several times, but never twice within `episode` days (it burns, burns out and
+    regrows first), so two days further apart than that are two fires, not a contradiction.
+    """
+    return {ARRIVAL: Predicate(name=ARRIVAL, single_valued=True, separate_beyond=episode)}
+
+
+PREDICATES = predicates()  # the single-fire game
 
 # One line per predicate, used by the context compiler to show a belief to the model.
 TEMPLATES = {ARRIVAL: "fire reaches {subject} on day {value}"}
@@ -239,7 +249,12 @@ def _senders(store: Store, viewer: str, belief_id: str) -> set[str]:
     return {route[-1] for route in store.support_routes(viewer, belief_id) if route}
 
 
-def agents_to_distrust(store: Store, viewer: str, evidence_belief: Belief) -> list[Blame]:
+def agents_to_distrust(
+    store: Store,
+    viewer: str,
+    evidence_belief: Belief,
+    predicates: dict[str, Predicate] = PREDICATES,
+) -> list[Blame]:
     """Who reported something that the evidence just proved wrong?
 
     Rule (the same for every setup): when evidence arrives, every told belief that contradicts it
@@ -248,7 +263,7 @@ def agents_to_distrust(store: Store, viewer: str, evidence_belief: Belief) -> li
     that told it, and a later correction can still repair that.
     """
     found: dict[str, str] = {}
-    for belief in store.conflicts(viewer, evidence_belief.id, PREDICATES):
+    for belief in store.conflicts(viewer, evidence_belief.id, predicates):
         if belief.origin != "told":
             continue
         for sender in _senders(store, viewer, belief.id):
@@ -322,19 +337,52 @@ def forecast_arrival(
 
 
 def role_card(
-    agent: str, n_agents: int, fields: tuple[int, ...] = (), water: int | None = None
+    agent: str,
+    n_agents: int,
+    fields: tuple[int, ...] = (),
+    water: int | None = None,
+    cooldown: int = 1,
+    regrow_days: int | None = None,
+    random_fires: bool = False,
+    horizon: int | None = None,
+    saboteurs: bool = False,
+    waste_penalty: float = 0.0,
 ) -> str:
-    """What an agent is told about itself. Both setups use this same text, including the list of
-    actions: an agent that is never told it can water will never water."""
+    """What an agent is told about itself and the rules. Every setup uses this same text, including
+    the list of actions: an agent that is never told it can water will never water."""
     own = ", ".join(f"F{f}" for f in fields) or "your segment's fields"
     limit = f" You have only {water} waterings for the whole game." if water is not None else ""
+    if cooldown == 1:
+        rest = " You cannot water on two days in a row."
+    elif cooldown > 1:
+        rest = (
+            f" After watering you must wait {cooldown} days before you can water again, so "
+            f"watering on the wrong day can leave you unable to water when fire really comes."
+        )
+    else:
+        rest = ""
+    regrow = (
+        f" A burnt-out field grows back {regrow_days} days later and can burn again."
+        if regrow_days is not None
+        else ""
+    )
+    lightning = " New fires can also start at random in any field." if random_fires else ""
+    end = f" The game lasts {horizon} days (days 0 to {horizon - 1})." if horizon else ""
+    goal = ", and their goal is to make as many fields burn as possible" if saboteurs else ""
+    waste = (
+        f" Your score counts every field that catches fire, and every watering on a day no fire "
+        f"reaches your fields counts as {waste_penalty:g} of a burnt field, so do not water "
+        f"blindly."
+        if waste_penalty
+        else ""
+    )
     return (
         f"You are {agent}, keeper of one segment of a ring of {n_agents} segments. Your fields: "
         f"{own}. Fire spreads clockwise, one field per day, and can sometimes jump ahead along "
         f"paths nobody knows about. Fire that reaches a field on a day you water it is put out "
-        f"and stops there; otherwise it burns and doubles. You cannot water on two days in a "
-        f"row.{limit} "
-        f"Some agents lie. Messages show the route they travelled.\n"
+        f"and stops there; otherwise it burns and doubles."
+        f"{rest}{limit}{regrow}{lightning}{end}{waste} "
+        f"Some agents lie{goal}. Messages show the route they travelled.\n"
         f"Each turn, decide: (1) water your fields today? Call the act tool with type 'water', "
         f"only on a day fire is due at one of them. (2) tell your neighbours what you know about "
         f"when fire reaches fields. (3) build a link to an agent you trust, with act type 'link', "

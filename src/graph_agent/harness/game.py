@@ -10,7 +10,8 @@ Messages sent during the turns are held until every agent has had its turn, then
 lower number: the order of the turns decides nothing about who hears what first. The scripted sends
 at the start of the day come before every turn, so they are delivered at once.
 
-Imposters never use the model. Their lies are scripted (the scenario's "sends") and their other
+Imposters never use the model. Their lies are scripted (the scenario's "sends"), or for a
+saboteur worked out each day from the true state of the fire (sim/saboteur.py), and their other
 behaviour is a plain rule: pass on whatever they receive to every neighbour not already on its
 route. The network then applies their corruption (a shifted day, or silence).
 """
@@ -19,9 +20,10 @@ from dataclasses import dataclass, field
 
 from ..core.compiler import estimate_tokens
 from ..core.model import Action
-from ..sim.comms import Claim, LinkError, Message
+from ..sim.comms import Behaviour, Claim, LinkError, Message
 from ..sim.fire import fields_saved
 from ..sim.game import DayResult, Game
+from ..sim.saboteur import planned_lies
 from ..sim.scenario import Scenario, SendSpec, build_game
 from .agent import TurnResult, run_turn
 from .llm import ModelClient
@@ -79,6 +81,7 @@ def run_game(
         n_fields=game.sim.world.n_fields,
         edges=[[e.src, e.dst, e.weight, e.hidden] for e in game.sim.world.edges],
         initial_fires=[list(f) for f in game.sim.world.initial_fires],
+        random_ignitions=[list(r) for r in game.sim.world.random_ignitions],
         imposters={str(a): b.value for a, b in game.net.imposters.items()},
     )
     seen_exposures = 0
@@ -138,7 +141,12 @@ def run_game(
             if game.sim.water_left(agent) == 0:
                 raise ValueError("you have no waterings left")
             if not game.sim.can_water_today(agent):
-                raise ValueError("you watered yesterday, so you cannot water today")
+                cooldown = game.sim.rules.water_cooldown
+                if cooldown == 1:
+                    raise ValueError("you watered yesterday, so you cannot water today")
+                raise ValueError(
+                    f"you watered less than {cooldown + 1} days ago, so you cannot water today"
+                )
             water_today.add(agent)
             return "you will water your fields today"
         if action.type == "link":
@@ -154,7 +162,22 @@ def run_game(
         if number not in imposters
     }
 
+    lied_about: set[tuple[int, int, int]] = set()  # (receiver, field, true day), for saboteurs
+
     def imposter_turn(number: int) -> None:
+        if imposters[number] is Behaviour.SABOTEUR:
+            for receiver, claim in planned_lies(game, number, lied_about):
+                sent = game.send(number, receiver, claim)
+                trace.emit(
+                    "imposter_lie",
+                    imposter=number,
+                    to=receiver,
+                    field=claim.field_id,
+                    claim_day=claim.day,
+                    delivered=sent is not None,
+                )
+                if sent is not None:
+                    deliver(sent)
         for key, message in list(received.items()):
             if key[0] != number or key in relayed:
                 continue
@@ -226,6 +249,7 @@ def run_game(
             "day_end",
             ignited=[[e.field_id, e.intensity, list(e.audience)] for e in day_result.evidence],
             burnt_out=list(report.burnt_out),
+            regrown=list(report.regrown),
             hit_while_watered=list(report.hit_while_watered),
             revealed_hidden=[[e.src, e.dst] for e in report.revealed_hidden],
             watered=sorted(water_today),

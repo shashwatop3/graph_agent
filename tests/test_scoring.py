@@ -6,17 +6,20 @@ import pytest
 
 from fake_agent import honest_agent
 from fake_baseline_agent import log_reader
+from graph_agent.core.model import Belief
 from graph_agent.harness.backend import GraphBackend
 from graph_agent.harness.baselines import SharedLogBackend
 from graph_agent.harness.game import run_game
 from graph_agent.harness.llm import ModelReply, ScriptedModel
 from graph_agent.harness.scoring import (
     Probe,
+    as_claim,
     make_probe_hook,
     parse_answer,
     score_game,
     score_probes,
 )
+from graph_agent.sim.comms import Claim
 from graph_agent.sim.scenario import build_game, load_scenario
 from graph_agent.stores.memory import MemoryStore
 
@@ -148,3 +151,12 @@ def test_every_graph_store_is_scored_identically():
     first, first_backend = graph_game()
     second, second_backend = graph_game()
     assert score_game(first, first_backend) == score_game(second, second_backend)
+
+
+def test_a_belief_with_no_day_in_it_is_skipped_not_a_crash():
+    def belief(value):
+        return Belief(id="B1", owner="A1", subject="F3", predicate="fire.arrival_day", value=value)
+
+    assert as_claim(belief("unknown")) is None
+    assert as_claim(belief(None)) is None
+    assert as_claim(belief(4)) == Claim(3, 4) and as_claim(belief("4")) == Claim(3, 4)
