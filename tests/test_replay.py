@@ -35,11 +35,13 @@ def test_a_replay_describes_the_ring_the_imposters_and_every_day():
 
 def test_fires_messages_and_corrections_are_on_the_day_they_happened():
     replay = record()
-    first = replay["days"][0]
+    first, second = replay["days"][:2]
     assert [e["field"] for e in first["ignited"]] == [0]  # the starting fire is on day 0
-    assert any(m["altered_by"] == [2] for m in first["messages"])  # A2's shifted claim, day 0
+    # messages sent during the turns arrive together at the end of the day, so the shifted claim
+    # is first seen on day 1
+    assert any(m["altered_by"] == [2] for m in second["messages"])
     (exposure,) = [e for d in replay["days"] for e in d["exposures"]]
-    assert (exposure["viewer"], exposure["agent"]) == (3, 2)
+    assert (exposure["viewer"], exposure["agent"]) == (1, 2)
     assert exposure["changes"][0]["status"] == "stale"
     assert "fire reaches F0 on day 1" in exposure["changes"][0]["text"]  # in words, not an id
 
