@@ -17,6 +17,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from ..sim.scenario import ClaimSpec, ImposterSpec, Scenario, SendSpec
 from ..stores.falkor import FalkorStore
 from ..stores.memory import MemoryStore
 from ..stores.postgres import PostgresStore
@@ -41,11 +42,13 @@ class Knobs:
     evidence: str = "private"  # who is shown that fire reached a field: "private" or "public"
 
 
-def make_scenario(knobs: Knobs, seed: int) -> dict:
+def make_scenario(knobs: Knobs, seed: int) -> Scenario:
     """The scenario dict (the format sim/scenario.py reads) for these knobs and this seed."""
     rng = random.Random(seed)
     n = knobs.n_agents
-    scenario = {
+    imposters: list[ImposterSpec] = []
+    sends: list[SendSpec] = []
+    scenario: Scenario = {
         "seed": seed,
         "evidence": knobs.evidence,
         "rules": {"water_per_agent": knobs.water_per_agent},
@@ -55,9 +58,9 @@ def make_scenario(knobs: Knobs, seed: int) -> dict:
             "n_hidden_edges": knobs.hidden_edges,
             "n_initial_fires": 1,
         },
-        "imposters": [],
+        "imposters": imposters,
         "links": [],
-        "sends": [],
+        "sends": sends,
     }
     taken: set[int] = set()
     liars: list[int] = []
@@ -68,20 +71,20 @@ def make_scenario(knobs: Knobs, seed: int) -> dict:
         block = [(start + i) % n for i in range(knobs.colluders)]
         taken |= set(block)
         liars += block
-        scenario["imposters"] += [{"agent": a, "behaviour": "false_alarm"} for a in block]
+        imposters += [ImposterSpec(agent=a, behaviour="false_alarm") for a in block]
     others = rng.sample([a for a in range(n) if a not in taken], knobs.imposters)
-    scenario["imposters"] += [{"agent": a, "behaviour": knobs.behaviour} for a in others]
+    imposters += [ImposterSpec(agent=a, behaviour=knobs.behaviour) for a in others]
     if knobs.behaviour == "false_alarm":
         liars += others
 
     # the lie: fire "will reach" a field on the far side of the ring, earlier than it really could
     n_fields = n * knobs.fields_per_agent
-    lie = {"field_id": n_fields // 2, "day": max(1, n_fields // 4)}
+    lie = ClaimSpec(field_id=n_fields // 2, day=max(1, n_fields // 4))
     for liar in liars:
         for neighbour in ((liar - 1) % n, (liar + 1) % n):
             if neighbour not in liars:
-                scenario["sends"].append(
-                    {"day": 1, "sender": liar, "receiver": neighbour, "claim": dict(lie)}
+                sends.append(
+                    SendSpec(day=1, sender=liar, receiver=neighbour, claim=ClaimSpec(**lie))
                 )
 
     chosen: set[tuple[int, int]] = set()
@@ -89,7 +92,7 @@ def make_scenario(knobs: Knobs, seed: int) -> dict:
         a, b = sorted(rng.sample(range(n), 2))
         if (b - a) % n not in (1, n - 1):  # not already ring neighbours
             chosen.add((a, b))
-    scenario["links"] = sorted(chosen)
+    scenario["links"] = [list(link) for link in sorted(chosen)]
     return scenario
 
 

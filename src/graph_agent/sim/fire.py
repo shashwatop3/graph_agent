@@ -169,7 +169,7 @@ WateringPolicy = Callable[[FireSim], Collection[int]]
 
 
 def play(sim: FireSim, policy: WateringPolicy, max_days: int = 1000) -> list[DayReport]:
-    reports = []
+    reports: list[DayReport] = []
     while not sim.finished:
         if sim.day >= max_days:
             raise RuntimeError(f"fire still burning after {max_days} days")

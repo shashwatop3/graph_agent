@@ -22,8 +22,11 @@ Plain dicts the harness supplies
   evidence  {"day": 3, "field_id": 7}      the engine published that field 7 ignited on day 3
 """
 
+from collections.abc import Collection, Sequence
+from typing import TypedDict
+
 from ..core.ids import Ids  # noqa: F401  (re-exported: callers use ringfire.Ids)
-from ..core.model import Agent, Belief, Edge, Entity, Observation
+from ..core.model import Agent, Belief, Edge, Entity, Observation, Origin
 from ..core.registry import Predicate
 from ..core.store import Store
 
@@ -39,6 +42,29 @@ ARRIVAL = "fire.arrival_day"
 TEMPLATES = {ARRIVAL: "fire reaches {subject} on day {value}"}
 
 
+class ClaimPayload(TypedDict):
+    field_id: int
+    day: int
+
+
+class MessagePayload(TypedDict):
+    """A message as the adapter records it (the harness converts the simulator's message)."""
+
+    sender: int
+    receiver: int
+    route: list[int]
+    day: int
+    claim: ClaimPayload
+
+
+class EvidencePayload(TypedDict):
+    day: int
+    field_id: int
+
+
+Blame = tuple[str, str]  # (agent id, why the viewer stops trusting them)
+
+
 def agent_id(n: int) -> str:
     return f"A{n}"
 
@@ -50,7 +76,12 @@ def field_id(n: int) -> str:
 # ---- the map ------------------------------------------------------------------------------------
 
 
-def setup_map(store: Store, n_agents: int, fields: list[tuple[int, int]], spread: list[tuple]):
+def setup_map(
+    store: Store,
+    n_agents: int,
+    fields: Sequence[tuple[int, int]],
+    spread: Sequence[tuple[int, int, int]],
+) -> None:
     """Create agents, fields and the known spread edges.
 
     fields: (field number, owner agent number); spread: (from field, to field, days) triples.
@@ -87,7 +118,7 @@ def _live(belief: Belief) -> bool:
     return belief.status in ("active", "suspect")
 
 
-def _find_live(store: Store, viewer: str, subject: str, value: int, origin: str):
+def _find_live(store: Store, viewer: str, subject: str, value: int, origin: str) -> Belief | None:
     """The viewer's live arrival-day belief with this value and origin, if there is one."""
     for belief in store.beliefs(viewer, subject=subject, predicate=ARRIVAL):
         if _live(belief) and belief.value == value and belief.origin == origin:
@@ -95,7 +126,16 @@ def _find_live(store: Store, viewer: str, subject: str, value: int, origin: str)
     return None
 
 
-def _believe(store, ids, viewer, field, value, origin, tick, obs_id=None) -> Belief:
+def _believe(
+    store: Store,
+    ids: Ids,
+    viewer: str,
+    field: int,
+    value: int,
+    origin: Origin,
+    tick: int,
+    obs_id: str | None = None,
+) -> Belief:
     """Find or create the belief, and attach an observation as support if one is given.
 
     Hearing the same claim again, from another route, adds a second supporting observation to
@@ -124,7 +164,9 @@ def _believe(store, ids, viewer, field, value, origin, tick, obs_id=None) -> Bel
     return belief
 
 
-def record_message(store: Store, ids: Ids, message: dict, distrusted=()) -> Belief | None:
+def record_message(
+    store: Store, ids: Ids, message: MessagePayload, distrusted: Collection[str] = ()
+) -> Belief | None:
     """The receiver now holds an observation (with its route) and a told belief it supports.
 
     If the route passes through an agent the receiver already distrusts (`distrusted`, agent ids
@@ -137,7 +179,7 @@ def record_message(store: Store, ids: Ids, message: dict, distrusted=()) -> Beli
     observation = Observation(
         id=ids.next("O"),
         kind="message",
-        payload=message,
+        payload=dict(message),
         received_by=viewer,
         sender=agent_id(message["sender"]),
         about_tick=claim["day"],
@@ -163,13 +205,15 @@ def record_message(store: Store, ids: Ids, message: dict, distrusted=()) -> Beli
     )
 
 
-def record_evidence(store: Store, ids: Ids, evidence: dict, viewer_number: int) -> Belief:
+def record_evidence(
+    store: Store, ids: Ids, evidence: EvidencePayload, viewer_number: int
+) -> Belief:
     """Published truth, as seen by one agent: an observation with no route (it always counts)."""
     viewer = agent_id(viewer_number)
     observation = Observation(
         id=ids.next("O"),
         kind="evidence",
-        payload=evidence,
+        payload=dict(evidence),
         received_by=viewer,
         about_tick=evidence["day"],
         received_tick=evidence["day"],
@@ -195,7 +239,7 @@ def _senders(store: Store, viewer: str, belief_id: str) -> set[str]:
     return {route[-1] for route in store.support_routes(viewer, belief_id) if route}
 
 
-def agents_to_distrust(store: Store, viewer: str, evidence_belief: Belief):
+def agents_to_distrust(store: Store, viewer: str, evidence_belief: Belief) -> list[Blame]:
     """Who reported something that the evidence just proved wrong?
 
     Rule (the same for every setup): when evidence arrives, every told belief that contradicts it
@@ -216,7 +260,7 @@ def agents_to_distrust(store: Store, viewer: str, evidence_belief: Belief):
     return sorted(found.items())
 
 
-def agents_with_expired_claims(store: Store, viewer: str, today: int):
+def agents_with_expired_claims(store: Store, viewer: str, today: int) -> list[Blame]:
     """Who made a claim about a day that is over, with no evidence of it?
 
     `today` is the day that has just been played. A claim "fire reaches F on day d" is refuted
@@ -239,7 +283,9 @@ def agents_with_expired_claims(store: Store, viewer: str, today: int):
 # ---- derived computation ------------------------------------------------------------------------
 
 
-def forecast_arrival(store: Store, ids: Ids, viewer: str, target_field: int, tick: int):
+def forecast_arrival(
+    store: Store, ids: Ids, viewer: str, target_field: int, tick: int
+) -> Belief | None:
     """When will fire reach `target_field`, given the fires the viewer has seen?
 
     For each field the viewer knows burned (an evidence belief), arrival there plus the shortest
@@ -248,7 +294,7 @@ def forecast_arrival(store: Store, ids: Ids, viewer: str, target_field: int, tic
     flagged. Returns None when the viewer knows no fire that can reach the target.
     """
     target = field_id(target_field)
-    best = None  # (arrival day, source belief)
+    best: tuple[float, Belief] | None = None  # (arrival day, source belief)
     for belief in store.beliefs(viewer, predicate=ARRIVAL):
         if belief.origin != "observed" or not _live(belief):
             continue

@@ -11,6 +11,8 @@ import json
 from pathlib import Path
 
 from ..adapters import ringfire
+from ..sim.scenario import Scenario
+from ..sim.world import WorldConfig
 from .game import GameResult, run_game
 from .scoring import score_game
 
@@ -104,10 +106,10 @@ def build_replay(result: GameResult, backend, links_added: dict[int, list], scor
     }
 
 
-def record_replay(scenario: dict, backend, client, **run_kwargs) -> dict:
+def record_replay(scenario: Scenario, backend, client, **run_kwargs) -> dict:
     """Play the scenario on `backend` with `client` and return the replay."""
     links_added: dict[int, list] = {}
-    n = scenario["world"]["n_agents"]
+    n = scenario["world"].get("n_agents", WorldConfig().n_agents)
     # the links the game starts with: the ring, plus any the scenario lists
     seen = {frozenset((a, (a + 1) % n)) for a in range(n)}
     seen |= {frozenset(link) for link in scenario.get("links", [])}

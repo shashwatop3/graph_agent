@@ -52,7 +52,7 @@ class Observation(Strict):
     received_tick: int = 0
     hash: str = ""  # content fingerprint, filled in when empty
 
-    def model_post_init(self, _context) -> None:
+    def model_post_init(self, _context: object) -> None:
         if not self.hash:
             blob = json.dumps(self.payload, sort_keys=True, default=str).encode()
             self.hash = hashlib.sha256(blob).hexdigest()[:16]

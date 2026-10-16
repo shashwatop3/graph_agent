@@ -9,19 +9,20 @@ the adapter.
 """
 
 from ..core.store import Store
-from ..sim.scenario import run_scenario
+from ..sim.game import Game
+from ..sim.scenario import Scenario, run_scenario
 from .pipeline import Exposure, Pipeline
 
 __all__ = ["Exposure", "play_scripted"]
 
 
-def play_scripted(scenario: dict, store: Store):
+def play_scripted(scenario: Scenario, store: Store) -> tuple[list[Exposure], Game]:
     """Run `scenario` into `store`. Returns (exposures in order, the finished Game)."""
     pipeline = Pipeline(store)
     game = run_scenario(
         scenario,
         on_start=pipeline.start,
-        on_send=lambda game, message: pipeline.message(message),
+        on_send=lambda _game, message: pipeline.message(message),
         on_day=pipeline.day,
     )
     return pipeline.exposures, game

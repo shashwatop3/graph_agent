@@ -20,7 +20,7 @@ the functions that do that. The core knows nothing about what a message or an ac
 
 from collections.abc import Callable, Mapping, Sequence
 from functools import wraps
-from typing import Any, cast, get_args
+from typing import Any, Concatenate, cast, get_args
 
 from .compiler import render_belief
 from .ids import Ids
@@ -47,11 +47,13 @@ TOOL_NAMES = (
 )
 
 
-def _tool(method):
+def _tool[**P](
+    method: Callable[Concatenate["Toolbox", P], str],
+) -> Callable[Concatenate["Toolbox", P], str]:
     """Turn a refusal (ValueError, KeyError) into an "error:" line instead of an exception."""
 
     @wraps(method)
-    def wrapper(self, *args, **kwargs):
+    def wrapper(self: "Toolbox", *args: P.args, **kwargs: P.kwargs) -> str:
         try:
             return method(self, *args, **kwargs)
         except (ValueError, KeyError) as error:
@@ -240,7 +242,7 @@ class Toolbox:
         self,
         type: str,
         target: str | None = None,
-        params: dict | None = None,
+        params: dict[str, Any] | None = None,
         depends_on: Sequence[str] = (),
     ) -> str:
         """Commit to an action. Name the beliefs it depends on, to be warned if they change."""

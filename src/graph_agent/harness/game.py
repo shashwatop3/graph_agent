@@ -21,7 +21,7 @@ from ..core.model import Action
 from ..sim.comms import Claim, LinkError, Message
 from ..sim.fire import fields_saved
 from ..sim.game import DayResult, Game
-from ..sim.scenario import build_game
+from ..sim.scenario import Scenario, SendSpec, build_game
 from .agent import TurnResult, run_turn
 from .backend import Backend
 from .llm import ModelClient
@@ -33,10 +33,12 @@ from .types import AfterDay
 class GameResult:
     game: Game
     exposures: list[Exposure]
-    turns: list[tuple[int, str, TurnResult]] = field(default_factory=list)  # (day, agent, result)
-    days: list[DayResult] = field(
-        default_factory=list
-    )  # the engine's DayResult for every day played
+    # (day, agent, result)
+    turns: list[tuple[int, str, TurnResult]] = field(
+        default_factory=list[tuple[int, str, TurnResult]]
+    )
+    # the engine's result for every day played
+    days: list[DayResult] = field(default_factory=list[DayResult])
 
     @property
     def fields_saved(self) -> int:
@@ -52,7 +54,7 @@ class GameResult:
 
 
 def run_game(
-    scenario: dict,
+    scenario: Scenario,
     backend: Backend,
     client: ModelClient,
     *,
@@ -72,7 +74,7 @@ def run_game(
     # the latest message each agent received about a claim, so it can pass it on with its route
     received: dict[tuple[int, int, int], Message] = {}
 
-    scripted_sends: dict[int, list[dict]] = {}
+    scripted_sends: dict[int, list[SendSpec]] = {}
     for scripted in scenario.get("sends", []):
         scripted_sends.setdefault(scripted["day"], []).append(scripted)
 

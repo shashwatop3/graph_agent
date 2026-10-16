@@ -15,20 +15,48 @@ import urllib.request
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Protocol
+from typing import NotRequired, Protocol, TypedDict
+
+from pydantic import BaseModel, TypeAdapter
+
+type Json = str | int | float | bool | None | list[Json] | dict[str, Json]
+
+
+class ToolCallMessage(TypedDict):
+    """A tool call as it sits in an assistant message in the conversation history."""
+
+    id: str
+    name: str
+    arguments: dict[str, Json]
+
+
+class ChatMessage(TypedDict):
+    """One message of the conversation: `user`, `assistant` (maybe with tool calls) or `tool`."""
+
+    role: str
+    content: str
+    tool_calls: NotRequired[list[ToolCallMessage]]  # on an assistant message
+    tool_call_id: NotRequired[str]  # on a tool message: which call it answers
+    name: NotRequired[str]  # on a tool message: which tool it was
+
+
+class ToolSchema(TypedDict):
+    name: str
+    description: str | None
+    parameters: dict[str, Json]  # JSON schema of the arguments
 
 
 @dataclass
 class ToolCall:
     name: str
-    arguments: dict
+    arguments: dict[str, Json]
     id: str = ""  # the provider's id for the call, echoed back with the result
 
 
 @dataclass
 class ModelReply:
     text: str = ""
-    tool_calls: list[ToolCall] = field(default_factory=list)
+    tool_calls: list[ToolCall] = field(default_factory=list[ToolCall])
     tokens_in: int = 0
     tokens_out: int = 0
 
@@ -36,16 +64,12 @@ class ModelReply:
 class ModelClient(Protocol):
     model: str  # part of the cache key, so two models never share answers
 
-    def complete(self, system: str, messages: list[dict], tools: list[dict]) -> ModelReply: ...
+    def complete(
+        self, system: str, messages: list[ChatMessage], tools: list[ToolSchema]
+    ) -> ModelReply: ...
 
 
-def _reply_from_json(data: dict) -> ModelReply:
-    return ModelReply(
-        text=data["text"],
-        tool_calls=[ToolCall(**call) for call in data["tool_calls"]],
-        tokens_in=data["tokens_in"],
-        tokens_out=data["tokens_out"],
-    )
+_REPLY = TypeAdapter(ModelReply)  # reads a cache file back into a ModelReply
 
 
 class CachedClient:
@@ -61,16 +85,18 @@ class CachedClient:
         self.tokens_in = 0  # tokens actually paid for (not counting cache hits)
         self.tokens_out = 0
 
-    def _key(self, system: str, messages: list[dict], tools: list[dict]) -> str:
+    def _key(self, system: str, messages: list[ChatMessage], tools: list[ToolSchema]) -> str:
         request = {"model": self.model, "system": system, "messages": messages, "tools": tools}
         blob = json.dumps(request, sort_keys=True, default=str).encode()
         return hashlib.sha256(blob).hexdigest()
 
-    def complete(self, system: str, messages: list[dict], tools: list[dict]) -> ModelReply:
+    def complete(
+        self, system: str, messages: list[ChatMessage], tools: list[ToolSchema]
+    ) -> ModelReply:
         path = self.cache_dir / f"{self._key(system, messages, tools)}.json"
         if path.exists():
             self.cache_hits += 1
-            return _reply_from_json(json.loads(path.read_text()))
+            return _REPLY.validate_json(path.read_text())
         reply = self.inner.complete(system, messages, tools)
         self.calls_made += 1
         self.tokens_in += reply.tokens_in
@@ -87,16 +113,20 @@ class ScriptedModel:
     """
 
     def __init__(
-        self, policy: Callable[[str, list[dict], list[dict]], ModelReply], model="scripted"
+        self,
+        policy: Callable[[str, list[ChatMessage], list[ToolSchema]], ModelReply],
+        model: str = "scripted",
     ):
         self.policy = policy
         self.model = model
 
-    def complete(self, system: str, messages: list[dict], tools: list[dict]) -> ModelReply:
+    def complete(
+        self, system: str, messages: list[ChatMessage], tools: list[ToolSchema]
+    ) -> ModelReply:
         return self.policy(system, messages, tools)
 
 
-def _send(request: urllib.request.Request, timeout: float) -> dict:
+def _send(request: urllib.request.Request, timeout: float) -> object:
     """Send a request; on an HTTP error, raise it with the server's own explanation."""
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -105,6 +135,35 @@ def _send(request: urllib.request.Request, timeout: float) -> dict:
         raise RuntimeError(
             f"HTTP {error.code}: {error.read().decode(errors='replace')[:500]}"
         ) from None
+
+
+class _OpenAIFunction(BaseModel):
+    name: str
+    arguments: str | None = None
+
+
+class _OpenAICall(BaseModel):
+    id: str | None = None
+    function: _OpenAIFunction
+
+
+class _OpenAIMessage(BaseModel):
+    content: str | None = None
+    tool_calls: list[_OpenAICall] | None = None
+
+
+class _OpenAIChoice(BaseModel):
+    message: _OpenAIMessage
+
+
+class _OpenAIUsage(BaseModel):
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+
+class _OpenAIResponse(BaseModel):
+    choices: list[_OpenAIChoice]
+    usage: _OpenAIUsage = _OpenAIUsage()
 
 
 class OpenAICompatibleClient:
@@ -133,7 +192,7 @@ class OpenAICompatibleClient:
         self.temperature = temperature
         self.timeout = timeout
 
-    def _post(self, body: dict) -> dict:
+    def _post(self, body: dict[str, object]) -> object:
         request = urllib.request.Request(
             f"{self.base_url}/chat/completions",
             data=json.dumps(body).encode(),
@@ -144,27 +203,33 @@ class OpenAICompatibleClient:
         )
         return _send(request, self.timeout)
 
-    def complete(self, system: str, messages: list[dict], tools: list[dict]) -> ModelReply:
-        wire = [{"role": "system", "content": system}]
+    def complete(
+        self, system: str, messages: list[ChatMessage], tools: list[ToolSchema]
+    ) -> ModelReply:
+        wire: list[dict[str, object]] = [{"role": "system", "content": system}]
         for m in messages:
-            if m["role"] == "assistant" and m.get("tool_calls"):
-                m = {
-                    "role": "assistant",
-                    "content": m["content"] or None,
-                    "tool_calls": [
-                        {
-                            "id": c["id"],
-                            "type": "function",
-                            "function": {
-                                "name": c["name"],
-                                "arguments": json.dumps(c["arguments"]),
-                            },
-                        }
-                        for c in m["tool_calls"]
-                    ],
-                }
-            wire.append(m)
-        body = {
+            calls_made = m.get("tool_calls")
+            if m["role"] == "assistant" and calls_made:
+                wire.append(
+                    {
+                        "role": "assistant",
+                        "content": m["content"] or None,
+                        "tool_calls": [
+                            {
+                                "id": c["id"],
+                                "type": "function",
+                                "function": {
+                                    "name": c["name"],
+                                    "arguments": json.dumps(c["arguments"]),
+                                },
+                            }
+                            for c in calls_made
+                        ],
+                    }
+                )
+            else:
+                wire.append(dict(m))
+        body: dict[str, object] = {
             "model": self.model,
             "messages": wire,
             "max_tokens": self.max_tokens,
@@ -172,22 +237,39 @@ class OpenAICompatibleClient:
         }
         if tools:
             body["tools"] = [{"type": "function", "function": t} for t in tools]
-        message = self._post(body)
-        choice = message["choices"][0]["message"]
-        calls = []
-        for i, call in enumerate(choice.get("tool_calls") or []):
+        response = _OpenAIResponse.model_validate(self._post(body))
+        choice = response.choices[0].message
+        calls: list[ToolCall] = []
+        for i, call in enumerate(choice.tool_calls or []):
             try:
-                arguments = json.loads(call["function"]["arguments"] or "{}")
+                arguments: dict[str, Json] = json.loads(call.function.arguments or "{}")
             except json.JSONDecodeError:  # a malformed call: the tool will answer "bad arguments"
                 arguments = {}
-            calls.append(ToolCall(call["function"]["name"], arguments, call.get("id") or f"c{i}"))
-        usage = message.get("usage", {})
+            calls.append(ToolCall(call.function.name, arguments, call.id or f"c{i}"))
         return ModelReply(
-            text=choice.get("content") or "",
+            text=choice.content or "",
             tool_calls=calls,
-            tokens_in=usage.get("prompt_tokens", 0),
-            tokens_out=usage.get("completion_tokens", 0),
+            tokens_in=response.usage.prompt_tokens,
+            tokens_out=response.usage.completion_tokens,
         )
+
+
+class _AnthropicBlock(BaseModel):
+    type: str
+    text: str = ""
+    id: str = ""
+    name: str = ""
+    input: dict[str, Json] = {}
+
+
+class _AnthropicUsage(BaseModel):
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
+class _AnthropicResponse(BaseModel):
+    content: list[_AnthropicBlock]
+    usage: _AnthropicUsage = _AnthropicUsage()
 
 
 class AnthropicClient:
@@ -216,7 +298,7 @@ class AnthropicClient:
         self.timeout = timeout
         self.base_url = base_url.rstrip("/")
 
-    def _post(self, body: dict) -> dict:
+    def _post(self, body: dict[str, object]) -> object:
         request = urllib.request.Request(
             f"{self.base_url}/messages",
             data=json.dumps(body).encode(),
@@ -230,29 +312,45 @@ class AnthropicClient:
         return _send(request, self.timeout)
 
     @staticmethod
-    def _wire_messages(messages: list[dict]) -> list[dict]:
-        wire: list[dict] = []
+    def _wire_messages(messages: list[ChatMessage]) -> list[dict[str, object]]:
+        wire: list[dict[str, object]] = []
+        results: list[dict[str, object]] | None = None  # the open user message of tool results
         for m in messages:
-            if m["role"] == "assistant":
-                blocks = [{"type": "text", "text": m["content"]}] if m["content"] else []
-                blocks += [
-                    {"type": "tool_use", "id": c["id"], "name": c["name"], "input": c["arguments"]}
-                    for c in m.get("tool_calls", [])
-                ]
-                wire.append({"role": "assistant", "content": blocks})
-            elif m["role"] == "tool":
-                result = {"type": "tool_result", "tool_use_id": m["tool_call_id"]}
-                result["content"] = m["content"]
-                if wire and wire[-1]["role"] == "user" and isinstance(wire[-1]["content"], list):
-                    wire[-1]["content"].append(result)  # results of one assistant turn go together
+            if m["role"] == "tool":
+                result: dict[str, object] = {
+                    "type": "tool_result",
+                    "tool_use_id": m.get("tool_call_id", ""),
+                    "content": m["content"],
+                }
+                if results is not None:
+                    results.append(result)  # results of one assistant turn go together
                 else:
-                    wire.append({"role": "user", "content": [result]})
+                    results = [result]
+                    wire.append({"role": "user", "content": results})
+                continue
+            results = None
+            if m["role"] == "assistant":
+                blocks: list[dict[str, object]] = []
+                if m["content"]:
+                    blocks.append({"type": "text", "text": m["content"]})
+                for c in m.get("tool_calls", []):
+                    blocks.append(
+                        {
+                            "type": "tool_use",
+                            "id": c["id"],
+                            "name": c["name"],
+                            "input": c["arguments"],
+                        }
+                    )
+                wire.append({"role": "assistant", "content": blocks})
             else:
                 wire.append({"role": "user", "content": m["content"]})
         return wire
 
-    def complete(self, system: str, messages: list[dict], tools: list[dict]) -> ModelReply:
-        body = {
+    def complete(
+        self, system: str, messages: list[ChatMessage], tools: list[ToolSchema]
+    ) -> ModelReply:
+        body: dict[str, object] = {
             "model": self.model,
             "system": system,
             "messages": self._wire_messages(messages),
@@ -269,17 +367,12 @@ class AnthropicClient:
                 }
                 for t in tools
             ]
-        data = self._post(body)
-        text = "".join(b["text"] for b in data["content"] if b["type"] == "text")
-        calls = [
-            ToolCall(b["name"], b["input"], b["id"])
-            for b in data["content"]
-            if b["type"] == "tool_use"
-        ]
-        usage = data.get("usage", {})
+        response = _AnthropicResponse.model_validate(self._post(body))
         return ModelReply(
-            text=text,
-            tool_calls=calls,
-            tokens_in=usage.get("input_tokens", 0),
-            tokens_out=usage.get("output_tokens", 0),
+            text="".join(b.text for b in response.content if b.type == "text"),
+            tool_calls=[
+                ToolCall(b.name, b.input, b.id) for b in response.content if b.type == "tool_use"
+            ],
+            tokens_in=response.usage.input_tokens,
+            tokens_out=response.usage.output_tokens,
         )

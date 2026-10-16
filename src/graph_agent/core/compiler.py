@@ -17,6 +17,7 @@ anything it does not hold. The text is the same whichever store backs it.
 
 import json
 from collections.abc import Mapping, Sequence
+from typing import Any
 
 from .model import Belief
 from .store import Change, Store
@@ -73,7 +74,7 @@ def _tombstone(change: Change, belief: Belief | None, templates: Mapping[str, st
 
 
 def _commitments(store: Store, viewer: str) -> list[str]:
-    lines = []
+    lines: list[str] = []
     for status in ("planned", "committed"):
         for action in store.actions(viewer, status=status):
             parts = [action.id, action.type]
@@ -90,7 +91,7 @@ def _commitments(store: Store, viewer: str) -> list[str]:
     return lines
 
 
-def _compact(payload: dict, limit: int = 160) -> str:
+def _compact(payload: dict[str, Any], limit: int = 160) -> str:
     text = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
@@ -101,7 +102,8 @@ def _fit(lines: Sequence[str], budget_tokens: int, keep: str) -> tuple[list[str]
     Returns the lines kept and how many were left out. keep="first" or "last".
     """
     ordered = list(lines) if keep == "first" else list(reversed(lines))
-    kept, used = [], 0
+    kept: list[str] = []
+    used = 0
     for line in ordered:
         cost = estimate_tokens(line) + 1
         if used + cost > budget_tokens:
@@ -180,7 +182,8 @@ def compile_context(
 
     used = sum(estimate_tokens(s) + 2 for s in sections)
     room = budget - used - 8  # a little room for the section heading
-    lines, left_out = [], 0
+    lines: list[str] = []
+    left_out = 0
     for belief in live:
         line = render_belief(belief, store.support_routes(viewer, belief.id), templates)
         cost = estimate_tokens(line) + 1

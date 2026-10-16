@@ -9,6 +9,7 @@ from collections import deque
 
 from ..core.model import (
     Action,
+    ActionStatus,
     Belief,
     BeliefStatus,
     Correction,
@@ -50,7 +51,13 @@ class MemoryStore(Store):
             return None
         return node.model_copy(deep=True)
 
-    def beliefs(self, viewer, subject=None, predicate=None, status=None) -> list[Belief]:
+    def beliefs(
+        self,
+        viewer: str,
+        subject: str | None = None,
+        predicate: str | None = None,
+        status: BeliefStatus | None = None,
+    ) -> list[Belief]:
         found = [
             n.model_copy(deep=True)
             for n in self._nodes.values()
@@ -72,7 +79,7 @@ class MemoryStore(Store):
             return {}
         return self._walk_dependents(viewer, [belief_id])
 
-    def actions(self, viewer, status=None) -> list[Action]:
+    def actions(self, viewer: str, status: ActionStatus | None = None) -> list[Action]:
         found = [
             n.model_copy(deep=True)
             for n in self._nodes.values()
@@ -96,7 +103,7 @@ class MemoryStore(Store):
         return sorted(e.dst for e in self._edges if e.src == node_id and e.kind == "DERIVED_FROM")
 
     def changes_since(self, viewer: str, since_tick: int) -> list[Change]:
-        found = []
+        found: list[Change] = []
         for edge in self._edges:
             if edge.kind != "INVALIDATED" or edge.props["tick"] < since_tick:
                 continue
@@ -116,7 +123,9 @@ class MemoryStore(Store):
                 )
         return sorted(found, key=lambda c: (c.tick, c.path_len, c.belief_id))
 
-    def entity_distances(self, seeds, max_hops, kind="RELATES") -> dict[str, int]:
+    def entity_distances(
+        self, seeds: list[str], max_hops: int, kind: EdgeKind = "RELATES"
+    ) -> dict[str, int]:
         distance = {s: 0 for s in seeds if s in self._nodes}
         queue = deque(distance)
         while queue:
@@ -202,7 +211,7 @@ class MemoryStore(Store):
             if had_support and belief.support_routes == 0:
                 newly_stale.append(belief.id)
 
-        changes = {}
+        changes: dict[str, Invalidation] = {}
         for belief_id in newly_stale:
             changes[belief_id] = self._invalidate(correction, belief_id, "stale", 1)
 

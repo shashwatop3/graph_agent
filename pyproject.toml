@@ -35,3 +35,23 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.pyright]
+include = ["src"]
+typeCheckingMode = "standard"
+# Strict means no untyped parameters and no Unknown types. It grows as files are cleaned up; the
+# files left out are the ones still waiting for their types.
+strict = [
+    "src/graph_agent/core",
+    "src/graph_agent/sim",
+    "src/graph_agent/adapters/ringfire.py",
+    "src/graph_agent/stores/memory.py",
+    "src/graph_agent/harness/agent.py",
+    "src/graph_agent/harness/backend.py",
+    "src/graph_agent/harness/baselines.py",
+    "src/graph_agent/harness/game.py",
+    "src/graph_agent/harness/llm.py",
+    "src/graph_agent/harness/pipeline.py",
+    "src/graph_agent/harness/scripted.py",
+    "src/graph_agent/harness/types.py",
+]

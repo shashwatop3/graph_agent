@@ -33,6 +33,7 @@ Fairness choices, so that each is a strong version and not a straw man
 import math
 import re
 from collections import Counter
+from collections.abc import Collection
 from functools import partial
 
 from ..adapters import ringfire
@@ -66,7 +67,8 @@ def _message_line(message: Message) -> str:
 
 def _fit_last(lines: list[str], budget_tokens: int) -> tuple[list[str], int]:
     """The newest lines that fit. Returns them (oldest first) and how many were left out."""
-    kept, used = [], 0
+    kept: list[str] = []
+    used = 0
     for line in reversed(lines):
         cost = estimate_tokens(line) + 1
         if used + cost > budget_tokens:
@@ -162,7 +164,7 @@ class _LogBackend:
         for field_number, _ in world.initial_fires:
             self._publish(0, field_number, game.audience(field_number, 0))
 
-    def _publish(self, day: int, field_number: int, audience) -> None:
+    def _publish(self, day: int, field_number: int, audience: Collection[int]) -> None:
         self._evidence_line[field_number] = len(self.lines)
         self.lines.append(f"day {day}: PUBLISHED: field F{field_number} caught fire on day {day}")
         self.audience.append(set(audience))
@@ -183,7 +185,9 @@ class _LogBackend:
                 f"F{edge.src} -> F{edge.dst}: a hidden path, now revealed; "
                 f"takes {edge.weight} day(s)"
             )
-        start = {f for f, _ in game.sim.world.initial_fires} if result.report.day == 0 else set()
+        start = (
+            {f for f, _ in game.sim.world.initial_fires} if result.report.day == 0 else set[int]()
+        )
         for evidence in result.evidence:
             if evidence.field_id not in start:  # start fires were published before day 0
                 self._publish(evidence.day, evidence.field_id, evidence.audience)
@@ -268,14 +272,14 @@ def most_similar(documents: list[str], query: str, k: int) -> list[int]:
     frequency = Counter(word for counts in doc_words for word in counts)
     n = len(documents)
 
-    def vector(counts: Counter) -> dict[str, float]:
+    def vector(counts: Counter[str]) -> dict[str, float]:
         return {
             w: c * (math.log((n + 1) / (frequency.get(w, 0) + 1)) + 1) for w, c in counts.items()
         }
 
     q = vector(Counter(_words(query)))
     q_norm = math.sqrt(sum(v * v for v in q.values())) or 1.0
-    scored = []
+    scored: list[tuple[float, int]] = []
     for index, counts in enumerate(doc_words):
         d = vector(counts)
         norm = math.sqrt(sum(v * v for v in d.values())) or 1.0
@@ -300,7 +304,8 @@ class VectorMemoryBackend(_LogBackend):
         query = f"A{number} " + " ".join(f"A{a} F{a}" for a in around) + " fire reaches field day"
         newest = list(range(max(0, len(docs) - self.recent), len(docs)))
         ranked = [i for i in most_similar(docs, query, 40) if i not in newest]
-        chosen, used = [], 0
+        chosen: list[int] = []
+        used = 0
         for index in newest + ranked:  # the newest first, then by similarity, until the budget
             cost = estimate_tokens(docs[index]) + 1
             if used + cost > budget_tokens:

@@ -13,7 +13,7 @@ from typing import get_type_hints
 from pydantic import TypeAdapter
 
 from ..core.compiler import estimate_tokens
-from .llm import ModelClient
+from .llm import ChatMessage, Json, ModelClient, ToolSchema
 from .types import Tools
 
 SYSTEM_PROMPT = (
@@ -23,13 +23,14 @@ SYSTEM_PROMPT = (
 )
 
 
-def tool_schemas(box: Tools) -> list[dict]:
+def tool_schemas(box: Tools) -> list[ToolSchema]:
     """The tools `box` offers, as JSON schemas built from its method signatures and docstrings."""
-    schemas = []
+    schemas: list[ToolSchema] = []
     for name in box.names:
         method = getattr(type(box), name)
         hints = get_type_hints(method)
-        properties, required = {}, []
+        properties: dict[str, Json] = {}
+        required: list[Json] = []
         for parameter in list(inspect.signature(method).parameters.values())[1:]:  # skip self
             properties[parameter.name] = TypeAdapter(hints[parameter.name]).json_schema()
             if parameter.default is inspect.Parameter.empty:
@@ -46,14 +47,17 @@ def tool_schemas(box: Tools) -> list[dict]:
 
 @dataclass
 class TurnResult:
-    calls: list[tuple[str, dict, str]] = field(default_factory=list)  # (tool, arguments, result)
+    # (tool, arguments, result)
+    calls: list[tuple[str, dict[str, Json], str]] = field(
+        default_factory=list[tuple[str, dict[str, Json], str]]
+    )
     final_text: str = ""
     steps: int = 0
     tokens_in: int = 0
     tokens_out: int = 0
 
 
-def call_tool(box: Tools, name: str, arguments: dict) -> str:
+def call_tool(box: Tools, name: str, arguments: dict[str, Json]) -> str:
     if name not in box.names:
         return f"error: unknown tool {name!r}; the tools are {', '.join(box.names)}"
     try:
@@ -64,7 +68,7 @@ def call_tool(box: Tools, name: str, arguments: dict) -> str:
 
 def run_turn(client: ModelClient, box: Tools, context: str, max_steps: int = 6) -> TurnResult:
     schemas = tool_schemas(box)
-    messages: list[dict] = [{"role": "user", "content": context}]
+    messages: list[ChatMessage] = [{"role": "user", "content": context}]
     result = TurnResult()
     for _ in range(max_steps):
         reply = client.complete(SYSTEM_PROMPT, messages, schemas)

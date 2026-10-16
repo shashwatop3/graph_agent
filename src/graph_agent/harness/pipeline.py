@@ -10,6 +10,7 @@ through this one class, so the knowledge graph is built identically whoever is a
                      agent that has just been proved wrong
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from ..adapters import ringfire
@@ -27,7 +28,7 @@ class Exposure:
     agent: str
     day: int
     reason: str
-    changes: list[Invalidation] = field(default_factory=list)
+    changes: list[Invalidation] = field(default_factory=list[Invalidation])
 
 
 class Pipeline:
@@ -36,7 +37,7 @@ class Pipeline:
         self.ids = ids or Ids()
         self.exposures: list[Exposure] = []
         self._start_fires_published = False
-        self.game = None
+        self.game: Game | None = None
         self._exposed: set[tuple[str, str]] = set()  # (viewer, agent) pairs already acted on
 
     def start(self, game: Game) -> None:
@@ -54,7 +55,7 @@ class Pipeline:
         """
         for field_number, _ in game.sim.world.initial_fires:
             for number in game.audience(field_number, 0):
-                published = {"day": 0, "field_id": field_number}
+                published = ringfire.EvidencePayload(day=0, field_id=field_number)
                 ringfire.record_evidence(self.store, self.ids, published, number)
         self._start_fires_published = True
 
@@ -91,7 +92,10 @@ class Pipeline:
         if ignited_on is None or number in self.game.audience(field_number, ignited_on):
             return
         belief = ringfire.record_evidence(
-            self.store, self.ids, {"day": ignited_on, "field_id": field_number}, number
+            self.store,
+            self.ids,
+            ringfire.EvidencePayload(day=ignited_on, field_id=field_number),
+            number,
         )
         self._distrust(viewer, ringfire.agents_to_distrust(self.store, viewer, belief), today)
 
@@ -104,7 +108,7 @@ class Pipeline:
             if day == 0 and self._start_fires_published and evidence.day == 0:
                 if any(evidence.field_id == f for f, _ in game.sim.world.initial_fires):
                     continue  # already told to everyone before the day began
-            published = {"day": evidence.day, "field_id": evidence.field_id}
+            published = ringfire.EvidencePayload(day=evidence.day, field_id=evidence.field_id)
             for number in evidence.audience:  # to everyone, or only those entitled to see it
                 viewer = ringfire.agent_id(number)
                 belief = ringfire.record_evidence(self.store, self.ids, published, number)
@@ -115,7 +119,7 @@ class Pipeline:
             pairs = ringfire.agents_with_expired_claims(self.store, viewer, day)
             self._distrust(viewer, pairs, day)
 
-    def _distrust(self, viewer: str, pairs, day: int) -> None:
+    def _distrust(self, viewer: str, pairs: Sequence[ringfire.Blame], day: int) -> None:
         for agent, reason in pairs:
             if (viewer, agent) in self._exposed:
                 continue
