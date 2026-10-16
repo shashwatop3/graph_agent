@@ -33,9 +33,7 @@ class TestFalkorStore(StoreContract):
         from graph_agent.core.model import Belief
 
         for i, value in enumerate([40, 2.5, "text", True, [1, 2], {"a": {"b": 1}}]):
-            store.add_node(
-                Belief(id=f"V{i}", owner="A5", subject="E1", predicate="p", value=value)
-            )
+            store.add_node(Belief(id=f"V{i}", owner="A5", subject="E1", predicate="p", value=value))
             assert store.get("A5", f"V{i}").value == value
 
     def test_relationship_properties_must_be_scalars(self, store):

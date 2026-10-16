@@ -51,9 +51,7 @@ def build_random_graph(store: Store, seed: int, n_beliefs: int = 14) -> list[str
                     Observation(id=oid, kind="message", received_by=VIEWER, payload={"r": route})
                 )
                 for hop, agent in enumerate(route):
-                    store.add_edge(
-                        Edge(kind="RELAYED_VIA", src=oid, dst=agent, props={"hop": hop})
-                    )
+                    store.add_edge(Edge(kind="RELAYED_VIA", src=oid, dst=agent, props={"hop": hop}))
                 store.add_edge(Edge(kind="SUPPORTS", src=oid, dst=bid))
         belief_ids.append(bid)
     return belief_ids

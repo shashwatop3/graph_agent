@@ -11,23 +11,22 @@ import pytest
 
 from graph_agent.stores.falkor import FalkorStore
 from graph_agent.stores.memory import MemoryStore
+from graph_agent.stores.postgres import PostgresStore
 from random_graph import AGENTS, VIEWER, build_random_graph
 
 pytestmark = pytest.mark.integration
 
-# Stores compared against MemoryStore. S5 adds the Postgres store here.
-OTHER_STORES = {"falkor": FalkorStore}
+# Stores compared against MemoryStore.
+OTHER_STORES = {"falkor": FalkorStore, "postgres": PostgresStore}
 
 
 def snapshot(store, belief_ids):
     """Everything about the viewer's beliefs that a caller could observe."""
-    return {
-        b.id: (b.status, b.support_routes, b.updated_tick) for b in store.beliefs(VIEWER)
-    } | {
-        f"routes:{bid}": store.support_routes(VIEWER, bid) for bid in belief_ids
-    } | {
-        f"deps:{bid}": store.dependents(VIEWER, bid) for bid in belief_ids
-    }
+    return (
+        {b.id: (b.status, b.support_routes, b.updated_tick) for b in store.beliefs(VIEWER)}
+        | {f"routes:{bid}": store.support_routes(VIEWER, bid) for bid in belief_ids}
+        | {f"deps:{bid}": store.dependents(VIEWER, bid) for bid in belief_ids}
+    )
 
 
 @pytest.mark.parametrize("name", OTHER_STORES)
