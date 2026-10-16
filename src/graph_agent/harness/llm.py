@@ -97,7 +97,7 @@ class ScriptedModel:
 
 
 def _send(request: urllib.request.Request, timeout: float) -> dict:
-    """Send a request; on an HTTP error, raise it with the server's explanation (urllib hides it)."""
+    """Send a request; on an HTTP error, raise it with the server's own explanation."""
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             return json.load(response)
