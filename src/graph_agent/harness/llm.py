@@ -203,7 +203,7 @@ class AnthropicClient:
         model: str = "claude-haiku-5-5",
         api_key: str = "",
         max_tokens: int = 600,
-        temperature: float = 0.0,
+        temperature: float | None = None,  # newer models reject the setting, so it is optional
         timeout: float = 120,
         base_url: str = "https://api.anthropic.com/v1",
         workspace_id: str = "",  # needed only for a key that is not scoped to one workspace
@@ -257,8 +257,9 @@ class AnthropicClient:
             "system": system,
             "messages": self._wire_messages(messages),
             "max_tokens": self.max_tokens,
-            "temperature": self.temperature,
         }
+        if self.temperature is not None:
+            body["temperature"] = self.temperature
         if tools:
             body["tools"] = [
                 {
