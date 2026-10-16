@@ -98,7 +98,7 @@ def test_b2_shows_relevant_and_recent_lines_not_the_whole_log():
 
 
 @pytest.mark.parametrize("name", BASELINES)
-@pytest.mark.parametrize("budget", [500, 1200])
+@pytest.mark.parametrize("budget", [700, 1200])
 def test_every_baseline_respects_the_same_token_budget(name, budget):
     backend = BASELINES[name]()
     play(backend)

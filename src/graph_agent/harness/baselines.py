@@ -132,12 +132,14 @@ class _LogBackend:
         self._evidence_line: dict[int, int] = {}  # field -> index of its "PUBLISHED" line
         self.map_lines: list[str] = []
         self.n_agents = 0
+        self.fields: dict[int, tuple[int, ...]] = {}
 
     # ---- feeding it the game ------------------------------------------------------------------
 
     def start(self, game) -> None:
         world = game.sim.world
         self.n_agents = world.config.n_agents
+        self.fields = {n: tuple(world.fields_of(n)) for n in range(self.n_agents)}
         for edge in world.edges:
             if not edge.hidden:
                 owner = world.owner(edge.src)
@@ -177,7 +179,9 @@ class _LogBackend:
     # ---- what the agent reads -----------------------------------------------------------------
 
     def role(self, number: int) -> str:
-        card = ringfire.role_card(ringfire.agent_id(number), self.n_agents)
+        card = ringfire.role_card(
+            ringfire.agent_id(number), self.n_agents, self.fields.get(number, ())
+        )
         return f"## Role\n{card}" + (f"\n\n## Checklist\n{CHECKLIST}" if self.strong_prompt else "")
 
     def map_section(self) -> str:
