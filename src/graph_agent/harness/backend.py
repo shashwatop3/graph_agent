@@ -14,6 +14,7 @@ baselines.py. Everything outside the backend (the simulator, the imposters, the 
 is identical, which is what makes the comparison fair.
 """
 
+from functools import partial
 from typing import Protocol
 
 from ..adapters import ringfire
@@ -21,6 +22,20 @@ from ..core.compiler import compile_context
 from ..core.store import Store
 from ..core.tools import Toolbox
 from .pipeline import Exposure, Pipeline
+
+
+def _transport(send, sender_id: str, receiver_id: str, belief) -> str:
+    """Hand a belief to the game's `send`, translating ids ("A3") and the belief into plain ints."""
+    if belief.predicate != ringfire.ARRIVAL:
+        raise ValueError("only beliefs about when fire arrives can be sent")
+    # a belief you were told is passed on along its route; anything else you report
+    return send(
+        int(sender_id[1:]),
+        int(receiver_id[1:]),
+        int(belief.subject[1:]),
+        int(belief.value),
+        belief.origin == "told",
+    )
 
 
 class Backend(Protocol):
@@ -81,24 +96,12 @@ class GraphBackend:
         )
 
     def toolbox(self, number: int, send, execute) -> Toolbox:
-        def transport(sender_id: str, receiver_id: str, belief) -> str:
-            if belief.predicate != ringfire.ARRIVAL:
-                raise ValueError("only beliefs about when fire arrives can be sent")
-            # a belief you were told is passed on along its route; anything else you report
-            return send(
-                int(sender_id[1:]),
-                int(receiver_id[1:]),
-                int(belief.subject[1:]),
-                int(belief.value),
-                belief.origin == "told",
-            )
-
         return Toolbox(
             self.store,
             ringfire.agent_id(number),
             ringfire.PREDICATES,
             ringfire.TEMPLATES,
             self.pipeline.ids,
-            transport=transport,
+            transport=partial(_transport, send),
             executor=execute,
         )
