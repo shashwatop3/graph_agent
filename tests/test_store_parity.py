@@ -43,6 +43,14 @@ def test_store_matches_the_reference_store(name, seed):
             expected = reference.expose(VIEWER, agent, tick)
             assert other.expose(VIEWER, agent, tick) == expected, f"exposing {agent}"
             assert snapshot(other, ids) == snapshot(reference, ids), f"after exposing {agent}"
+
+        # then the viewer withdraws one of its own live beliefs
+        live = [b.id for b in reference.beliefs(VIEWER) if b.status in ("active", "suspect")]
+        if live:
+            victim = rng.choice(live)
+            expected = reference.retract(VIEWER, victim, tick=9, reason="mistake")
+            assert other.retract(VIEWER, victim, tick=9, reason="mistake") == expected
+            assert snapshot(other, ids) == snapshot(reference, ids), f"after retracting {victim}"
     finally:
         other.close()
 
@@ -59,6 +67,22 @@ def test_shortest_distances_match_the_reference_store(name, seed):
                 assert other.shortest_distance(src, dst) == reference.shortest_distance(src, dst), (
                     src,
                     dst,
+                )
+    finally:
+        other.close()
+
+
+@pytest.mark.parametrize("name", OTHER_STORES)
+@pytest.mark.parametrize("seed", range(10))
+def test_entity_distances_match_the_reference_store(name, seed):
+    reference, other = MemoryStore(), OTHER_STORES[name]()
+    try:
+        places = build_random_map(reference, seed)
+        build_random_map(other, seed)
+        for seeds in (places[:1], places[3:5], places[::4]):
+            for hops in (0, 1, 3):
+                assert other.entity_distances(seeds, hops) == reference.entity_distances(
+                    seeds, hops
                 )
     finally:
         other.close()

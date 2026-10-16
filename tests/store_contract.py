@@ -17,6 +17,7 @@ The graph below is neutral on purpose (agents, a sensor, readings), because the 
 import pytest
 
 from graph_agent.core.model import (
+    Action,
     Agent,
     Belief,
     Edge,
@@ -226,3 +227,87 @@ class StoreContract:
         store.add_node(Entity(id="M1", type="place"))
         store.add_edge(edge("ABOUT", "B12", "M1"))  # a different kind of edge
         assert store.shortest_distance("M0", "M1") is None
+
+    # ---- what the context compiler reads --------------------------------------------------
+
+    def test_actions_are_private_and_can_be_filtered_by_status(self, store):
+        store.add_node(Action(id="X1", owner=VIEWER, type="act", status="committed"))
+        store.add_node(Action(id="X2", owner=VIEWER, type="act", status="done"))
+        store.add_node(Action(id="X3", owner="A4", type="act", status="committed"))
+        assert [a.id for a in store.actions(VIEWER)] == ["X1", "X2"]
+        assert [a.id for a in store.actions(VIEWER, status="committed")] == ["X1"]
+        assert [a.id for a in store.actions("A4")] == ["X3"]
+
+    def test_observations_since_a_tick_come_back_oldest_first(self, store):
+        for oid, tick in [("OA", 5), ("OB", 2), ("OC", 5), ("OD", 9)]:
+            store.add_node(
+                Observation(id=oid, kind="message", received_by=VIEWER, received_tick=tick)
+            )
+        store.add_node(Observation(id="OE", kind="message", received_by="A4", received_tick=5))
+        got = [o.id for o in store.observations(VIEWER, since_tick=2)]
+        assert got[-4:] == ["OB", "OA", "OC", "OD"]  # by tick, then id; fixture ones are at tick 0
+        assert [o.id for o in store.observations(VIEWER, since_tick=6)] == ["OD"]
+        assert [o.id for o in store.observations("A4", since_tick=0)] == ["OE"]
+
+    def test_sources_are_one_hop_up_the_dependency_chain(self, store):
+        store.add_node(Action(id="X1", owner=VIEWER, type="act"))
+        store.add_edge(edge("DERIVED_FROM", "X1", "B22"))
+        assert store.sources(VIEWER, "B22") == ["B21"]
+        assert store.sources(VIEWER, "B40") == ["B12", "B20"]
+        assert store.sources(VIEWER, "X1") == ["B22"]
+        assert store.sources(VIEWER, "B12") == []
+        assert store.sources("A4", "B40") == []  # not A4's
+
+    def test_changes_since_lists_what_a_correction_changed_and_why(self, store):
+        store.expose(VIEWER, "A6", tick=7, reason="evidence disagrees")
+        changes = store.changes_since(VIEWER, 0)
+        assert [(c.belief_id, c.new_status, c.path_len, c.tick) for c in changes] == [
+            ("B20", "stale", 1, 7),
+            ("B21", "suspect", 2, 7),
+            ("B40", "suspect", 2, 7),
+            ("B22", "suspect", 3, 7),
+        ]
+        assert {(c.correction_type, c.target, c.reason) for c in changes} == {
+            ("exposure", "A6", "evidence disagrees")
+        }
+        assert store.changes_since(VIEWER, 8) == []
+        assert store.changes_since("A4", 0) == []
+
+    def test_entity_distances_count_hops_in_either_direction(self, store):
+        for i in range(5):
+            store.add_node(Entity(id=f"M{i}", type="place"))
+        for a, b in [(0, 1), (1, 2), (2, 3), (3, 4)]:
+            store.add_edge(edge("RELATES", f"M{a}", f"M{b}", weight=1))
+        assert store.entity_distances(["M2"], 1) == {"M2": 0, "M1": 1, "M3": 1}
+        assert store.entity_distances(["M2"], 5) == {
+            "M2": 0,
+            "M1": 1,
+            "M3": 1,
+            "M0": 2,
+            "M4": 2,
+        }
+        assert store.entity_distances(["M0", "M4"], 1) == {"M0": 0, "M4": 0, "M1": 1, "M3": 1}
+        assert store.entity_distances(["M2"], 0) == {"M2": 0}
+        assert store.entity_distances(["nowhere"], 3) == {}
+
+    def test_retract_withdraws_a_belief_and_marks_what_depends_on_it(self, store):
+        changes = store.retract(VIEWER, "B20", tick=4, reason="my own mistake")
+        assert [(c.belief_id, c.old_status, c.new_status, c.path_len) for c in changes] == [
+            ("B20", "active", "retracted", 1),
+            ("B21", "active", "suspect", 2),
+            ("B40", "active", "suspect", 2),
+            ("B22", "active", "suspect", 3),
+        ]
+        assert store.get(VIEWER, "B20").status == "retracted"
+        assert store.get(VIEWER, "B12").status == "active"
+        shown = store.changes_since(VIEWER, 0)
+        assert shown[0].correction_type == "retraction" and shown[0].reason == "my own mistake"
+
+    def test_retract_refuses_what_is_not_the_viewers_or_not_live(self, store):
+        with pytest.raises(ValueError):
+            store.retract("A4", "B20", tick=1)  # B20 is not A4's
+        with pytest.raises(ValueError):
+            store.retract(VIEWER, "missing", tick=1)
+        store.retract(VIEWER, "B20", tick=1)
+        with pytest.raises(ValueError):
+            store.retract(VIEWER, "B20", tick=2)  # already retracted

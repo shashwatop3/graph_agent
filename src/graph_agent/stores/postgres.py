@@ -38,7 +38,7 @@ from ..core.model import (
     check_edge,
     visible,
 )
-from ..core.store import Invalidation, Store
+from ..core.store import Change, Invalidation, Store
 
 # Longest DERIVED_FROM chain the recursive walk follows (also stops any accidental cycle).
 MAX_DEPTH = 32
@@ -59,6 +59,8 @@ CREATE TABLE nodes (
 );
 -- "this agent's beliefs about this subject" is the viewer filter plus the usual lookup
 CREATE INDEX nodes_beliefs ON nodes (owner, subject, predicate) WHERE type = 'Belief';
+-- "this agent's actions" and "what this agent received"
+CREATE INDEX nodes_by_owner ON nodes (owner, type);
 
 CREATE TABLE edges (
     id    bigserial PRIMARY KEY,
@@ -255,6 +257,84 @@ class PostgresStore(Store):
         rows = self._rows(_DOWNSTREAM, sources=[belief_id], viewer=viewer)
         return {node_id: hops for node_id, hops, _, _ in rows}
 
+    def actions(self, viewer, status=None) -> list[Action]:
+        condition, params = "type = 'Action' AND owner = %(viewer)s", {"viewer": viewer}
+        if status is not None:
+            condition += " AND data ->> 'status' = %(status)s"
+            params["status"] = status
+        ids = self._rows(f"SELECT id FROM nodes WHERE {condition} ORDER BY id", **params)
+        return [self._node(row[0]) for row in ids]
+
+    def observations(self, viewer: str, since_tick: int) -> list[Observation]:
+        ids = self._rows(
+            "SELECT id FROM nodes WHERE type = 'Observation' "
+            "AND data ->> 'received_by' = %(viewer)s "
+            "AND (data ->> 'received_tick')::int >= %(since)s "
+            "ORDER BY (data ->> 'received_tick')::int, id",
+            viewer=viewer,
+            since=since_tick,
+        )
+        return [self._node(row[0]) for row in ids]
+
+    def sources(self, viewer: str, node_id: str) -> list[str]:
+        if self.get(viewer, node_id) is None:
+            return []
+        rows = self._rows(
+            "SELECT dst FROM edges WHERE kind = 'DERIVED_FROM' AND src = %(id)s ORDER BY dst",
+            id=node_id,
+        )
+        return [row[0] for row in rows]
+
+    def changes_since(self, viewer: str, since_tick: int) -> list[Change]:
+        rows = self._rows(
+            """
+            SELECT e.dst, e.props ->> 'new_status', (e.props ->> 'path_len')::int,
+                   (e.props ->> 'tick')::int, c.data ->> 'type', c.data ->> 'target',
+                   coalesce(c.data ->> 'reason', '')
+            FROM edges e
+            JOIN nodes c ON c.id = e.src
+            JOIN nodes b ON b.id = e.dst
+            WHERE e.kind = 'INVALIDATED' AND b.owner = %(viewer)s
+              AND (e.props ->> 'tick')::int >= %(since)s
+            ORDER BY (e.props ->> 'tick')::int, (e.props ->> 'path_len')::int, e.dst
+            """,
+            viewer=viewer,
+            since=since_tick,
+        )
+        return [
+            Change(
+                belief_id=bid,
+                new_status=status,
+                path_len=path_len,
+                tick=tick,
+                correction_type=kind,
+                target=target,
+                reason=reason,
+            )
+            for bid, status, path_len, tick, kind, target, reason in rows
+        ]
+
+    def entity_distances(self, seeds, max_hops, kind="RELATES") -> dict[str, int]:
+        # One recursive query. The graph is walked in both directions, and each node keeps the
+        # fewest hops; the hop limit also guarantees the recursion ends on a cyclic map.
+        rows = self._rows(
+            """
+            WITH RECURSIVE reach (id, hops) AS (
+                SELECT id, 0 FROM nodes WHERE id = ANY(%(seeds)s)
+              UNION
+                SELECT CASE WHEN e.src = reach.id THEN e.dst ELSE e.src END, reach.hops + 1
+                FROM reach
+                JOIN edges e ON e.kind = %(kind)s AND (e.src = reach.id OR e.dst = reach.id)
+                WHERE reach.hops < %(max_hops)s
+            )
+            SELECT id, min(hops) FROM reach GROUP BY id
+            """,
+            seeds=list(seeds),
+            kind=kind,
+            max_hops=max_hops,
+        )
+        return dict(rows)
+
     def shortest_distance(self, src: str, dst: str, kind: EdgeKind = "RELATES") -> float | None:
         # Postgres has no shortest-path operator, so walk every simple path (the `path` array stops
         # a walk from revisiting a node, which also stops cycles) and take the cheapest.
@@ -294,62 +374,96 @@ class PostgresStore(Store):
         ]
         exposed = sorted({*before, agent_id})
 
-        count = self._rows("SELECT count(*) FROM nodes WHERE type = 'Correction'")[0][0]
-        correction_id = f"C{count + 1}"
-        self.add_node(
-            Correction(
-                id=correction_id,
-                type="exposure",
-                issued_by="engine",
-                target=agent_id,
-                tick=tick,
-                reason=reason,
-                observer=viewer,
-            )
+        correction_id = self._new_correction(
+            type="exposure",
+            issued_by="engine",
+            target=agent_id,
+            tick=tick,
+            reason=reason,
+            observer=viewer,
         )
 
         # 1. Recount support (this statement also refreshes the cached support_routes column).
         #    Stale = had at least one surviving route before and has none now.
         rows = self._rows(_RECOUNT, viewer=viewer, before=before, exposed=exposed)
-        stale = {bid: status for bid, status, was, now in rows if was > 0 and now == 0}
         changes: dict[str, Invalidation] = {
             bid: Invalidation(belief_id=bid, old_status=status, new_status="stale", path_len=1)
-            for bid, status in stale.items()
+            for bid, status, was, now in rows
+            if was > 0 and now == 0
         }
-
-        # 2. Everything derived from a stale belief becomes suspect (if it was active).
-        if stale:
-            downstream = self._rows(_DOWNSTREAM, sources=list(stale), viewer=viewer)
-            for bid, hops, node_type, status in downstream:
-                if node_type == "Belief" and status == "active":
-                    changes[bid] = Invalidation(
-                        belief_id=bid, old_status="active", new_status="suspect", path_len=1 + hops
-                    )
-
-        # 3. Write the status changes and the INVALIDATED edges (correction -> belief), each as
-        #    one statement over arrays, not one round trip per belief.
-        if changes:
-            ids = [c.belief_id for c in changes.values()]
-            statuses = [c.new_status for c in changes.values()]
-            lengths = [c.path_len for c in changes.values()]
-            self._conn.execute(
-                "UPDATE nodes n SET status = c.status, updated_tick = %(tick)s "
-                "FROM unnest(%(ids)s::text[], %(statuses)s::text[]) AS c(id, status) "
-                "WHERE n.id = c.id",
-                {"tick": tick, "ids": ids, "statuses": statuses},
-            )
-            self._conn.execute(
-                "INSERT INTO edges (kind, src, dst, props) "
-                "SELECT 'INVALIDATED', %(cid)s, c.id, jsonb_build_object("
-                "'new_status', c.status, 'path_len', c.path_len, 'tick', %(tick)s::int) "
-                "FROM unnest(%(ids)s::text[], %(statuses)s::text[], %(lengths)s::int[]) "
-                "AS c(id, status, path_len)",
-                {
-                    "cid": correction_id,
-                    "tick": tick,
-                    "ids": ids,
-                    "statuses": statuses,
-                    "lengths": lengths,
-                },
-            )
+        self._suspect_dependents(viewer, changes)
+        self._write_changes(correction_id, changes, tick)
         return sorted(changes.values(), key=lambda c: (c.path_len, c.belief_id))
+
+    def retract(
+        self, viewer: str, belief_id: str, tick: int, reason: str = ""
+    ) -> list[Invalidation]:
+        belief = self.get(viewer, belief_id)
+        if not isinstance(belief, Belief):
+            raise ValueError(f"{belief_id!r} is not one of {viewer}'s beliefs")
+        if belief.status not in ("active", "suspect"):
+            raise ValueError(f"{belief_id!r} is already {belief.status}")
+        correction_id = self._new_correction(
+            type="retraction",
+            issued_by=viewer,
+            target=belief_id,
+            tick=tick,
+            reason=reason,
+            observer=viewer,
+        )
+        changes = {
+            belief_id: Invalidation(
+                belief_id=belief_id, old_status=belief.status, new_status="retracted", path_len=1
+            )
+        }
+        self._suspect_dependents(viewer, changes)
+        self._write_changes(correction_id, changes, tick)
+        return sorted(changes.values(), key=lambda c: (c.path_len, c.belief_id))
+
+    # ---- steps shared by expose and retract ----------------------------------------------------
+
+    def _new_correction(self, **fields: Any) -> str:
+        count = self._rows("SELECT count(*) FROM nodes WHERE type = 'Correction'")[0][0]
+        correction_id = f"C{count + 1}"
+        self.add_node(Correction(id=correction_id, **fields))
+        return correction_id
+
+    def _suspect_dependents(self, viewer: str, changes: dict[str, Invalidation]) -> None:
+        """Everything derived from a changed belief becomes suspect (if it was active)."""
+        if not changes:
+            return
+        rows = self._rows(_DOWNSTREAM, sources=list(changes), viewer=viewer)
+        for bid, hops, node_type, status in rows:
+            if node_type == "Belief" and status == "active":
+                changes[bid] = Invalidation(
+                    belief_id=bid, old_status="active", new_status="suspect", path_len=1 + hops
+                )
+
+    def _write_changes(self, correction_id: str, changes: dict[str, Invalidation], tick: int):
+        """Write the status changes and the INVALIDATED edges (correction -> belief), each as one
+        statement over arrays, not one round trip per belief."""
+        if not changes:
+            return
+        ids = [c.belief_id for c in changes.values()]
+        statuses = [c.new_status for c in changes.values()]
+        lengths = [c.path_len for c in changes.values()]
+        self._conn.execute(
+            "UPDATE nodes n SET status = c.status, updated_tick = %(tick)s "
+            "FROM unnest(%(ids)s::text[], %(statuses)s::text[]) AS c(id, status) "
+            "WHERE n.id = c.id",
+            {"tick": tick, "ids": ids, "statuses": statuses},
+        )
+        self._conn.execute(
+            "INSERT INTO edges (kind, src, dst, props) "
+            "SELECT 'INVALIDATED', %(cid)s, c.id, jsonb_build_object("
+            "'new_status', c.status, 'path_len', c.path_len, 'tick', %(tick)s::int) "
+            "FROM unnest(%(ids)s::text[], %(statuses)s::text[], %(lengths)s::int[]) "
+            "AS c(id, status, path_len)",
+            {
+                "cid": correction_id,
+                "tick": tick,
+                "ids": ids,
+                "statuses": statuses,
+                "lengths": lengths,
+            },
+        )

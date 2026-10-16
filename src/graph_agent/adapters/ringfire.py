@@ -22,6 +22,7 @@ Plain dicts the harness supplies
   evidence  {"day": 3, "field_id": 7}      the engine published that field 7 ignited on day 3
 """
 
+from ..core.ids import Ids  # noqa: F401  (re-exported: callers use ringfire.Ids)
 from ..core.model import Agent, Belief, Edge, Entity, Observation
 from ..core.registry import Predicate
 from ..core.store import Store
@@ -44,17 +45,6 @@ def agent_id(n: int) -> str:
 
 def field_id(n: int) -> str:
     return f"F{n}"
-
-
-class Ids:
-    """Hands out ids such as O1, O2, B1 for the nodes the adapter creates."""
-
-    def __init__(self) -> None:
-        self._counts: dict[str, int] = {}
-
-    def next(self, prefix: str) -> str:
-        self._counts[prefix] = self._counts.get(prefix, 0) + 1
-        return f"{prefix}{self._counts[prefix]}"
 
 
 # ---- the map ------------------------------------------------------------------------------------

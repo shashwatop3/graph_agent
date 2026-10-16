@@ -18,7 +18,7 @@ from collections.abc import Mapping
 
 from pydantic import BaseModel
 
-from .model import Belief, BeliefStatus, Edge, EdgeKind, Node
+from .model import Action, ActionStatus, Belief, BeliefStatus, Edge, EdgeKind, Node, Observation
 from .registry import Predicate, contradicts
 
 
@@ -29,6 +29,18 @@ class Invalidation(BaseModel):
     old_status: BeliefStatus
     new_status: BeliefStatus
     path_len: int  # 1 if directly stale, then +1 for each DERIVED_FROM hop away
+
+
+class Change(BaseModel):
+    """A belief's status was changed by a correction. What the "changes since last turn" shows."""
+
+    belief_id: str
+    new_status: BeliefStatus
+    path_len: int
+    tick: int
+    correction_type: str  # exposure, retraction, ...
+    target: str  # who or what the correction was about
+    reason: str
 
 
 class Store(ABC):
@@ -63,6 +75,46 @@ class Store(ABC):
     @abstractmethod
     def dependents(self, viewer: str, belief_id: str) -> dict[str, int]:
         """Beliefs and actions derived from this belief, directly or not, with their hop count."""
+
+    @abstractmethod
+    def actions(self, viewer: str, status: ActionStatus | None = None) -> list[Action]:
+        """The viewer's own actions, sorted by id, optionally only those with this status."""
+
+    @abstractmethod
+    def observations(self, viewer: str, since_tick: int) -> list[Observation]:
+        """What the viewer received at or after `since_tick`, oldest first (then by id)."""
+
+    @abstractmethod
+    def sources(self, viewer: str, node_id: str) -> list[str]:
+        """The beliefs this belief or action is directly DERIVED_FROM (one hop up), sorted."""
+
+    @abstractmethod
+    def changes_since(self, viewer: str, since_tick: int) -> list[Change]:
+        """Status changes to the viewer's beliefs made at or after `since_tick`, with the reason.
+
+        Sorted by (tick, path_len, belief id).
+        """
+
+    @abstractmethod
+    def entity_distances(
+        self, seeds: list[str], max_hops: int, kind: EdgeKind = "RELATES"
+    ) -> dict[str, int]:
+        """How many `kind` hops each entity is from the nearest seed, ignoring edge direction.
+
+        Only entities within `max_hops` are returned; the seeds themselves are at 0. This is the
+        "neighbourhood" the context compiler ranks beliefs by.
+        """
+
+    @abstractmethod
+    def retract(
+        self, viewer: str, belief_id: str, tick: int, reason: str = ""
+    ) -> list[Invalidation]:
+        """The viewer withdraws one of its own live beliefs.
+
+        The belief becomes RETRACTED (path_len 1) and every active belief derived from it becomes
+        SUSPECT (path_len 1 plus hops), exactly as for a stale belief in `expose`. Raises
+        ValueError if the belief is not the viewer's or is not live.
+        """
 
     @abstractmethod
     def shortest_distance(self, src: str, dst: str, kind: EdgeKind = "RELATES") -> float | None:

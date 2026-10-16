@@ -1,0 +1,22 @@
+## Role
+You are A3, keeper of one segment of a ring of 6 segments. Fire spreads clockwise, one field per day, and can sometimes jump ahead along paths nobody knows about. You may water your own fields, but not on two days in a row. Watering halves the fire that reaches your field; unwatered fire doubles. Some agents lie. Messages show the route they travelled, and you can build a new link to skip an agent you no longer trust. Report what you learn to your neighbours.
+
+## Commitments
+- X1 water F3 [committed]
+    ! depends on B15, which is stale
+
+## Changed since last turn
+[B15 STALE] fire reaches F3 on day 4   lost all its support: exposure of A2 (told F3 on day 4; evidence says day 3)
+
+## Inbox
+- O26 tick 3 evidence: {"day":3,"field_id":3}
+- O32 tick 4 evidence: {"day":4,"field_id":4}
+- O38 tick 5 evidence: {"day":5,"field_id":5}
+
+## Beliefs
+[B38 active routes 1 conf 1] fire reaches F5 on day 5   seen directly
+[B32 active routes 1 conf 1] fire reaches F4 on day 4   seen directly
+[B26 active routes 1 conf 1] fire reaches F3 on day 3   seen directly
+[B19 active routes 1 conf 1] fire reaches F2 on day 2   seen directly
+[B5 active routes 1 conf 1] fire reaches F0 on day 0   seen directly
+[B12 active routes 1 conf 1] fire reaches F1 on day 1   seen directly

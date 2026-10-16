@@ -8,16 +8,18 @@ import heapq
 from collections import deque
 
 from ..core.model import (
+    Action,
     Belief,
     BeliefStatus,
     Correction,
     Edge,
     EdgeKind,
     Node,
+    Observation,
     check_edge,
     visible,
 )
-from ..core.store import Invalidation, Store
+from ..core.store import Change, Invalidation, Store
 
 
 class MemoryStore(Store):
@@ -69,6 +71,90 @@ class MemoryStore(Store):
             return {}
         return self._walk_dependents(viewer, [belief_id])
 
+    def actions(self, viewer, status=None) -> list[Action]:
+        found = [
+            n.model_copy(deep=True)
+            for n in self._nodes.values()
+            if isinstance(n, Action)
+            and visible(viewer, n)
+            and (status is None or n.status == status)
+        ]
+        return sorted(found, key=lambda a: a.id)
+
+    def observations(self, viewer: str, since_tick: int) -> list[Observation]:
+        found = [
+            n.model_copy(deep=True)
+            for n in self._nodes.values()
+            if isinstance(n, Observation) and visible(viewer, n) and n.received_tick >= since_tick
+        ]
+        return sorted(found, key=lambda o: (o.received_tick, o.id))
+
+    def sources(self, viewer: str, node_id: str) -> list[str]:
+        if self.get(viewer, node_id) is None:
+            return []
+        return sorted(e.dst for e in self._edges if e.src == node_id and e.kind == "DERIVED_FROM")
+
+    def changes_since(self, viewer: str, since_tick: int) -> list[Change]:
+        found = []
+        for edge in self._edges:
+            if edge.kind != "INVALIDATED" or edge.props["tick"] < since_tick:
+                continue
+            belief, correction = self._nodes[edge.dst], self._nodes[edge.src]
+            if visible(viewer, belief):
+                found.append(
+                    Change(
+                        belief_id=edge.dst,
+                        new_status=edge.props["new_status"],
+                        path_len=edge.props["path_len"],
+                        tick=edge.props["tick"],
+                        correction_type=correction.type,
+                        target=correction.target,
+                        reason=correction.reason,
+                    )
+                )
+        return sorted(found, key=lambda c: (c.tick, c.path_len, c.belief_id))
+
+    def entity_distances(self, seeds, max_hops, kind="RELATES") -> dict[str, int]:
+        distance = {s: 0 for s in seeds if s in self._nodes}
+        queue = deque(distance)
+        while queue:
+            current = queue.popleft()
+            if distance[current] == max_hops:
+                continue
+            for edge in self._edges:
+                if edge.kind != kind or current not in (edge.src, edge.dst):
+                    continue
+                other = edge.dst if edge.src == current else edge.src
+                if other not in distance:
+                    distance[other] = distance[current] + 1
+                    queue.append(other)
+        return distance
+
+    def retract(
+        self, viewer: str, belief_id: str, tick: int, reason: str = ""
+    ) -> list[Invalidation]:
+        belief = self._nodes.get(belief_id)
+        if not isinstance(belief, Belief) or not visible(viewer, belief):
+            raise ValueError(f"{belief_id!r} is not one of {viewer}'s beliefs")
+        if belief.status not in ("active", "suspect"):
+            raise ValueError(f"{belief_id!r} is already {belief.status}")
+        correction = Correction(
+            id=self._next_correction_id(),
+            type="retraction",
+            issued_by=viewer,
+            target=belief_id,
+            tick=tick,
+            reason=reason,
+            observer=viewer,
+        )
+        self._nodes[correction.id] = correction
+        changes = {belief_id: self._invalidate(correction, belief_id, "retracted", 1)}
+        for dependent, hops in self._walk_dependents(viewer, [belief_id]).items():
+            node = self._nodes[dependent]
+            if isinstance(node, Belief) and node.status == "active":
+                changes[dependent] = self._invalidate(correction, dependent, "suspect", 1 + hops)
+        return sorted(changes.values(), key=lambda c: (c.path_len, c.belief_id))
+
     def shortest_distance(self, src: str, dst: str, kind: EdgeKind = "RELATES") -> float | None:
         # Dijkstra with a heap; `best` holds the cheapest known cost to each node.
         best = {src: 0.0}
@@ -92,7 +178,7 @@ class MemoryStore(Store):
     def expose(self, viewer: str, agent_id: str, tick: int, reason: str = "") -> list[Invalidation]:
         before = self._exposed(viewer)
         correction = Correction(
-            id=f"C{sum(isinstance(n, Correction) for n in self._nodes.values()) + 1}",
+            id=self._next_correction_id(),
             type="exposure",
             issued_by="engine",
             target=agent_id,
@@ -127,6 +213,9 @@ class MemoryStore(Store):
         return sorted(changes.values(), key=lambda c: (c.path_len, c.belief_id))
 
     # ---- helpers -----------------------------------------------------------------------------
+
+    def _next_correction_id(self) -> str:
+        return f"C{sum(isinstance(n, Correction) for n in self._nodes.values()) + 1}"
 
     def _edges_to(self, node_id: str, kind: EdgeKind) -> list[Edge]:
         return [e for e in self._edges if e.dst == node_id and e.kind == kind]

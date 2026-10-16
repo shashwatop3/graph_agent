@@ -38,7 +38,7 @@ from ..core.model import (
     check_edge,
     visible,
 )
-from ..core.store import Invalidation, Store
+from ..core.store import Change, Invalidation, Store
 
 # Longest DERIVED_FROM chain the downstream walk will follow. Real chains are a handful of hops.
 MAX_DEPTH = 32
@@ -91,6 +91,8 @@ class FalkorStore(Store):
         # Indexes: every lookup by id, and "all beliefs of one agent" (the viewer filter).
         self._run("CREATE INDEX FOR (n:Node) ON (n.id)")
         self._run("CREATE INDEX FOR (b:Belief) ON (b.owner)")
+        self._run("CREATE INDEX FOR (o:Observation) ON (o.received_by)")
+        self._run("CREATE INDEX FOR (a:Action) ON (a.owner)")
 
     def close(self) -> None:
         self._drop()
@@ -213,6 +215,69 @@ class FalkorStore(Store):
                     frontier.append(node_id)
         return found
 
+    def actions(self, viewer, status=None) -> list[Action]:
+        condition, params = "a.owner = $viewer", {"viewer": viewer}
+        if status is not None:
+            condition += " AND a.status = $status"
+            params["status"] = status
+        rows = self._run(f"MATCH (a:Action) WHERE {condition} RETURN a ORDER BY a.id", **params)
+        return [_from_node(row[0]) for row in rows]
+
+    def observations(self, viewer: str, since_tick: int) -> list[Observation]:
+        rows = self._run(
+            "MATCH (o:Observation {received_by: $viewer}) WHERE o.received_tick >= $since "
+            "RETURN o ORDER BY o.received_tick, o.id",
+            viewer=viewer,
+            since=since_tick,
+        )
+        return [_from_node(row[0]) for row in rows]
+
+    def sources(self, viewer: str, node_id: str) -> list[str]:
+        if self.get(viewer, node_id) is None:
+            return []
+        rows = self._run(
+            "MATCH (n:Node {id: $id})-[:DERIVED_FROM]->(p) RETURN p.id ORDER BY p.id", id=node_id
+        )
+        return [row[0] for row in rows]
+
+    def changes_since(self, viewer: str, since_tick: int) -> list[Change]:
+        rows = self._run(
+            "MATCH (c:Correction)-[r:INVALIDATED]->(b:Belief {owner: $viewer}) "
+            "WHERE r.tick >= $since "
+            "RETURN b.id, r.new_status, r.path_len, r.tick, c.type, c.target, c.reason "
+            "ORDER BY r.tick, r.path_len, b.id",
+            viewer=viewer,
+            since=since_tick,
+        )
+        return [
+            Change(
+                belief_id=bid,
+                new_status=status,
+                path_len=path_len,
+                tick=tick,
+                correction_type=kind,
+                target=target,
+                reason=reason or "",
+            )
+            for bid, status, path_len, tick, kind, target, reason in rows
+        ]
+
+    def entity_distances(self, seeds, max_hops, kind="RELATES") -> dict[str, int]:
+        # Breadth-first, one query per hop, ignoring edge direction (the pattern has no arrow).
+        rows = self._run("MATCH (n:Node) WHERE n.id IN $seeds RETURN n.id", seeds=list(seeds))
+        distance = {row[0]: 0 for row in rows}
+        frontier = list(distance)
+        for hops in range(1, max_hops + 1):
+            if not frontier:
+                break
+            rows = self._run(
+                f"MATCH (s:Node)-[:{kind}]-(n) WHERE s.id IN $frontier RETURN DISTINCT n.id",
+                frontier=frontier,
+            )
+            frontier = [row[0] for row in rows if row[0] not in distance]
+            distance.update({node_id: hops for node_id in frontier})
+        return distance
+
     def shortest_distance(self, src: str, dst: str, kind: EdgeKind = "RELATES") -> float | None:
         if src == dst:
             return 0.0  # the procedure returns no path from a node to itself
@@ -239,17 +304,13 @@ class FalkorStore(Store):
         before = [row[0] for row in rows]
         exposed = sorted({*before, agent_id})
 
-        correction_id = f"C{self._run('MATCH (c:Correction) RETURN count(c)')[0][0] + 1}"
-        self.add_node(
-            Correction(
-                id=correction_id,
-                type="exposure",
-                issued_by="engine",
-                target=agent_id,
-                tick=tick,
-                reason=reason,
-                observer=viewer,
-            )
+        correction_id = self._new_correction(
+            type="exposure",
+            issued_by="engine",
+            target=agent_id,
+            tick=tick,
+            reason=reason,
+            observer=viewer,
         )
 
         # 1. Recount support for every live belief that has supporting observations. A route is
@@ -272,36 +333,73 @@ class FalkorStore(Store):
             exposed=exposed,
         )
         # Stale = had at least one surviving route before and has none now.
-        stale = {bid: status for bid, status, was, now in rows if was > 0 and now == 0}
-
         changes: dict[str, Invalidation] = {
             bid: Invalidation(belief_id=bid, old_status=status, new_status="stale", path_len=1)
-            for bid, status in stale.items()
+            for bid, status, was, now in rows
+            if was > 0 and now == 0
         }
-
-        # 2. Everything derived from a stale belief becomes suspect (if it was active).
-        if stale:
-            for bid, (hops, label, status) in self._downstream(viewer, list(stale)).items():
-                if label == "Belief" and status == "active":
-                    changes[bid] = Invalidation(
-                        belief_id=bid, old_status="active", new_status="suspect", path_len=1 + hops
-                    )
-
-        # 3. Write all status changes and the INVALIDATED edges (correction -> belief) at once.
-        if changes:
-            self._run(
-                "UNWIND $changes AS ch "
-                # match on :Node, not :Belief: the id index is on :Node, and a :Belief match would
-                # scan every belief once per change
-                "MATCH (c:Node {id: $cid}), (b:Node {id: ch.id}) "
-                "SET b.status = ch.status, b.updated_tick = $tick "
-                "CREATE (c)-[:INVALIDATED {new_status: ch.status, path_len: ch.path_len, "
-                "tick: $tick}]->(b)",
-                changes=[
-                    {"id": c.belief_id, "status": c.new_status, "path_len": c.path_len}
-                    for c in changes.values()
-                ],
-                cid=correction_id,
-                tick=tick,
-            )
+        self._suspect_dependents(viewer, changes)
+        self._write_changes(correction_id, changes, tick)
         return sorted(changes.values(), key=lambda c: (c.path_len, c.belief_id))
+
+    def retract(
+        self, viewer: str, belief_id: str, tick: int, reason: str = ""
+    ) -> list[Invalidation]:
+        belief = self.get(viewer, belief_id)
+        if not isinstance(belief, Belief):
+            raise ValueError(f"{belief_id!r} is not one of {viewer}'s beliefs")
+        if belief.status not in ("active", "suspect"):
+            raise ValueError(f"{belief_id!r} is already {belief.status}")
+        correction_id = self._new_correction(
+            type="retraction",
+            issued_by=viewer,
+            target=belief_id,
+            tick=tick,
+            reason=reason,
+            observer=viewer,
+        )
+        changes = {
+            belief_id: Invalidation(
+                belief_id=belief_id, old_status=belief.status, new_status="retracted", path_len=1
+            )
+        }
+        self._suspect_dependents(viewer, changes)
+        self._write_changes(correction_id, changes, tick)
+        return sorted(changes.values(), key=lambda c: (c.path_len, c.belief_id))
+
+    # ---- steps shared by expose and retract ----------------------------------------------------
+
+    def _new_correction(self, **fields: Any) -> str:
+        correction_id = f"C{self._run('MATCH (c:Correction) RETURN count(c)')[0][0] + 1}"
+        self.add_node(Correction(id=correction_id, **fields))
+        return correction_id
+
+    def _suspect_dependents(self, viewer: str, changes: dict[str, Invalidation]) -> None:
+        """Everything derived from a changed belief becomes suspect (if it was active)."""
+        if not changes:
+            return
+        for bid, (hops, label, status) in self._downstream(viewer, list(changes)).items():
+            if label == "Belief" and status == "active":
+                changes[bid] = Invalidation(
+                    belief_id=bid, old_status="active", new_status="suspect", path_len=1 + hops
+                )
+
+    def _write_changes(self, correction_id: str, changes: dict[str, Invalidation], tick: int):
+        """Write all status changes and the INVALIDATED edges (correction -> belief) at once."""
+        if not changes:
+            return
+        self._run(
+            "UNWIND $changes AS ch "
+            # match on :Node, not :Belief: the id index is on :Node, and a :Belief match would
+            # scan every belief once per change
+            "MATCH (c:Node {id: $cid}), (b:Node {id: ch.id}) "
+            "SET b.status = ch.status, b.updated_tick = $tick "
+            "CREATE (c)-[:INVALIDATED {new_status: ch.status, path_len: ch.path_len, "
+            "tick: $tick}]->(b)",
+            changes=[
+                {"id": c.belief_id, "status": c.new_status, "path_len": c.path_len}
+                for c in changes.values()
+            ],
+            cid=correction_id,
+            tick=tick,
+        )
