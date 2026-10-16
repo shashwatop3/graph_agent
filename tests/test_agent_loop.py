@@ -143,7 +143,7 @@ def test_a_game_with_stand_in_agents_runs_to_the_end_and_catches_the_imposter():
     assert result.game.finished
     # agent 2 shifts every claim it passes on, so the agents it told stop trusting it
     first = result.exposures[0]
-    assert (first.viewer, first.agent) == ("A1", "A2")
+    assert (first.viewer, first.agent) == ("A3", "A2")  # A3 hears A2's shifted claim first
     assert any(m.altered_by == (2,) for m in result.game.net.log)
     assert all(e.changes for e in result.exposures)  # each exposure invalidated something
     assert result.tokens_in > 0
@@ -151,20 +151,20 @@ def test_a_game_with_stand_in_agents_runs_to_the_end_and_catches_the_imposter():
 
 def test_the_lie_is_caught_once_and_goes_no_further():
     result = play(MemoryStore())
-    # A2 shifts claims, A1 catches the first one, and nothing else is blamed
-    assert [(e.viewer, e.agent, e.day) for e in result.exposures] == [("A1", "A2", 1)]
+    # A2 shifts claims, A3 catches the first one the day it arrives, and nothing else is blamed
+    assert [(e.viewer, e.agent, e.day) for e in result.exposures] == [("A3", "A2", 0)]
     assert {f"A{a}" for a in result.game.net.imposters} == {"A2"}
 
 
 def test_after_distrusting_an_agent_what_it_sends_is_seen_but_never_believed():
     store = MemoryStore()
     result = play(store)
-    later = [m for m in result.game.net.log if m.receiver == 1 and 2 in m.route and m.day > 1]
-    assert later  # A2 kept sending to A1 after A1 stopped trusting it
-    for belief in store.beliefs("A1", status="active"):
-        routes = store.support_routes("A1", belief.id)
+    later = [m for m in result.game.net.log if m.receiver == 3 and 2 in m.route and m.day > 0]
+    assert later  # A2 kept sending to A3 after A3 stopped trusting it
+    for belief in store.beliefs("A3", status="active"):
+        routes = store.support_routes("A3", belief.id)
         assert all("A2" not in route for route in routes), belief
-    inbox = {o.id for o in store.observations("A1", since_tick=2)}
+    inbox = {o.id for o in store.observations("A3", since_tick=1)}
     assert len(inbox) >= len(later)  # but it is all in the inbox, with its route
 
 

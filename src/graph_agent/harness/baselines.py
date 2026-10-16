@@ -13,6 +13,12 @@ model, token budget and tool names for acting are identical. Only memory differs
   B3  prompt-only    B1's log, with a strong instruction to cross-check messages against the
                      evidence and to pass corrections on. (Is a good prompt enough?)
 
+B1, B2 and B3 also come in an "own" variant (B1o, B2o, B3o). The default ("global") reads every
+message anyone sent in the whole game, which the graph agents cannot: a shared log ignores who is
+allowed to talk to whom. That makes it a deliberately generous baseline. The "own" variant shows an
+agent only the messages it sent or received, so it has exactly the information a graph agent has
+and differs only in how memory is organised. Compare the graph against both.
+
 Fairness choices, so that each is a strong version and not a straw man
   * All baselines are told the same map the graph agents can query (the field order and the days
     each step takes), and the same role card. Nothing is withheld that the graph agents know.
@@ -27,6 +33,7 @@ Fairness choices, so that each is a strong version and not a straw man
 import math
 import re
 from collections import Counter
+from functools import partial
 
 from ..adapters import ringfire
 from ..core.compiler import estimate_tokens
@@ -113,9 +120,16 @@ class _LogBackend:
     tool_names = ("send", "act")
     strong_prompt = False
 
-    def __init__(self):
+    def __init__(self, scope: str = "global"):
+        if scope not in ("global", "own"):
+            raise ValueError("scope must be 'global' or 'own'")
+        self.scope = scope
+        if scope == "own":
+            self.name += "-own"
         self.exposures: list[Exposure] = []  # baselines never distrust anyone on the agent's behalf
         self.lines: list[str] = []
+        self.audience: list[set[int] | None] = []  # per line: who may read it (None = everyone)
+        self._evidence_line: dict[int, int] = {}  # field -> index of its "PUBLISHED" line
         self.map_lines: list[str] = []
         self.n_agents = 0
 
@@ -131,11 +145,23 @@ class _LogBackend:
                     f"F{edge.src} -> F{edge.dst}: fire takes {edge.weight} day(s) "
                     f"(A{owner} owns F{edge.src})"
                 )
+        self.game = game
         for field_number, _ in world.initial_fires:
-            self.lines.append(f"day 0: PUBLISHED: field F{field_number} caught fire on day 0")
+            self._publish(0, field_number, game.audience(field_number, 0))
+
+    def _publish(self, day: int, field_number: int, audience) -> None:
+        self._evidence_line[field_number] = len(self.lines)
+        self.lines.append(f"day {day}: PUBLISHED: field F{field_number} caught fire on day {day}")
+        self.audience.append(set(audience))
 
     def message(self, message) -> None:
         self.lines.append(_message_line(message))
+        # in the global log everyone reads every message; in the own-inbox log only its two ends do
+        self.audience.append(None if self.scope == "global" else {message.sender, message.receiver})
+        # told about a field that has already burnt: the engine shows them the truth at once
+        line = self._evidence_line.get(message.claim.field_id)
+        if line is not None and self.audience[line] is not None:
+            self.audience[line].add(message.receiver)
 
     def day(self, game, result) -> None:
         for edge in result.report.revealed_hidden:
@@ -146,10 +172,7 @@ class _LogBackend:
         start = {f for f, _ in game.sim.world.initial_fires} if result.report.day == 0 else set()
         for evidence in result.evidence:
             if evidence.field_id not in start:  # start fires were published before day 0
-                self.lines.append(
-                    f"day {evidence.day}: PUBLISHED: field F{evidence.field_id} caught fire on "
-                    f"day {evidence.day}"
-                )
+                self._publish(evidence.day, evidence.field_id, evidence.audience)
 
     # ---- what the agent reads -----------------------------------------------------------------
 
@@ -159,6 +182,10 @@ class _LogBackend:
 
     def map_section(self) -> str:
         return "## Map\n" + "\n".join(self.map_lines)
+
+    def readable(self, number: int) -> list[int]:
+        """Indexes of the lines this agent may read: messages, and evidence it is entitled to."""
+        return [i for i, who in enumerate(self.audience) if who is None or number in who]
 
     def visible_lines(self, number: int, budget_tokens: int) -> list[str]:
         raise NotImplementedError
@@ -185,7 +212,8 @@ class IsolatedBackend(_LogBackend):
     section_title = "Published evidence"
 
     def visible_lines(self, number, budget_tokens):
-        return _fit_last([line for line in self.lines if "PUBLISHED" in line], budget_tokens)
+        mine = [self.lines[i] for i in self.readable(number) if "PUBLISHED" in self.lines[i]]
+        return _fit_last(mine, budget_tokens)
 
 
 class SharedLogBackend(_LogBackend):
@@ -195,7 +223,7 @@ class SharedLogBackend(_LogBackend):
     section_title = "Shared log (everything said and published, oldest first)"
 
     def visible_lines(self, number, budget_tokens):
-        return _fit_last(self.lines, budget_tokens)
+        return _fit_last([self.lines[i] for i in self.readable(number)], budget_tokens)
 
 
 class PromptOnlyBackend(SharedLogBackend):
@@ -248,20 +276,22 @@ class VectorMemoryBackend(_LogBackend):
     recent = 4  # always show this many of the newest lines
 
     def visible_lines(self, number, budget_tokens):
+        mine = self.readable(number)
+        docs = [self.lines[i] for i in mine]
         # the agent's situation as a query: its own field and its neighbours' fields
         around = [(number + d) % self.n_agents for d in (-1, 0, 1)]
         query = f"A{number} " + " ".join(f"A{a} F{a}" for a in around) + " fire reaches field day"
-        newest = list(range(max(0, len(self.lines) - self.recent), len(self.lines)))
-        ranked = [i for i in most_similar(self.lines, query, 40) if i not in newest]
+        newest = list(range(max(0, len(docs) - self.recent), len(docs)))
+        ranked = [i for i in most_similar(docs, query, 40) if i not in newest]
         chosen, used = [], 0
         for index in newest + ranked:  # the newest first, then by similarity, until the budget
-            cost = estimate_tokens(self.lines[index]) + 1
+            cost = estimate_tokens(docs[index]) + 1
             if used + cost > budget_tokens:
                 continue
             chosen.append(index)
             used += cost
         chosen.sort()  # show in time order
-        return [self.lines[i] for i in chosen], len(self.lines) - len(chosen)
+        return [docs[i] for i in chosen], len(docs) - len(chosen)
 
 
 BASELINES = {
@@ -269,4 +299,7 @@ BASELINES = {
     "B1": SharedLogBackend,
     "B2": VectorMemoryBackend,
     "B3": PromptOnlyBackend,
+    "B1o": partial(SharedLogBackend, scope="own"),
+    "B2o": partial(VectorMemoryBackend, scope="own"),
+    "B3o": partial(PromptOnlyBackend, scope="own"),
 }

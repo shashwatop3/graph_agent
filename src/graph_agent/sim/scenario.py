@@ -8,6 +8,7 @@ A scenario is a plain dict (usually loaded from a .json file). All keys except "
                 "edges": [[0, 1, 1], [1, 2, 1]],          # optional: replace the generated edges
                 "initial_fires": [[0, 1.0]]},             # optional: replace the generated fires
       "rules": {"burn_days": 3},                          # FireRules overrides
+      "evidence": "public",                               # or "private": see Game
       "imposters": [{"agent": 2, "behaviour": "subtle_bias"}],
       "links": [[0, 3]],                                  # shortcut links present from the start
       "watering": {"2": [1]},                             # day -> agents that water
@@ -58,6 +59,7 @@ def build_game(scenario: dict) -> Game:
         tuple(
             Imposter(i["agent"], Behaviour(i["behaviour"])) for i in scenario.get("imposters", [])
         ),
+        private_evidence=scenario.get("evidence", "public") == "private",
     )
     for a, b in scenario.get("links", []):
         game.net.add_link(a, b)

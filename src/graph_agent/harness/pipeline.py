@@ -34,9 +34,11 @@ class Pipeline:
         self.ids = ids or Ids()
         self.exposures: list[Exposure] = []
         self._start_fires_published = False
+        self.game = None
         self._exposed: set[tuple[str, str]] = set()  # (viewer, agent) pairs already acted on
 
     def start(self, game) -> None:
+        self.game = game
         world = game.sim.world
         fields = [(f, world.owner(f)) for f in range(world.n_fields)]
         spread = [(e.src, e.dst, e.weight) for e in world.edges if not e.hidden]
@@ -49,7 +51,7 @@ class Pipeline:
         so `day` skips them for day 0 once they have been published here.
         """
         for field_number, _ in game.sim.world.initial_fires:
-            for number in range(game.sim.world.config.n_agents):
+            for number in game.audience(field_number, 0):
                 published = {"day": 0, "field_id": field_number}
                 ringfire.record_evidence(self.store, self.ids, published, number)
         self._start_fires_published = True
@@ -70,11 +72,26 @@ class Pipeline:
         )
         if belief is None:
             return  # arrived through someone the receiver distrusts: seen, but believed by nobody
+        self._tell_if_already_burnt(viewer, message.claim.field_id, message.day)
         # A claim that contradicts evidence the receiver already holds is caught on arrival.
         for known in self.store.beliefs(viewer, subject=belief.subject, predicate=ringfire.ARRIVAL):
             if known.origin == "observed" and known.status in ("active", "suspect"):
                 pairs = ringfire.agents_to_distrust(self.store, viewer, known)
                 self._distrust(viewer, pairs, message.day)
+
+    def _tell_if_already_burnt(self, viewer: str, field_number: int, today: int) -> None:
+        """Someone is told about a field that has already burnt: the engine shows them the truth
+        at once, so a late claim can still be checked (only matters when evidence is private)."""
+        if self.game is None:
+            return
+        ignited_on = self.game.sim.fields[field_number].ignited_on
+        number = int(viewer[1:])
+        if ignited_on is None or number in self.game.audience(field_number, ignited_on):
+            return
+        belief = ringfire.record_evidence(
+            self.store, self.ids, {"day": ignited_on, "field_id": field_number}, number
+        )
+        self._distrust(viewer, ringfire.agents_to_distrust(self.store, viewer, belief), today)
 
     def day(self, game, result) -> None:
         day = result.report.day
@@ -86,7 +103,7 @@ class Pipeline:
                 if any(evidence.field_id == f for f, _ in game.sim.world.initial_fires):
                     continue  # already told to everyone before the day began
             published = {"day": evidence.day, "field_id": evidence.field_id}
-            for number in range(n_agents):  # evidence goes to everyone
+            for number in evidence.audience:  # to everyone, or only those entitled to see it
                 viewer = ringfire.agent_id(number)
                 belief = ringfire.record_evidence(self.store, self.ids, published, number)
                 pairs = ringfire.agents_to_distrust(self.store, viewer, belief)

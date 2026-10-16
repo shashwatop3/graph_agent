@@ -105,7 +105,7 @@ def test_propagation_matches_the_oracle_exactly_when_the_layer_works():
     assert row["propagation_precision"] == 1.0
     assert row["propagation_recall"] == 1.0
     assert row["false_invalidations"] == 0
-    assert row["isolated"] == 1.0 and row["days_to_isolate"] == 1
+    assert row["isolated"] == 1.0 and row["days_to_isolate"] == 0
 
 
 def test_no_false_beliefs_remain_and_no_lie_is_passed_on_in_the_graph_setup():

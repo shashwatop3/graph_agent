@@ -37,6 +37,7 @@ class Knobs:
     behaviour: str = "subtle_bias"  # subtle_bias, hide_fire or false_alarm
     colluders: int = 0  # adjacent imposters backing one false alarm, so counting sources is fooled
     extra_links: int = 0  # shortcut links from the start: more routes to the same belief
+    evidence: str = "private"  # who is shown that fire reached a field: "private" or "public"
 
 
 def make_scenario(knobs: Knobs, seed: int) -> dict:
@@ -45,6 +46,7 @@ def make_scenario(knobs: Knobs, seed: int) -> dict:
     n = knobs.n_agents
     scenario = {
         "seed": seed,
+        "evidence": knobs.evidence,
         "world": {
             "n_agents": n,
             "fields_per_agent": knobs.fields_per_agent,
