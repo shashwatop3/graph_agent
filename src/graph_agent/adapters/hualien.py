@@ -21,6 +21,8 @@ the derived computation (how exposed is a fab), the render templates and the rol
 It imports only the core and takes plain dicts, like the Ring Fire adapter.
 """
 
+from typing import NotRequired, TypedDict
+
 from ..core.ids import Ids
 from ..core.model import Agent, Belief, Edge, Entity, Observation
 from ..core.registry import Predicate
@@ -66,11 +68,32 @@ def setup(store: Store, agents: list[str], quake: str, fabs: dict[str, float]) -
 # ---- parser -------------------------------------------------------------------------------------
 
 
+class Report(TypedDict):
+    """A report as the adapter reads it. `route` starts at the source and ends at the receiver's
+    sender; magnitude and depth_km may each be missing."""
+
+    route: list[str]
+    receiver: str
+    tick: int
+    quake: str
+    magnitude: NotRequired[float]
+    depth_km: NotRequired[float]
+
+
 def _live(belief: Belief) -> bool:
     return belief.status in ("active", "suspect")
 
 
-def _believe(store, ids, viewer, subject, predicate, value, tick, obs_id) -> Belief:
+def _believe(
+    store: Store,
+    ids: Ids,
+    viewer: str,
+    subject: str,
+    predicate: str,
+    value: float,
+    tick: int,
+    obs_id: str,
+) -> Belief:
     """Find or create the receiver's belief, and attach the observation as support."""
     belief = next(
         (
@@ -98,7 +121,7 @@ def _believe(store, ids, viewer, subject, predicate, value, tick, obs_id) -> Bel
     return belief
 
 
-def record_report(store: Store, ids: Ids, report: dict) -> list[Belief]:
+def record_report(store: Store, ids: Ids, report: Report) -> list[Belief]:
     """A report reached a desk: an observation with the route it took, and what it claims.
 
     report: {"route": ["PTWC", "WireService"], "receiver": "RiskDesk", "tick": 1,
@@ -110,7 +133,7 @@ def record_report(store: Store, ids: Ids, report: dict) -> list[Belief]:
     observation = Observation(
         id=ids.next("O"),
         kind="message",
-        payload=report,
+        payload=dict(report),
         received_by=viewer,
         sender=route[-1],
         about_tick=report["tick"],
@@ -122,9 +145,9 @@ def record_report(store: Store, ids: Ids, report: dict) -> list[Belief]:
     store.add_edge(
         Edge(kind="ABOUT", src=observation.id, dst=report["quake"], props={"role": "mentioned"})
     )
-    made = []
-    for predicate, key in ((MAGNITUDE, "magnitude"), (DEPTH, "depth_km")):
-        if key in report:
+    made: list[Belief] = []
+    for predicate, value in ((MAGNITUDE, report.get("magnitude")), (DEPTH, report.get("depth_km"))):
+        if value is not None:
             made.append(
                 _believe(
                     store,
@@ -132,7 +155,7 @@ def record_report(store: Store, ids: Ids, report: dict) -> list[Belief]:
                     viewer,
                     report["quake"],
                     predicate,
-                    report[key],
+                    value,
                     report["tick"],
                     observation.id,
                 )
@@ -161,7 +184,7 @@ def retract_superseded(store: Store, viewer: str, new: Belief, tick: int) -> lis
     Each retraction marks everything that was derived from the old figure as suspect.
     """
     newer = _authority(_sources(store, viewer, new))
-    retracted = []
+    retracted: list[str] = []
     for old in store.conflicts(viewer, new.id, PREDICATES):
         if old.origin == "told" and _authority(_sources(store, viewer, old)) < newer:
             store.retract(
@@ -186,7 +209,7 @@ def assess_exposure(store: Store, ids: Ids, viewer: str, fab: str, tick: int) ->
     quake = next(iter(store.beliefs(viewer, predicate=MAGNITUDE)), None)
     if not isinstance(entity, Entity) or quake is None:
         return None
-    figures = {}
+    figures: dict[str, Belief] = {}
     for predicate in (MAGNITUDE, DEPTH):
         live = [
             b for b in store.beliefs(viewer, subject=quake.subject, predicate=predicate) if _live(b)

@@ -9,20 +9,90 @@ it opens by double-click and needs no server.
 
 import json
 from pathlib import Path
+from typing import TypedDict
 
 from ..adapters import ringfire
+from ..core.store import Invalidation
+from ..sim.game import Game
 from ..sim.scenario import Scenario
 from ..sim.world import WorldConfig
+from .backend import GraphBackend
 from .game import GameResult, run_game
-from .scoring import score_game
+from .llm import ModelClient
+from .scoring import ScoreRow, score_game
+from .types import Backend
 
 TEMPLATE = Path(__file__).resolve().parents[3] / "viewer" / "template.html"
 
 
-def _claim_text(backend, viewer: str, change) -> str:
+class IgnitedRecord(TypedDict):
+    field: int
+    intensity: float
+    audience: list[int]
+
+
+class MessageRecord(TypedDict):
+    sender: int
+    receiver: int
+    route: list[int]
+    field: int
+    claim_day: int
+    altered_by: list[int]
+
+
+class ChangeRecord(TypedDict):
+    belief: str
+    status: str
+    path: int
+    text: str
+
+
+class ExposureRecord(TypedDict):
+    viewer: int
+    agent: int
+    reason: str
+    changes: list[ChangeRecord]
+
+
+class DayRecord(TypedDict):
+    day: int
+    ignited: list[IgnitedRecord]
+    via_hidden: list[list[int]]
+    burnt_out: list[int]
+    watered: list[int]
+    links_added: list[list[int]]
+    messages: list[MessageRecord]
+    exposures: list[ExposureRecord]
+
+
+class FieldRecord(TypedDict):
+    id: int
+    owner: int
+
+
+class EdgeRecord(TypedDict):
+    src: int
+    dst: int
+    weight: int
+    hidden: bool
+
+
+class Replay(TypedDict):
+    system: str
+    n_agents: int
+    fields: list[FieldRecord]
+    edges: list[EdgeRecord]
+    imposters: dict[str, str]
+    start_links: list[list[int]]
+    days: list[DayRecord]
+    score: ScoreRow
+
+
+def _claim_text(backend: Backend, viewer: str, change: Invalidation) -> str:
     """What a changed belief said, in words. Falls back to its id when there is no store."""
-    store = getattr(backend, "store", None)
-    belief = store.get(viewer, change.belief_id) if store is not None else None
+    if not isinstance(backend, GraphBackend):
+        return change.belief_id
+    belief = backend.store.belief(viewer, change.belief_id)
     if belief is None:
         return change.belief_id
     template = ringfire.TEMPLATES.get(belief.predicate, "{predicate}({subject}) = {value}")
@@ -34,7 +104,9 @@ def _claim_text(backend, viewer: str, change) -> str:
     )
 
 
-def build_replay(result: GameResult, backend, links_added: dict[int, list], score: dict) -> dict:
+def build_replay(
+    result: GameResult, backend: Backend, links_added: dict[int, list[list[int]]], score: ScoreRow
+) -> Replay:
     game = result.game
     world = game.sim.world
     watered: dict[int, list[int]] = {}
@@ -45,7 +117,7 @@ def build_replay(result: GameResult, backend, links_added: dict[int, list], scor
         ):
             watered.setdefault(day, []).append(int(agent[1:]))
 
-    days = []
+    days: list[DayRecord] = []
     for day_result in result.days:
         day = day_result.report.day
         days.append(
@@ -106,25 +178,41 @@ def build_replay(result: GameResult, backend, links_added: dict[int, list], scor
     }
 
 
-def record_replay(scenario: Scenario, backend, client, **run_kwargs) -> dict:
+def record_replay(
+    scenario: Scenario,
+    backend: Backend,
+    client: ModelClient,
+    *,
+    budget: int = 4000,
+    max_days: int = 100,
+    max_steps: int = 6,
+) -> Replay:
     """Play the scenario on `backend` with `client` and return the replay."""
-    links_added: dict[int, list] = {}
+    links_added: dict[int, list[list[int]]] = {}
     n = scenario["world"].get("n_agents", WorldConfig().n_agents)
     # the links the game starts with: the ring, plus any the scenario lists
     seen = {frozenset((a, (a + 1) % n)) for a in range(n)}
     seen |= {frozenset(link) for link in scenario.get("links", [])}
 
-    def note_new_links(game, _backend, day: int) -> None:
+    def note_new_links(game: Game, _backend: Backend, day: int) -> None:
         fresh = sorted(sorted(link) for link in game.net.links - seen)
         if fresh:
             links_added[day] = fresh
             seen.update(game.net.links)
 
-    result = run_game(scenario, backend, client, after_day=note_new_links, **run_kwargs)
+    result = run_game(
+        scenario,
+        backend,
+        client,
+        budget=budget,
+        max_days=max_days,
+        max_steps=max_steps,
+        after_day=note_new_links,
+    )
     return build_replay(result, backend, links_added, score_game(result, backend))
 
 
-def write_viewer(replay: dict, path: str | Path) -> Path:
+def write_viewer(replay: Replay, path: str | Path) -> Path:
     """A self-contained HTML page that plays `replay` back."""
     html = TEMPLATE.read_text().replace("__REPLAY__", json.dumps(replay).replace("</", "<\\/"))
     out = Path(path)

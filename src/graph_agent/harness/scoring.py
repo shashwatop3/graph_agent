@@ -17,9 +17,59 @@ Two kinds of metric
 import re
 import statistics
 from dataclasses import dataclass
+from typing import TypedDict
 
-from ..sim.comms import Claim
+from ..sim.comms import Claim, Message
+from ..sim.game import Game
 from ..sim.oracle import Oracle
+from .backend import GraphBackend
+from .game import GameResult
+from .llm import ModelClient
+from .pipeline import Exposure
+from .types import AfterDay, Backend
+
+
+class ProbeScores(TypedDict):
+    probe_accuracy: float | None
+    stale_leakage: float | None
+    probes: int
+
+
+class WaterUse(TypedDict):
+    waterings: int
+    water_wasted: int
+
+
+class LieSpread(TypedDict):
+    messages: int
+    false_messages: int
+    lies_relayed: int
+
+
+class Isolation(TypedDict):
+    isolated: float | None
+    days_to_isolate: float | None
+
+
+class Propagation(TypedDict):
+    propagation_precision: float | None
+    propagation_recall: float | None
+    false_invalidations: int | None
+    false_beliefs_remaining: int | None
+
+
+class Totals(TypedDict):
+    fields_saved: int
+    fields: int
+    days: int
+    tokens_in: int
+    tokens_out: int
+    model_calls: int
+
+
+class ScoreRow(Totals, WaterUse, LieSpread, Isolation, Propagation, ProbeScores):
+    """One game's results: every metric, by name."""
+
 
 WATERED = "you will water your fields today"  # what the water action replies when it succeeds
 
@@ -50,11 +100,13 @@ def parse_answer(text: str) -> int | str:
     return int(found.group()) if found else "?"
 
 
-def make_probe_hook(client, probes: list[Probe], budget: int, probe_days: set[int]):
+def make_probe_hook(
+    client: ModelClient, probes: list[Probe], budget: int, probe_days: set[int]
+) -> AfterDay:
     """An `after_day` hook for run_game that asks each honest agent, on the given days, when fire
     will reach its first field that has not burnt yet. Answers are appended to `probes`."""
 
-    def hook(game, backend, day: int) -> None:
+    def hook(game: Game, backend: Backend, day: int) -> None:
         if day not in probe_days:
             return
         for number in range(game.sim.world.config.n_agents):
@@ -86,7 +138,7 @@ def make_probe_hook(client, probes: list[Probe], budget: int, probe_days: set[in
     return hook
 
 
-def score_probes(game, probes: list[Probe]) -> dict:
+def score_probes(game: Game, probes: list[Probe]) -> ProbeScores:
     """Accuracy, and stale leakage: how often an agent that had been told something false about a
     field then answers with exactly that false value."""
     if not probes:
@@ -117,7 +169,7 @@ def score_probes(game, probes: list[Probe]) -> dict:
 # ---- outcome metrics (every system) --------------------------------------------------------------
 
 
-def water_use(result) -> dict:
+def water_use(result: GameResult) -> WaterUse:
     """A watering is wasted if no fire reached any of that agent's fields on that day."""
     world = result.game.sim.world
     waterings = {
@@ -134,7 +186,7 @@ def water_use(result) -> dict:
     return {"waterings": len(waterings), "water_wasted": len(waterings - met_fire)}
 
 
-def lie_spread(game) -> dict:
+def lie_spread(game: Game) -> LieSpread:
     """How far false information got. `lies_relayed` counts messages carrying a claim an imposter
     changed that were sent by an honest agent: the lie spreading on its own."""
     oracle = Oracle(game)
@@ -150,7 +202,7 @@ def lie_spread(game) -> dict:
 # ---- belief-handling metrics (graph setups) ------------------------------------------------------
 
 
-def isolation(game, exposures) -> dict:
+def isolation(game: Game, exposures: list[Exposure]) -> Isolation:
     """How quickly each imposter was distrusted by anybody."""
     imposters = sorted(game.net.imposters)
     if not imposters:
@@ -165,7 +217,7 @@ def isolation(game, exposures) -> dict:
     }
 
 
-def propagation(game, backend) -> dict:
+def propagation(game: Game, backend: Backend) -> Propagation:
     """Did each exposure remove support from exactly the beliefs it should have?
 
     For an exposure (viewer v distrusts agent a), the oracle says which claims lose all support: a
@@ -174,23 +226,20 @@ def propagation(game, backend) -> dict:
     recall is how many of the oracle's the store found. A stale belief whose claim was actually
     true is a false invalidation.
     """
-    store = getattr(backend, "store", None)
-    if store is None:
+    if not isinstance(backend, GraphBackend):  # the baselines have no store to look inside
         return {
-            k: None
-            for k in (
-                "propagation_precision",
-                "propagation_recall",
-                "false_invalidations",
-                "false_beliefs_remaining",
-            )
+            "propagation_precision": None,
+            "propagation_recall": None,
+            "false_invalidations": None,
+            "false_beliefs_remaining": None,
         }
+    store = backend.store
     oracle = Oracle(game)
     exposed_by: dict[str, set[int]] = {}
     reported = matched = expected_total = false_invalidations = 0
 
     def lost(viewer_no: int, distrusted: set[int], day: int) -> set[tuple[int, int]]:
-        by_claim: dict[tuple[int, int], list] = {}
+        by_claim: dict[tuple[int, int], list[Message]] = {}
         for m in game.net.log:
             if m.receiver == viewer_no and m.day <= day:
                 by_claim.setdefault((m.claim.field_id, m.claim.day), []).append(m)
@@ -201,11 +250,11 @@ def propagation(game, backend) -> dict:
         before = set(exposed_by.setdefault(e.viewer, set()))
         exposed_by[e.viewer] = before | {agent_no}
         expected = lost(viewer_no, exposed_by[e.viewer], e.day) - lost(viewer_no, before, e.day)
-        stale = set()
+        stale: set[tuple[int, int]] = set()
         for change in e.changes:
             if change.new_status != "stale":
                 continue
-            belief = store.get(e.viewer, change.belief_id)
+            belief = store.belief(e.viewer, change.belief_id)
             if belief is None or belief.origin != "told":
                 continue
             claim = (int(belief.subject[1:]), int(belief.value))
@@ -233,11 +282,11 @@ def propagation(game, backend) -> dict:
 # ---- everything together -------------------------------------------------------------------------
 
 
-def score_game(result, backend, probes: list[Probe] | None = None) -> dict:
+def score_game(result: GameResult, backend: Backend, probes: list[Probe] | None = None) -> ScoreRow:
     """One row of results for one game."""
     probes = probes or []
     steps = sum(t.steps for _, _, t in result.turns)
-    row = {
+    base: Totals = {
         "fields_saved": result.fields_saved,
         "fields": result.game.sim.world.n_fields,
         "days": result.game.day,
@@ -245,9 +294,11 @@ def score_game(result, backend, probes: list[Probe] | None = None) -> dict:
         "tokens_out": result.tokens_out + sum(p.tokens_out for p in probes),
         "model_calls": steps + len(probes),
     }
-    row |= water_use(result)
-    row |= lie_spread(result.game)
-    row |= isolation(result.game, backend.exposures)
-    row |= propagation(result.game, backend)
-    row |= score_probes(result.game, probes)
-    return row
+    return {
+        **base,
+        **water_use(result),
+        **lie_spread(result.game),
+        **isolation(result.game, backend.exposures),
+        **propagation(result.game, backend),
+        **score_probes(result.game, probes),
+    }

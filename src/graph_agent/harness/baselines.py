@@ -33,7 +33,7 @@ Fairness choices, so that each is a strong version and not a straw man
 import math
 import re
 from collections import Counter
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from functools import partial
 
 from ..adapters import ringfire
@@ -316,7 +316,7 @@ class VectorMemoryBackend(_LogBackend):
         return [docs[i] for i in chosen], len(docs) - len(chosen)
 
 
-BASELINES = {
+BASELINES: dict[str, Callable[[], _LogBackend]] = {
     "B0": IsolatedBackend,
     "B1": SharedLogBackend,
     "B2": VectorMemoryBackend,

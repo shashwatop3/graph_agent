@@ -28,8 +28,10 @@ from psycopg.types.json import Jsonb
 
 from ..core.model import (
     Action,
+    ActionStatus,
     Agent,
     Belief,
+    BeliefStatus,
     Correction,
     Edge,
     EdgeKind,
@@ -161,7 +163,7 @@ class PostgresStore(Store):
             )
             self._conn.close()
 
-    def _rows(self, query: str, **params: Any) -> list[tuple]:
+    def _rows(self, query: str, **params: Any) -> list[tuple[Any, ...]]:
         # `query` is our own text (column names and %(name)s placeholders); values go in `params`
         return self._conn.execute(cast(LiteralString, query), params).fetchall()
 
@@ -226,7 +228,13 @@ class PostgresStore(Store):
         node = self._node(node_id)
         return node if node is not None and visible(viewer, node) else None
 
-    def beliefs(self, viewer, subject=None, predicate=None, status=None) -> list[Belief]:
+    def beliefs(
+        self,
+        viewer: str,
+        subject: str | None = None,
+        predicate: str | None = None,
+        status: BeliefStatus | None = None,
+    ) -> list[Belief]:
         # Only add a condition for the filters that were given. Column names are our own literals.
         conditions = ["type = 'Belief'", "owner = %(viewer)s"]
         params: dict[str, Any] = {"viewer": viewer}
@@ -263,7 +271,7 @@ class PostgresStore(Store):
         rows = self._rows(_DOWNSTREAM, sources=[belief_id], viewer=viewer)
         return {node_id: hops for node_id, hops, _, _ in rows}
 
-    def actions(self, viewer, status=None) -> list[Action]:
+    def actions(self, viewer: str, status: ActionStatus | None = None) -> list[Action]:
         condition, params = "type = 'Action' AND owner = %(viewer)s", {"viewer": viewer}
         if status is not None:
             condition += " AND data ->> 'status' = %(status)s"
@@ -320,7 +328,9 @@ class PostgresStore(Store):
             for bid, status, path_len, tick, kind, target, reason in rows
         ]
 
-    def entity_distances(self, seeds, max_hops, kind="RELATES") -> dict[str, int]:
+    def entity_distances(
+        self, seeds: list[str], max_hops: int, kind: EdgeKind = "RELATES"
+    ) -> dict[str, int]:
         # One recursive query. The graph is walked in both directions, and each node keeps the
         # fewest hops; the hop limit also guarantees the recursion ends on a cyclic map.
         rows = self._rows(

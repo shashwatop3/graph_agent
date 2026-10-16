@@ -15,7 +15,6 @@ is identical, which is what makes the comparison fair.
 """
 
 from functools import partial
-from typing import Protocol
 
 from ..adapters import ringfire
 from ..core.compiler import compile_context
@@ -25,7 +24,7 @@ from ..core.tools import Toolbox
 from ..sim.comms import Message
 from ..sim.game import DayResult, Game
 from .pipeline import Exposure, Pipeline
-from .types import ExecuteFn, SendFn, Tools
+from .types import ExecuteFn, SendFn
 
 
 def _transport(send: SendFn, sender_id: str, receiver_id: str, belief: Belief) -> str:
@@ -40,21 +39,6 @@ def _transport(send: SendFn, sender_id: str, receiver_id: str, belief: Belief) -
         int(belief.value),
         belief.origin == "told",
     )
-
-
-class Backend(Protocol):
-    name: str
-    exposures: list[Exposure]
-
-    def start(self, game: Game) -> None: ...
-
-    def message(self, message: Message) -> None: ...
-
-    def day(self, game: Game, result: DayResult) -> None: ...
-
-    def context(self, number: int, day: int, budget: int) -> str: ...
-
-    def toolbox(self, number: int, send: SendFn, execute: ExecuteFn) -> Tools: ...
 
 
 class GraphBackend:

@@ -23,10 +23,9 @@ from ..sim.fire import fields_saved
 from ..sim.game import DayResult, Game
 from ..sim.scenario import Scenario, SendSpec, build_game
 from .agent import TurnResult, run_turn
-from .backend import Backend
 from .llm import ModelClient
 from .pipeline import Exposure
-from .types import AfterDay
+from .types import AfterDay, Backend
 
 
 @dataclass

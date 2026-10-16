@@ -17,6 +17,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from ..core.store import Store
 from ..sim.scenario import ClaimSpec, ImposterSpec, Scenario, SendSpec
 from ..stores.falkor import FalkorStore
 from ..stores.memory import MemoryStore
@@ -24,7 +25,9 @@ from ..stores.postgres import PostgresStore
 from .backend import GraphBackend
 from .baselines import BASELINES
 from .game import run_game
+from .llm import ModelClient
 from .scoring import Probe, make_probe_hook, score_game
+from .types import Backend
 
 
 @dataclass(frozen=True)
@@ -99,37 +102,50 @@ def make_scenario(knobs: Knobs, seed: int) -> Scenario:
 # ---- the systems ---------------------------------------------------------------------------------
 
 
-def _graph(store_class):
-    def make():
+# what a system gives back: its backend, and a function that cleans up after the run
+type MadeSystem = tuple[Backend, Callable[[], None]]
+
+
+def _graph(store_class: type[Store]) -> Callable[[], MadeSystem]:
+    def make() -> MadeSystem:
         store = store_class()
-        return GraphBackend(
-            store, name=f"graph-{store_class.__name__.removesuffix('Store').lower()}"
-        ), store.close
+        name = f"graph-{store_class.__name__.removesuffix('Store').lower()}"
+        return GraphBackend(store, name=name), store.close
+
+    return make
+
+
+def _baseline(make_backend: Callable[[], Backend]) -> Callable[[], MadeSystem]:
+    def make() -> MadeSystem:
+        return make_backend(), lambda: None
 
     return make
 
 
 # name -> function returning (backend, cleanup)
-SYSTEMS: dict[str, Callable] = {
+SYSTEMS: dict[str, Callable[[], MadeSystem]] = {
     "graph-memory": _graph(MemoryStore),
     "graph-falkor": _graph(FalkorStore),
     "graph-postgres": _graph(PostgresStore),
-    **{name: (lambda cls=cls: (cls(), lambda: None)) for name, cls in BASELINES.items()},
+    **{name: _baseline(make_backend) for name, make_backend in BASELINES.items()},
 }
+
+# one result row: the system, the seed, every knob, and every metric, by name
+Row = dict[str, object]
 
 
 def run_experiment(
     systems: list[str],
     grid: list[Knobs],
     seeds: list[int],
-    client_for: Callable,
+    client_for: Callable[[str, Knobs], ModelClient],
     *,
     budget: int = 4000,
     probe_days: tuple[int, ...] = (2, 4),
     out_dir: str | Path | None = None,
-) -> list[dict]:
+) -> list[Row]:
     """One row per (knobs, seed, system). `client_for(system, knobs)` returns the model to use."""
-    rows = []
+    rows: list[Row] = []
     for knobs in grid:
         for seed in seeds:
             scenario = make_scenario(knobs, seed)
@@ -166,7 +182,7 @@ DEFAULT_METRICS = [
 ]
 
 
-def save(rows: list[dict], out_dir: str | Path) -> None:
+def save(rows: list[Row], out_dir: str | Path) -> None:
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     (out / "results.json").write_text(json.dumps(rows, indent=1, sort_keys=True))
@@ -178,23 +194,25 @@ def save(rows: list[dict], out_dir: str | Path) -> None:
     (out / "summary.md").write_text(summary_table(rows))
 
 
-def _mean_range(values: list) -> str:
-    values = [v for v in values if v is not None]
-    if not values:
+def _mean_range(values: list[object]) -> str:
+    numbers = [v for v in values if isinstance(v, int | float)]
+    if not numbers:
         return "n/a"
-    low, high = min(values), max(values)
-    mean = statistics.mean(values)
+    low, high = min(numbers), max(numbers)
+    mean = statistics.mean(numbers)
     return f"{mean:.2f}" if low == high else f"{mean:.2f} ({low:.2f}-{high:.2f})"
 
 
-def summary_table(rows: list[dict], metrics: list[str] | None = None) -> str:
+def summary_table(rows: list[Row], metrics: list[str] | None = None) -> str:
     """Markdown: one block per knob setting, one row per system, mean (min-max) over seeds."""
     metrics = metrics or DEFAULT_METRICS
-    by_knobs: dict[tuple, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
+    by_knobs: dict[tuple[object, ...], dict[str, list[Row]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
     for row in rows:
-        by_knobs[tuple(row[k] for k in KNOB_NAMES)][row["system"]].append(row)
+        by_knobs[tuple(row[k] for k in KNOB_NAMES)][str(row["system"])].append(row)
     seeds = len({r["seed"] for r in rows})
-    out = []
+    out: list[str] = []
     for knob_values, systems in by_knobs.items():
         out.append(
             "### " + ", ".join(f"{k}={v}" for k, v in zip(KNOB_NAMES, knob_values, strict=True))
@@ -210,13 +228,14 @@ def summary_table(rows: list[dict], metrics: list[str] | None = None) -> str:
     return "\n".join(out) + "\n"
 
 
-def plot_svg(rows: list[dict], x: str, y: str, title: str = "") -> str:
+def plot_svg(rows: list[Row], x: str, y: str, title: str = "") -> str:
     """A standalone SVG line chart of metric `y` against knob `x`, one line per system (mean over
     seeds). Pure Python so there is nothing to install."""
     series: dict[str, dict[float, list[float]]] = defaultdict(lambda: defaultdict(list))
     for row in rows:
-        if row.get(y) is not None:
-            series[row["system"]][row[x]].append(row[y])
+        x_value, y_value = row.get(x), row.get(y)
+        if isinstance(x_value, int | float) and isinstance(y_value, int | float):
+            series[str(row["system"])][x_value].append(y_value)
     points = {s: sorted((xv, statistics.mean(v)) for xv, v in d.items()) for s, d in series.items()}
     xs = sorted({xv for p in points.values() for xv, _ in p})
     ys = [yv for p in points.values() for _, yv in p]
@@ -225,10 +244,10 @@ def plot_svg(rows: list[dict], x: str, y: str, title: str = "") -> str:
     low, high = min(0, min(ys)), max(ys) or 1
     left, top, width, height = 50, 30, 520, 260
 
-    def px(v):
+    def px(v: float) -> float:
         return left + (width * (v - xs[0]) / ((xs[-1] - xs[0]) or 1))
 
-    def py(v):
+    def py(v: float) -> float:
         return top + height - height * (v - low) / ((high - low) or 1)
 
     colours = ["#1b6ef3", "#d9480f", "#2b8a3e", "#862e9c", "#e67700", "#0b7285", "#495057"]

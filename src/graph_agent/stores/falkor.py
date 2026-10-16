@@ -21,14 +21,17 @@ One FalkorDB graph holds one run. Use a different `graph_name` for a different r
 import json
 import os
 import uuid
-from typing import Any
+from collections.abc import Callable
+from typing import Any, Protocol, cast
 
-from falkordb import FalkorDB
+from falkordb import FalkorDB  # pyright: ignore[reportMissingTypeStubs]  # no type information
 
 from ..core.model import (
     Action,
+    ActionStatus,
     Agent,
     Belief,
+    BeliefStatus,
     Correction,
     Edge,
     EdgeKind,
@@ -44,7 +47,9 @@ from ..core.store import Change, Invalidation, Store
 # Longest DERIVED_FROM chain the downstream walk will follow. Real chains are a handful of hops.
 MAX_DEPTH = 32
 
-_CLASSES = {c.__name__: c for c in (Agent, Observation, Entity, Belief, Action, Correction)}
+_CLASSES: dict[str, Callable[..., Node]] = {
+    c.__name__: c for c in (Agent, Observation, Entity, Belief, Action, Correction)
+}
 
 # Fields stored as JSON text, per node type (they can hold maps, lists or any value).
 _JSON_FIELDS = {
@@ -64,7 +69,14 @@ def _to_properties(node: Node) -> dict[str, Any]:
     return {k: v for k, v in data.items() if v is not None}  # FalkorDB cannot store null
 
 
-def _from_node(db_node) -> Node:
+class DbNode(Protocol):
+    """What we use of a node the FalkorDB client returns (the client has no type information)."""
+
+    labels: list[str]
+    properties: dict[str, Any]
+
+
+def _from_node(db_node: DbNode) -> Node:
     """FalkorDB node -> model."""
     label = next(label for label in db_node.labels if label in _CLASSES)
     data = dict(db_node.properties)
@@ -88,7 +100,7 @@ class FalkorStore(Store):
         self.graph_name = graph_name or f"store_{uuid.uuid4().hex[:10]}"
         if reset:
             self._drop()
-        self._graph = self._db.select_graph(self.graph_name)
+        self._graph: Any = self._db.select_graph(self.graph_name)  # the client has no types
         # Indexes: every lookup by id, and "all beliefs of one agent" (the viewer filter).
         self._run("CREATE INDEX FOR (n:Node) ON (n.id)")
         self._run("CREATE INDEX FOR (b:Belief) ON (b.owner)")
@@ -105,7 +117,7 @@ class FalkorStore(Store):
             pass
 
     def _run(self, query: str, **params: Any) -> list[list[Any]]:
-        return self._graph.query(query, params).result_set
+        return cast(list[list[Any]], self._graph.query(query, params).result_set)
 
     def _node(self, node_id: str) -> Node | None:
         """A node by id, ignoring visibility (used internally)."""
@@ -144,7 +156,13 @@ class FalkorStore(Store):
         node = self._node(node_id)
         return node if node is not None and visible(viewer, node) else None
 
-    def beliefs(self, viewer, subject=None, predicate=None, status=None) -> list[Belief]:
+    def beliefs(
+        self,
+        viewer: str,
+        subject: str | None = None,
+        predicate: str | None = None,
+        status: BeliefStatus | None = None,
+    ) -> list[Belief]:
         # Only add a condition for the filters that were given.
         conditions = ["b.owner = $viewer"]
         params: dict[str, Any] = {"viewer": viewer}
@@ -168,7 +186,7 @@ class FalkorStore(Store):
             "RETURN o.id, collect([r.hop, a.id])",
             id=belief_id,
         )
-        routes = []
+        routes: list[tuple[str, ...]] = []
         for _, hops in rows:
             ordered = sorted((hop, agent) for hop, agent in hops if agent is not None)
             routes.append(tuple(agent for _, agent in ordered))
@@ -208,7 +226,7 @@ class FalkorStore(Store):
                 frontier=frontier,
                 viewer=viewer,
             )
-            frontier = []
+            frontier: list[str] = []
             for node_id, labels, status in rows:
                 if node_id not in seen:
                     seen.add(node_id)
@@ -217,7 +235,7 @@ class FalkorStore(Store):
                     frontier.append(node_id)
         return found
 
-    def actions(self, viewer, status=None) -> list[Action]:
+    def actions(self, viewer: str, status: ActionStatus | None = None) -> list[Action]:
         condition, params = "a.owner = $viewer", {"viewer": viewer}
         if status is not None:
             condition += " AND a.status = $status"
@@ -264,7 +282,9 @@ class FalkorStore(Store):
             for bid, status, path_len, tick, kind, target, reason in rows
         ]
 
-    def entity_distances(self, seeds, max_hops, kind="RELATES") -> dict[str, int]:
+    def entity_distances(
+        self, seeds: list[str], max_hops: int, kind: EdgeKind = "RELATES"
+    ) -> dict[str, int]:
         # Breadth-first, one query per hop, ignoring edge direction (the pattern has no arrow).
         rows = self._run("MATCH (n:Node) WHERE n.id IN $seeds RETURN n.id", seeds=list(seeds))
         distance = {row[0]: 0 for row in rows}
