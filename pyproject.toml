@@ -9,6 +9,7 @@ requires-python = ">=3.12"
 dependencies = [
     "falkordb>=1.7.1",
     "psycopg[binary]>=3.3.6",
+    "pydantic>=2.14.1",
 ]
 
 [build-system]
