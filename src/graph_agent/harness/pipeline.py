@@ -35,8 +35,6 @@ class Pipeline:
         self.exposures: list[Exposure] = []
         self._start_fires_published = False
         self._exposed: set[tuple[str, str]] = set()  # (viewer, agent) pairs already acted on
-        # the latest message each agent received about a given claim, so it can be relayed
-        self.received: dict[tuple[str, int, int], object] = {}
 
     def start(self, game) -> None:
         world = game.sim.world
@@ -72,7 +70,6 @@ class Pipeline:
         )
         if belief is None:
             return  # arrived through someone the receiver distrusts: seen, but believed by nobody
-        self.received[(viewer, message.claim.field_id, message.claim.day)] = message
         # A claim that contradicts evidence the receiver already holds is caught on arrival.
         for known in self.store.beliefs(viewer, subject=belief.subject, predicate=ringfire.ARRIVAL):
             if known.origin == "observed" and known.status in ("active", "suspect"):

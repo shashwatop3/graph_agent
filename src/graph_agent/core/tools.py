@@ -64,6 +64,8 @@ class Toolbox:
     """One agent's tools. `ids` must be the same Ids the adapter uses, or the two would hand out
     the same id (B1, B2, ...) for different nodes."""
 
+    names = TOOL_NAMES  # which tools this toolbox offers (a model is shown exactly these)
+
     def __init__(
         self,
         store: Store,

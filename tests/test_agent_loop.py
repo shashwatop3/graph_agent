@@ -9,6 +9,7 @@ from graph_agent.adapters import ringfire as rf
 from graph_agent.core.ids import Ids
 from graph_agent.core.tools import TOOL_NAMES, Toolbox
 from graph_agent.harness.agent import call_tool, run_turn, tool_schemas
+from graph_agent.harness.backend import GraphBackend
 from graph_agent.harness.game import run_game
 from graph_agent.harness.llm import CachedClient, ModelReply, ScriptedModel, ToolCall
 from graph_agent.sim.scenario import load_scenario
@@ -22,7 +23,7 @@ SCENARIO = load_scenario(Path(__file__).parent / "scenarios" / "live_ring.json")
 
 
 def test_every_tool_has_a_schema_with_its_required_arguments():
-    schemas = {s["name"]: s for s in tool_schemas()}
+    schemas = {s["name"]: s for s in tool_schemas(box())}
     assert list(schemas) == list(TOOL_NAMES)
     assert schemas["send"]["parameters"]["required"] == ["to", "belief_id"]
     assert schemas["assert_belief"]["parameters"]["required"] == [
@@ -134,7 +135,7 @@ def summary(result):
 
 
 def play(store, client=None):
-    return run_game(SCENARIO, store, client or honest_agent(6))
+    return run_game(SCENARIO, GraphBackend(store), client or honest_agent(6))
 
 
 def test_a_game_with_stand_in_agents_runs_to_the_end_and_catches_the_imposter():

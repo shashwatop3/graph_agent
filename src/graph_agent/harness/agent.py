@@ -13,7 +13,6 @@ from typing import get_type_hints
 from pydantic import TypeAdapter
 
 from ..core.compiler import estimate_tokens
-from ..core.tools import TOOL_NAMES, Toolbox
 from .llm import ModelClient
 
 SYSTEM_PROMPT = (
@@ -23,11 +22,11 @@ SYSTEM_PROMPT = (
 )
 
 
-def tool_schemas() -> list[dict]:
-    """The eight tools as JSON schemas, built from the Toolbox method signatures and docstrings."""
+def tool_schemas(box) -> list[dict]:
+    """The tools `box` offers, as JSON schemas built from its method signatures and docstrings."""
     schemas = []
-    for name in TOOL_NAMES:
-        method = getattr(Toolbox, name)
+    for name in box.names:
+        method = getattr(type(box), name)
         hints = get_type_hints(method)
         properties, required = {}, []
         for parameter in list(inspect.signature(method).parameters.values())[1:]:  # skip self
@@ -53,17 +52,17 @@ class TurnResult:
     tokens_out: int = 0
 
 
-def call_tool(box: Toolbox, name: str, arguments: dict) -> str:
-    if name not in TOOL_NAMES:
-        return f"error: unknown tool {name!r}; the tools are {', '.join(TOOL_NAMES)}"
+def call_tool(box, name: str, arguments: dict) -> str:
+    if name not in box.names:
+        return f"error: unknown tool {name!r}; the tools are {', '.join(box.names)}"
     try:
         return getattr(box, name)(**arguments)
     except TypeError as error:  # wrong or missing arguments
         return f"error: bad arguments for {name}: {error}"
 
 
-def run_turn(client: ModelClient, box: Toolbox, context: str, max_steps: int = 6) -> TurnResult:
-    schemas = tool_schemas()
+def run_turn(client: ModelClient, box, context: str, max_steps: int = 6) -> TurnResult:
+    schemas = tool_schemas(box)
     messages = [{"role": "user", "content": context}]
     result = TurnResult()
     for _ in range(max_steps):
