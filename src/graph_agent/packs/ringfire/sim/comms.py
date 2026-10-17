@@ -15,10 +15,12 @@ class LinkError(ValueError):
 
 @dataclass(frozen=True)
 class Claim:
-    """ "Fire reaches `field_id` on `day`." The only thing messages say in v1."""
+    """ "Fire reaches `field_id` on `day`." With the linear fire a report can also say how strong
+    the fire was that day (0: it was put out); None when the sender does not know."""
 
     field_id: int
     day: int
+    strength: float | None = None
 
 
 @dataclass(frozen=True)

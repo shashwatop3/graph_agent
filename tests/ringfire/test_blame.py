@@ -338,3 +338,46 @@ def test_the_track_record_credits_where_a_claim_started_not_who_relayed_it():
     record = rt.pack.track_record(6, rt.tick)
     assert record.get("A5", (0, 0))[1] > 0 or record.get("A7", (0, 0))[1] > 0  # their own lies
     assert all(wrong == 0 for a, (_, wrong) in record.items() if a not in ("A5", "A7"))
+
+
+# ---- reports carry the fire's strength; the outlook ignores fires known to be out --------------
+
+
+def played(days: int, seed: int = 17):
+    team = PACK.team(
+        "ringfire", {"seed": seed, "liars": "5,7", "keep_lying": True, "extra_links": 0}
+    )
+    session = PACK.start(team, PACK.stand_in(team), MemoryStore(), EventLog(), {})
+    rt = session.runtime
+    rt.start()
+    for _ in range(days):
+        rt.step()
+    return rt
+
+
+def test_a_report_of_a_fire_seen_carries_its_strength_or_says_it_was_put_out():
+    rt = played(8)
+    honest = [m for m in rt.pack.game.net.log if m.sender not in (5, 7) and m.route[0] == m.sender]
+    assert honest
+    assert all(m.claim.strength is not None for m in honest)
+    assert any(m.claim.strength == 0 for m in honest) or any(m.claim.strength > 0 for m in honest)
+
+
+def test_the_outlook_does_not_forecast_from_a_fire_known_to_be_out():
+    rt = played(6)
+    pack = rt.pack
+    for n in range(8):
+        news = pack.fire_news(n, rt.tick)
+        out_fields = {f for f, (_, strength, _) in news.items() if strength == 0}
+        for line in pack.linear_outlook(n, rt.tick):
+            if line.startswith("  (put out"):
+                continue
+            assert not any(f" F{f} was burning" in line for f in out_fields)
+
+
+def test_the_context_says_whose_reports_could_not_be_believed_and_why():
+    rt = played(10)
+    rt.distrust("A6", [("A5", "lied")], rt.tick)
+    context = rt.pack.linear_context(6, rt.tick)
+    assert "fire from its field reaches yours in" in context
+    assert "## Fire outlook (the latest you know of each fire" in context

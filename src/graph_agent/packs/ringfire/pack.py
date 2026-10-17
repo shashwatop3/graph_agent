@@ -16,6 +16,7 @@ tool calls, messages, exposures and score (tests/test_frame_ringfire.py checks i
 share a model cache.
 """
 
+import heapq
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -203,6 +204,10 @@ class RingFirePack:
     put_out: set[tuple[int, int]] = field(default_factory=set[tuple[int, int]])  # (field, day)
     # linear fire: every (field, day) fire was there, so a later report can still be checked
     fire_days: set[tuple[int, int]] = field(default_factory=set[tuple[int, int]])
+    # linear fire: (field, day) -> the fire's strength that night (0: put out)
+    fire_strength: dict[tuple[int, int], float] = field(
+        default_factory=dict[tuple[int, int], float]
+    )
     edges: list[tuple[int, int, int]] = field(default_factory=list[tuple[int, int, int]])
     map_lines: list[str] = field(default_factory=list[str])
     days: list[DayResult] = field(default_factory=list[DayResult])
@@ -318,6 +323,8 @@ class RingFirePack:
         )
         if item.payload.get("put_out"):
             published["put_out"] = True
+        if item.payload.get("strength") is not None:
+            published["strength"] = float(item.payload["strength"])
         rt = self.runtime
         belief = ringfire.record_evidence(self.store, rt.ids, published, number(viewer))
         self.note_support(viewer, belief.id)
@@ -331,8 +338,10 @@ class RingFirePack:
 
     def show(self, viewer_number: int, field_number: int, day: int, put_out: bool = False) -> None:
         """Show one agent that fire reached a field (and, with `put_out`, that it went out at
-        once because the owner watered): an item, routed to it alone."""
+        once because the owner watered): an item, routed to it alone. With the linear fire it
+        also says how strong the fire was that night."""
         self.shown.add((viewer_number, field_number, day))
+        strength = self.fire_strength.get((field_number, day)) if self.linear else None
         item = Item(
             id=f"E{field_number}-{day}-{viewer_number}",
             kind="fire_report",
@@ -340,7 +349,12 @@ class RingFirePack:
             source="world",
             about=[ringfire.field_id(field_number)],
             to=[f"A{viewer_number}"],
-            payload={"day": day, "field": field_number, **({"put_out": True} if put_out else {})},
+            payload={
+                "day": day,
+                "field": field_number,
+                **({"put_out": True} if put_out else {}),
+                **({"strength": strength} if strength is not None else {}),
+            },
         )
         self.runtime.route(item, [f"A{viewer_number}"])
 
@@ -689,7 +703,7 @@ class RingFirePack:
                 else "trusted"
             )
             keeps = ", ".join(f"F{f}" for f in self.fields.get(other, ()))
-            link_lines.append(f"- {agent} (keeps {keeps}): {state}")
+            link_lines.append(f"- {agent} (keeps {keeps}; {self._upstream(other, n)}): {state}")
         trusted = [o for o in links if f"A{o}" not in distrusted]
         link_lines.append(
             f"{len(links)} of {cap} links used. "
@@ -716,9 +730,17 @@ class RingFirePack:
                 continue
             claim, route = o.payload.get("claim", {}), [f"A{a}" for a in o.payload.get("route", [])]
             believed = not (set(route) & distrusted)
+            strength = claim.get("strength")
+            how = (
+                ""
+                if strength is None
+                else " and it was put out"
+                if strength == 0
+                else f" at strength {strength:g}"
+            )
             messages.append(
                 f"- day {o.payload.get('day')}: {route[-1] if route else '?'} says fire reaches "
-                f"F{claim.get('field_id')} on day {claim.get('day')} (route "
+                f"F{claim.get('field_id')} on day {claim.get('day')}{how} (route "
                 f"{' > '.join(route)})"
                 + (
                     ""
@@ -769,15 +791,23 @@ class RingFirePack:
 
         sections.append(
             (
-                "Fire outlook (from fires you have seen yourself)",
-                outlook(
-                    self.edges, self.seen_fires(n), self.fields.get(n, ()), day, window=0
-                ).splitlines()[1:],
+                "Fire outlook (the latest you know of each fire: what you saw, and reports you "
+                "believe)",
+                self.linear_outlook(n, day),
             )
         )
         sections.append(("Map", self.map_lines))
 
         record = self.track_record(n, day)
+        unbelieved: dict[str, tuple[int, set[str]]] = {}
+        for o in store.observations(viewer, 0):
+            if o.kind != "message":
+                continue
+            path = [f"A{a}" for a in o.payload.get("route", [])]
+            blocked = set(path[1:]) & distrusted
+            if path and path[0] not in distrusted and blocked:
+                count, via = unbelieved.get(path[0], (0, set[str]()))
+                unbelieved[path[0]] = (count + 1, via | blocked)
         rows: list[str] = []
         for other in range(self.n_agents):
             if other == n:
@@ -787,9 +817,16 @@ class RingFirePack:
             steps = min((other - n) % self.n_agents, (n - other) % self.n_agents)
             mark = "linked" if other in links else "not linked"
             trust = "not trusted" if agent in distrusted else "trusted"
+            lost = unbelieved.get(agent, (0, set[str]()))
+            missed = (
+                f"; {lost[0]} of its reports reached you only through "
+                f"{', '.join(sorted(lost[1]))}, so you did not believe them"
+                if lost[0]
+                else ""
+            )
             rows.append(
-                f"- {agent}: {steps} step(s) away, {mark}, {trust}; claims that started with it: "
-                f"{right} came true, {wrong} false"
+                f"- {agent}: {steps} step(s) round the ring, {self._upstream(other, n)}, {mark}, "
+                f"{trust}; claims that started with it: {right} came true, {wrong} false{missed}"
             )
         sections.append(("Every agent, and how its claims have turned out for you", rows))
 
@@ -818,12 +855,117 @@ class RingFirePack:
         )
         return "\n\n".join(f"## {title}\n" + "\n".join(lines) for title, lines in sections)
 
+    def fire_path(self, src: int, dst: int) -> tuple[int, list[int]] | None:
+        """The quickest way fire can go from field `src` to field `dst` along the paths this game
+        has shown (known and revealed): (days, the fields in between), or None."""
+        best: dict[int, tuple[int, list[int]]] = {src: (0, [])}
+        heap = [(0, src)]
+        while heap:
+            days, here = heapq.heappop(heap)
+            if here == dst:
+                return best[here][0], best[here][1][:-1] if best[here][1] else []
+            if days > best[here][0]:
+                continue
+            for a, b, weight in self.edges:
+                if a == here and (b not in best or days + weight < best[b][0]):
+                    best[b] = (days + weight, [*best[here][1], b])
+                    heapq.heappush(heap, (days + weight, b))
+        return None
+
+    def fire_news(self, n: int, today: int) -> dict[int, tuple[int, float | None, str]]:
+        """The latest the agent knows of each field, from what it saw and from reports it believes:
+        field -> (day, strength or None if not said, where it came from). Strength 0: put out.
+        Only days that are over count: a claim about a later day is a forecast, not news."""
+        viewer = ringfire.agent_id(n)
+        distrusted = self.runtime.distrusted(viewer)
+        news: dict[int, tuple[int, float | None, str]] = {}
+        for o in self.store.observations(viewer, 0):
+            payload = o.payload
+            if o.kind == "evidence":
+                f, d = int(payload["field_id"]), int(payload["day"])
+                strength = 0.0 if payload.get("put_out") else payload.get("strength")
+                source = "seen by you"
+            elif o.kind == "message":
+                route = [f"A{a}" for a in payload.get("route", [])]
+                claim = payload.get("claim", {})
+                if set(route) & distrusted or "field_id" not in claim:
+                    continue
+                f, d, strength = int(claim["field_id"]), int(claim["day"]), claim.get("strength")
+                source = f"from {route[0]}" if route else "told"
+            else:
+                continue
+            if d >= today:
+                continue
+            old = news.get(f)
+            if old is None or d > old[0] or (d == old[0] and strength == 0):
+                news[f] = (d, strength, source)
+        return news
+
+    def linear_outlook(self, n: int, today: int) -> list[str]:
+        """Per field of the agent's: the burning fires it knows of that can reach it, how soon,
+        and whose fields the fire would have to get past. Fires it knows were put out are not
+        counted: they send nothing on."""
+        news = self.fire_news(n, today)
+        lines: list[str] = []
+        for target in self.fields.get(n, ()):
+            reach: list[tuple[int, str]] = []
+            for f, (d, strength, source) in news.items():
+                if f == target or strength == 0:
+                    continue
+                path = self.fire_path(f, target)
+                if path is None:
+                    continue
+                days, between = path
+                strong = "" if strength is None else f" at strength {strength:g}"
+                past = (
+                    ", if it gets past "
+                    + ", ".join(f"F{b} (A{self.game.sim.world.owner(b)})" for b in between)
+                    if between
+                    else ", straight to yours"
+                )
+                soonest = max(today, d + days)
+                reach.append(
+                    (
+                        soonest,
+                        f"F{target}: F{f} was burning{strong} on day {d} ({source}); fire takes "
+                        f"{days} day(s) from there to F{target}{past}. Earliest: day {soonest}.",
+                    )
+                )
+            if reach:
+                lines += [text for _, text in sorted(reach)[:3]]
+            else:
+                lines.append(f"F{target}: no burning fire you know of has a path to F{target}.")
+            outs = sorted(
+                ((d, f, source) for f, (d, strength, source) in news.items() if strength == 0),
+                reverse=True,
+            )[:2]
+            lines += [f"  (put out: F{f} on day {d}, {source})" for d, f, source in outs]
+        return lines
+
+    def _upstream(self, other: int, n: int) -> str:
+        """How fire runs between `other`'s fields and `n`'s, in days, along the known paths."""
+        mine, theirs = self.fields.get(n, ()), self.fields.get(other, ())
+        up = [p[0] for a in theirs for b in mine if (p := self.fire_path(a, b)) is not None]
+        down = [p[0] for a in theirs for b in mine if (p := self.fire_path(b, a)) is not None]
+        if up and (not down or min(up) <= min(down)):
+            return f"fire from its field reaches yours in {min(up)} day(s)"
+        if down:
+            return f"fire from your field reaches its in {min(down)} day(s)"
+        return "no known path between your fields"
+
     def _belief_text(self, viewer: str, belief_id: str) -> str:
         b = self.store.belief(viewer, belief_id)
         return "?" if b is None else f"fire reaches {b.subject} on day {b.value}"
 
 
 # ---- messages over the ring ---------------------------------------------------------------------
+
+
+def _claim_payload(claim: Claim) -> ringfire.ClaimPayload:
+    payload: ringfire.ClaimPayload = {"field_id": claim.field_id, "day": claim.day}
+    if claim.strength is not None:
+        payload["strength"] = claim.strength
+    return payload
 
 
 class RingTransport:
@@ -874,6 +1016,12 @@ class RingTransport:
         relaying = (
             self.pack.received.get((s, field_number, day)) if belief.origin == "told" else None
         )
+        strength: float | None = None
+        if self.pack.linear:
+            if belief.origin == "observed" and (s, field_number, day) in self.pack.shown:
+                strength = self.pack.fire_strength.get((field_number, day))
+            elif relaying is not None:
+                strength = relaying.claim.strength
         rt = self.pack.runtime
         if relaying is None and belief.origin == "derived" and rt.settings.trace_provenance:
             # a conclusion drawn from what it was told: the claim travels on the told claim's route
@@ -885,7 +1033,7 @@ class RingTransport:
                 (m for m in heard if m is not None), key=lambda m: len(m.route), default=None
             )
         try:
-            message = self.pack.game.send(s, r, Claim(field_number, day), relaying)
+            message = self.pack.game.send(s, r, Claim(field_number, day, strength), relaying)
         except LinkError as error:
             raise ValueError(f"{error}; build a link first (act: link)") from error
         self.pack.sent.add((sender, receiver, belief.subject, belief.value))
@@ -914,7 +1062,7 @@ class RingTransport:
                 "receiver": sim_message.receiver,
                 "route": list(sim_message.route),
                 "day": sim_message.day,
-                "claim": {"field_id": sim_message.claim.field_id, "day": sim_message.claim.day},
+                "claim": _claim_payload(sim_message.claim),
             },
             distrusted=rt.distrusted(message.receiver),
         )
@@ -955,7 +1103,10 @@ class WorldNode(Node):
         ringfire.setup_map(pack.store, world.config.n_agents, fields, spread)
         for f in range(world.n_fields):
             self.rt.entities[ringfire.field_id(f)] = "Field"
-        for field_number, _ in world.initial_fires:  # agents can act on day 0
+        for field_number, strength in world.initial_fires:  # agents can act on day 0
+            if pack.linear:
+                pack.fire_days.add((field_number, 0))
+                pack.fire_strength[(field_number, 0)] = strength
             for n in game.audience(field_number, 0):
                 pack.show(n, field_number, 0)
         pack.start_fires_published = True
@@ -1025,6 +1176,9 @@ class WorldNode(Node):
                     pack.put_out.add((evidence.field_id, evidence.day))
                 if pack.linear:
                     pack.fire_days.add((evidence.field_id, evidence.day))
+                    pack.fire_strength[(evidence.field_id, evidence.day)] = (
+                        0.0 if evidence.put_out else evidence.intensity
+                    )
                 if tick == 0 and pack.start_fires_published and evidence.day == 0:
                     if evidence.field_id in initial:
                         continue  # already shown to everyone before the day began
@@ -1094,7 +1248,7 @@ class Imposters:
             for f in pack.fields.get(other, ())[:1]:
                 if not _false_alarm_target(pack, f, tick + 1):
                     continue
-                sent = game.send(me, other, Claim(f, tick + 1))
+                sent = game.send(me, other, Claim(f, tick + 1, 2.0))  # sounds like a sighting
                 if sent is not None:
                     node.rt.post(transport.outgoing(sent))
 

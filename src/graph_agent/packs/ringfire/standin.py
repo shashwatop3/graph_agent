@@ -14,7 +14,7 @@ import re
 
 from graph_agent.harness.llm import ChatMessage, ModelReply, ScriptedModel, ToolCall, ToolSchema
 
-BELIEF = re.compile(r"\[(B\d+) (?:active|suspect) [^\]]*\] fire reaches (F\d+) on day (\d+)")
+BELIEF = re.compile(r"\[(B\d+) (?:active|suspect)[^\]]*\] fire reaches (F\d+) on day (\d+)")
 
 
 def honest_agent(n_agents: int) -> ScriptedModel:

@@ -55,6 +55,7 @@ TEMPLATES = {ARRIVAL: "fire reaches {subject} on day {value}"}
 class ClaimPayload(TypedDict):
     field_id: int
     day: int
+    strength: NotRequired[float]  # linear fire: how strong it was that day; 0 means put out
 
 
 class MessagePayload(TypedDict):
@@ -71,6 +72,7 @@ class EvidencePayload(TypedDict):
     day: int
     field_id: int
     put_out: NotRequired[bool]  # linear fire: it came on the day the owner watered, and went out
+    strength: NotRequired[float]  # linear fire: its strength that night (0 when put out)
 
 
 Blame = tuple[str, str]  # (agent id, why the viewer stops trusting them)
