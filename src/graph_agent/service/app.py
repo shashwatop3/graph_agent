@@ -19,22 +19,26 @@
     /api/connections, /api/packs/{pack}/setup   your apps and your agents (service/connections.py)
 
 Local only by default: it binds 127.0.0.1, and a real model run spends from the key in .env.
+Hosted (GRAPH_AGENT_PUBLIC_URL set): people sign in with Google first (auth.py, users.py).
 """
 
 import asyncio
 import json
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
 from ..frame.nodes import catalogue_info
 from ..frame.spec import TeamSpec
+from .auth import guard
+from .auth import router as auth_router
 from .connections import router as connections_router
 from .registry import PACKS, pack_named
 from .spaces import ROOT, Spaces
+from .users import hosted, secret_key
 
 CONSOLE = ROOT / "viewer" / "console" / "dist"
 
@@ -70,7 +74,9 @@ class Decision(BaseModel):
 
 
 def create_app(spaces: Spaces | None = None) -> FastAPI:
-    app = FastAPI(title="graph-agent console", version="0.1.0")
+    if hosted():
+        secret_key()  # refuse to start without it, rather than fail at the first sign-in
+    app = FastAPI(title="graph-agent console", version="0.1.0", dependencies=[Depends(guard)])
     registry = spaces or Spaces()
     app.state.spaces = registry
 
@@ -313,6 +319,7 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
         return space.summary()
 
     app.include_router(connections_router())
+    app.include_router(auth_router())
 
     # ---- the console ----------------------------------------------------------------------------
 

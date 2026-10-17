@@ -26,12 +26,15 @@ from ..frame.feeds import ConnectionFeed, NeedsSignIn
 from ..frame.presets import PRESETS
 from .registry import pack_named
 from .spaces import ROOT
+from .users import hosted
 
 CONNECTIONS = ROOT / "connections.json"
 LOCAL = {"127.0.0.1", "localhost", "::1"}
 
 
 def local_only(request: Request) -> None:
+    if hosted():  # the page is not on this machine: auth.guard checks who asks, and from where
+        return
     host = request.headers.get("host", "")
     hostname = urlparse(f"//{host}").hostname or ""
     if hostname not in LOCAL:

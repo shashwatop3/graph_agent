@@ -333,3 +333,11 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; color:
 .ok-line { color: var(--ok); font-size: 12.5px; margin: 0; }
 .agent > label.check { display: flex; flex-wrap: nowrap; align-items: flex-start; gap: 8px; }
 .agent > label.check input { margin-top: 2px; flex: none; }
+
+/* hosted: the sign-in page, and who is signed in */
+.who { display: inline-flex; gap: 8px; align-items: center; font-family: var(--f-mono); font-size: 12px; color: var(--muted); }
+.signin { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+.signin .panel { max-width: 520px; width: 100%; }
+.signin .pb { display: grid; gap: 12px; justify-items: start; padding: 22px; }
+.signin h1 { font-size: 24px; }
+.signin a.btn { display: inline-flex; align-items: center; text-decoration: none; }

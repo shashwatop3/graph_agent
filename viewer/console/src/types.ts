@@ -229,3 +229,9 @@ export interface SetupView {
   kinds: Record<string, string[]>;
   problems: string[];
 }
+
+/** Who is signed in (hosted only; the local console has no sign-in). */
+export interface Me {
+  hosted: boolean;
+  user: { email: string; name: string } | null;
+}

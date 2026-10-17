@@ -1,4 +1,4 @@
-import type { AppsSetup, Catalogue, ConnectionEntry, ConnectionInfo, ConnectionTest, PackInfo, Preset, RecordedRun, RunEvent, SetupView, SpaceState, Summary, TeamSpec, Template, Why } from "./types";
+import type { AppsSetup, Catalogue, ConnectionEntry, ConnectionInfo, ConnectionTest, Me, PackInfo, Preset, RecordedRun, RunEvent, SetupView, SpaceState, Summary, TeamSpec, Template, Why } from "./types";
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -29,6 +29,8 @@ export interface RunOptions {
 }
 
 export const api = {
+  me: () => call<Me>("/api/me"),
+  logout: () => fetch("/auth/logout", { method: "POST" }),
   packs: () => call<PackInfo[]>("/api/packs"),
   catalogue: (pack: string) => call<Catalogue>(`/api/catalogue?pack=${encodeURIComponent(pack)}`),
   templates: () => call<Template[]>("/api/templates"),

@@ -3,7 +3,7 @@ import { api, type RunOptions } from "./api";
 import { AppsView } from "./apps/AppsView";
 import { BuildView } from "./build/BuildView";
 import { RunView } from "./run/RunView";
-import type { RecordedRun, Summary, TeamSpec } from "./types";
+import type { Me, RecordedRun, Summary, TeamSpec } from "./types";
 
 type View = { kind: "build" } | { kind: "run"; id: string } | { kind: "runs" } | { kind: "apps" };
 
@@ -16,10 +16,14 @@ function readHash(): View {
 
 export function App() {
   const [view, setView] = useState<View>(readHash);
+  const [me, setMe] = useState<Me | null>(null); // hosted: who is signed in (local: no one, and no need)
   useEffect(() => {
     const onHash = () => setView(readHash());
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  useEffect(() => {
+    api.me().then(setMe).catch(() => setMe({ hosted: false, user: null }));
   }, []);
   const go = (next: View) => {
     window.location.hash = next.kind === "run" ? `run/${next.id}` : next.kind === "build" ? "" : next.kind;
@@ -30,6 +34,9 @@ export function App() {
     const space = await api.create(pack, team, name, options);
     go({ kind: "run", id: space.id });
   }
+
+  if (me === null) return <p className="none pad">Connecting…</p>;
+  if (me.hosted && !me.user) return <SignIn />;
 
   return (
     <div className="wrap">
@@ -45,12 +52,37 @@ export function App() {
             <button aria-pressed={view.kind === "run" || view.kind === "runs"} onClick={() => go({ kind: "runs" })}>Runs</button>
           </nav>
           <ThemeToggle />
+          {me.user && (
+            <div className="who">
+              <span title={me.user.name}>{me.user.email}</span>
+              <button className="btn" onClick={() => void api.logout().then(() => window.location.reload())}>Sign out</button>
+            </div>
+          )}
         </div>
       </header>
       {view.kind === "build" && <BuildView onRun={run} />}
       {view.kind === "run" && <RunView spaceId={view.id} onBack={() => go({ kind: "build" })} />}
       {view.kind === "runs" && <Runs onOpen={(id) => go({ kind: "run", id })} />}
       {view.kind === "apps" && <AppsView onRun={run} />}
+    </div>
+  );
+}
+
+/** The hosted console's front door: nothing is shown or run before signing in. */
+function SignIn() {
+  return (
+    <div className="signin">
+      <section className="panel">
+        <div className="pb">
+          <div className="eyebrow">Cascade</div>
+          <h1>Teams of agents with one shared memory</h1>
+          <p className="note">
+            Build a team, run it on a simulated week or on your own mail and calendar, and see why each agent believes what it does.
+            Signing in tells Cascade only your name and address. Gmail and Calendar are connected later, read-only, if you choose to.
+          </p>
+          <a className="btn primary big" href="/auth/login">Sign in with Google</a>
+        </div>
+      </section>
     </div>
   );
 }
