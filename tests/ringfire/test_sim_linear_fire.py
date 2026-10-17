@@ -149,3 +149,15 @@ def test_a_linear_fire_is_reported_every_day_it_burns_and_the_day_it_goes_out():
     assert [(e.field_id, e.put_out) for e in day1.evidence if e.field_id == 0] == [(0, False)]
     assert [(e.field_id, e.put_out) for e in day2.evidence if e.field_id == 0] == [(0, False)]
     assert [(e.field_id, e.put_out) for e in day3.evidence if e.field_id == 0] == [(0, True)]
+
+
+def test_when_every_fire_is_out_a_new_one_starts_the_next_day():
+    rules = FireRules(**{**LINEAR.__dict__, "relight": True})
+    world = hand_world(chain([1, 1]), fires=((0, 1.0),), n_agents=3, horizon=10)
+    sim = FireSim(world, rules)
+    sim.step({0})  # out on day 0
+    sim.step()  # day 1: its arrival does not land; nothing burns, so a fire is planned for day 2
+    report = sim.step()
+    assert len(report.ignited) == 1 and report.ignited[0].edge is None
+    assert report.ignited[0].intensity == world.config.initial_intensity
+    assert not sim.finished

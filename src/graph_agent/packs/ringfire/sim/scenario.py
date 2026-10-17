@@ -59,6 +59,7 @@ class RulesSpec(TypedDict, total=False):
     step: float
     lost_after: int
     arrive: Literal["step", "source"]
+    relight: bool
 
 
 class ImposterSpec(TypedDict):

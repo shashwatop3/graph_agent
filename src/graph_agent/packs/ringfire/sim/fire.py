@@ -23,6 +23,7 @@ Attributes without an underscore (day, fields, revealed) are for reading.
 Only step() changes them.
 """
 
+import random
 from collections.abc import Callable, Collection
 from dataclasses import dataclass, replace
 from typing import Literal
@@ -54,6 +55,9 @@ class FireRules:
     # linear: fire arrives at strength `step` ("step"), or one step weaker than the field it
     # came from ("source"), so a strong fire next door is a strong fire on arrival
     arrive: Literal["step", "source"] = "step"
+    # linear: when every fire is out and none is on its way, a new one starts the next day at a
+    # field picked from the world's seed (at the world's starting strength), so a long game goes on
+    relight: bool = False
 
     def __post_init__(self):
         if self.water_cooldown < 0:
@@ -174,7 +178,7 @@ class FireSim:
         arrival = self._landing(field_id, day)
         if arrival is None:
             return FieldDay(field_id, 0.0, 0.0, "quiet")
-        strength = rules.step
+        strength = rules.step if arrival.edge is not None else arrival.intensity  # a new fire
         if rules.arrive == "source" and arrival.edge is not None:
             strength = max(rules.step, (arrival.intensity or 0.0) - rules.step)
         if watered:
@@ -196,7 +200,7 @@ class FireSim:
         if live:
             return min(live, key=lambda a: (-a.intensity, a.source or 0))
         if self._random.get(day) == field_id:
-            return Ignition(field_id, day, self.rules.step, None)
+            return Ignition(field_id, day, self.world.config.initial_intensity, None)
         return None
 
     def _step_linear(self, day: int, watering: frozenset[int]) -> DayReport:
@@ -235,6 +239,8 @@ class FireSim:
                 for edge in self._out.get(f.id, []):
                     self._schedule(Ignition(edge.dst, day + edge.weight, f.intensity or 0.0, edge))
         regrown = self._regrow(day)
+        if self.rules.relight:
+            self._relight(day + 1)
         self.day += 1
         return DayReport(
             day,
@@ -250,6 +256,16 @@ class FireSim:
                 (f.id, f.intensity or 0.0) for f in self.fields if f.state is FieldState.BURNING
             ),
         )
+
+    def _relight(self, day: int) -> None:
+        """Every fire is out and nothing is on its way: a new fire starts on `day`."""
+        if any(f.state is FieldState.BURNING for f in self.fields) or day in self._random:
+            return
+        if any(self._pending.get(d) for d in self._pending if d >= day):
+            return
+        fields = [f.id for f in self.fields if f.state is FieldState.UNBURNT]
+        if fields:
+            self._random[day] = random.Random(self.world.seed * 7919 + day).choice(fields)
 
     def step(self, agents_water_today: Collection[int] = frozenset()) -> DayReport:
         """Resolve the current day. `agents_water_today` is the set of agents that water today."""

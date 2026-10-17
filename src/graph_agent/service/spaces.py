@@ -13,6 +13,7 @@ import os
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -149,8 +150,26 @@ class Space:
         }
 
     def state(self) -> dict[str, Any]:
-        with self.lock:
-            return self._state()
+        return self._read(self._state)
+
+    def _read[T](self, read: Callable[[], T]) -> T:
+        """Run a read for the page. A day being played holds the lock for as long as the agents'
+        model calls take (a minute or more), and the page must not wait that long: the read waits
+        a moment for the lock, then goes ahead without it. The graph stores are safe to read while
+        a day writes to them; a read that collides with a write in progress is tried again."""
+        got = self.lock.acquire(timeout=0.25)
+        try:
+            for attempt in range(5):
+                try:
+                    return read()
+                except RuntimeError:  # e.g. a dict changed size while it was being read
+                    if got or attempt == 4:
+                        raise
+                    time.sleep(0.05)
+            raise AssertionError("unreachable")
+        finally:
+            if got:
+                self.lock.release()
 
     def _state(self) -> dict[str, Any]:
         rt = self.runtime
@@ -259,8 +278,7 @@ class Space:
     # ---- why ------------------------------------------------------------------------------------
 
     def why(self, viewer: str, belief_id: str) -> dict[str, Any]:
-        with self.lock:
-            return self._why(viewer, belief_id)
+        return self._read(lambda: self._why(viewer, belief_id))
 
     def _why(self, viewer: str, belief_id: str) -> dict[str, Any]:
         rt, store = self.runtime, self.store

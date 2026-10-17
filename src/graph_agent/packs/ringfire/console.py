@@ -22,6 +22,7 @@ LINEAR_RULES: RulesSpec = {
     "lost_after": 2,
     "water_per_agent": None,
     "water_cooldown": 0,
+    "relight": True,  # a new fire starts when every fire is out
 }
 
 
