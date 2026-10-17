@@ -163,3 +163,30 @@ def test_amounts_a_model_reads_are_numbers_so_an_honest_nothing_due_is_not_a_lie
     assert normalise("flight.departs", " Fri 07:10 ") == "Fri 07:10"
     run = run_life("week", life_team())
     assert run.score["honest_quarantined"] == 0
+
+
+def test_a_check_reading_back_the_teams_own_action_confirms_it_instead_of_holding_it(monkeypatch):
+    run = run_life("money", life_team())
+    events = run.runtime.log.events
+    confirmed = [e.data for e in events if e.kind == "confirmed"]
+    assert {e["tool"] for e in confirmed} == {"subscription_set_card"}
+    assert not [e for e in events if e.kind == "held" and e.data["tool"] == "subscription_set_card"]
+    assert all(run.checks.values())
+    # the old reading is still retired, and its plans say why
+    reasons = [str(e.data["reason"]) for e in events if e.kind == "change"]
+    assert any("the team's own action" in r for r in reasons)
+
+    # without the tool's effect, the same week holds the card moves although they were right
+    from graph_agent.packs.life import tools
+
+    original = tools.LifeTools.list_tools
+
+    def without_effects(self: tools.LifeTools) -> list[tools.ToolSpec]:
+        from dataclasses import replace
+
+        return [replace(t, effects=None) for t in original(self)]
+
+    monkeypatch.setattr(tools.LifeTools, "list_tools", without_effects)
+    blind = run_life("money", life_team())
+    held = [e for e in blind.runtime.log.events if e.kind == "held"]
+    assert {e.data["tool"] for e in held} == {"subscription_set_card"}

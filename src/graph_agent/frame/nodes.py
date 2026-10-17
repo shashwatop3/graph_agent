@@ -13,7 +13,8 @@ Every node type is a class with the hooks of runtime.Node. A pack can add its ow
 environment, a mailbox) by passing them to the Runtime.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Literal
 
@@ -49,6 +50,10 @@ class Proposal:
     result: str = ""
     note: str = ""
     action_id: str | None = None
+    # what it made true once done (the tool's `effects`), and whether a check has since read
+    # that back: a confirmed action is the team's own doing, not something to undo
+    effects: list[tuple[str, str, Any]] = field(default_factory=list[tuple[str, str, Any]])
+    confirmed: bool = False
 
 
 @dataclass
@@ -63,6 +68,11 @@ class Approvals:
     handlers: dict[str, Callable[[dict[str, Any]], str]] = field(
         default_factory=dict[str, Callable[[dict[str, Any]], str]]
     )
+    tools: dict[str, ToolSpec] = field(default_factory=dict[str, ToolSpec])
+    # (viewer, belief) pairs invalidated only because the world now shows a done action's own
+    # effect: what rests on them is not held (see `own_doing`)
+    explained: set[tuple[str, str]] = field(default_factory=set[tuple[str, str]])
+    confirming: bool = False
 
     def submit(self, node: str, tool: ToolSpec, arguments: dict[str, Any]) -> str:
         given: list[object] = list(arguments.pop("depends_on", None) or [])
@@ -77,6 +87,7 @@ class Approvals:
         proposal = Proposal(f"P{self.issued}", node, tool.name, arguments, basis, self.rt.tick)
         self.proposals[proposal.id] = proposal
         self.handlers[proposal.id] = tool.handler
+        self.tools[proposal.id] = tool
         action = Action(
             id=self.rt.ids.next("X"),
             owner=node,
@@ -135,6 +146,9 @@ class Approvals:
         try:
             proposal.result = self.handlers[proposal_id](dict(proposal.arguments))
             proposal.status = "done"
+            effects = self.tools[proposal_id].effects
+            if effects is not None:
+                proposal.effects = effects(dict(proposal.arguments), proposal.result)
         except (ValueError, KeyError) as error:
             proposal.result = f"error: {error.args[0] if error.args else error}"
             proposal.status = "failed"
@@ -149,6 +163,36 @@ class Approvals:
             status=proposal.status,
         )
         return f"{proposal_id}: {proposal.result}"
+
+    def own_doing(self, subject: str, predicate: str, value: Any) -> list[Proposal]:
+        """The done actions whose effect is this claim: a check reading it back is the world
+        showing what the team itself did."""
+        return [
+            p
+            for p in self.proposals.values()
+            if p.status == "done" and (subject, predicate, value) in p.effects
+        ]
+
+    @contextmanager
+    def confirming_effects(self, own: list[Proposal], evidence: str) -> Generator[None]:
+        """Inside, every belief that changes is changed by `own`'s effects being read back, so
+        nothing resting on it is held. The actions are marked confirmed and logged."""
+        for proposal in own:
+            proposal.confirmed = True
+            proposal.note = f"confirmed: {evidence}"
+            self.rt.log.emit(
+                self.rt.tick,
+                "confirmed",
+                id=proposal.id,
+                node=proposal.node,
+                tool=proposal.tool,
+                evidence=evidence,
+            )
+        self.confirming = bool(own)
+        try:
+            yield
+        finally:
+            self.confirming = False
 
     def reviewed(self, node: str) -> None:
         """`node` has had a turn with its held proposals in view."""
@@ -170,9 +214,12 @@ class Approvals:
             broken = [
                 b
                 for b in proposal.basis
-                if (belief := self.rt.store.belief(viewer, b)) is None
-                or belief.status not in LIVE
-                or belief.status == "suspect"
+                if (viewer, b) not in self.explained
+                and (
+                    (belief := self.rt.store.belief(viewer, b)) is None
+                    or belief.status not in LIVE
+                    or belief.status == "suspect"
+                )
             ]
             if not broken:
                 continue
@@ -212,6 +259,8 @@ def approvals(rt: Runtime) -> Approvals:
 
 def _on_change(found: Approvals, kind: str, data: dict[str, Any]) -> None:
     if kind == "change" and data.get("new") in ("stale", "suspect", "retracted", "superseded"):
+        if found.confirming:
+            found.explained.add((str(data["viewer"]), str(data["belief"])))
         found.recheck(str(data["viewer"]), str(data.get("reason", "")))
 
 

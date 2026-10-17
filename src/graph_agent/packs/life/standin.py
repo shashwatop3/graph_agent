@@ -216,6 +216,11 @@ def money(context: str) -> Script:
             yield call("account_status")
     expiring = {b.subject: b for b in find(seen, "card.expires", status="active")}
     planned = {b.subject for b in find(seen, "plan.subscription_card", status="active")}
+    if planned:
+        # look again at the bank's record: once actions has moved a card, this reads the team's
+        # own doing back, which confirms the action instead of holding it
+        yield call("subscriptions_list")
+        return
     for sub in find(seen, "subscription.card", status="active"):
         if sub.value in expiring and sub.subject not in planned:
             result = yield call(

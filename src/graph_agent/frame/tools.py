@@ -34,6 +34,9 @@ class ToolSpec:
     # a checking tool: (arguments, result) -> the claims its result establishes, recorded as
     # evidence for the node that called it (so the checker can test what it was told)
     observes: Callable[[dict[str, Any], str], list[tuple[str, str, Any]]] | None = None
+    # an outward tool: (arguments, result) -> the claims it makes true once carried out. A later
+    # check that reads one back is the team's own doing, so it confirms the action, not holds it
+    effects: Callable[[dict[str, Any], str], list[tuple[str, str, Any]]] | None = None
 
     def schema(self) -> ToolSchema:
         return {"name": self.name, "description": self.description, "parameters": self.input_schema}

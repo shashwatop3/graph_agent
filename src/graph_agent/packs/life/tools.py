@@ -190,6 +190,10 @@ class LifeTools:
                 schema_of({"subscription": STRING, "card": STRING}, ["subscription", "card"]),
                 self._set_card,
                 outward=True,
+                # what the bank's own record says once it is done (subscriptions_list reads it)
+                effects=lambda a, r: [
+                    (str(a["subscription"]), "subscription.card", str(a["card"]))
+                ],
             ),
             ToolSpec(
                 "bank_pay",

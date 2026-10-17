@@ -19,6 +19,7 @@ from typing import Any
 from ..core.compiler import compile_context, estimate_tokens
 from ..core.model import Belief, Edge, Entity, Observation
 from ..core.registry import Predicate, contradicts
+from .nodes import Approvals
 from .runtime import Item, Runtime
 from .spec import NodeSpec
 
@@ -122,13 +123,20 @@ class BasePack:
                 or old.status not in ("active", "suspect")
             ):
                 continue
-            if contradicts(old, new, self.predicates):
-                rt.retract(
-                    viewer,
-                    old.id,
-                    item.tick,
-                    f"a newer check ({item.source}) says {self.render(new)}",
-                )
+            if not contradicts(old, new, self.predicates):
+                continue
+            reason = f"a newer check ({item.source}) says {self.render(new)}"
+            # the world moved because the team moved it (a card it changed, read back): the old
+            # reading is retired, but the plans and actions built on it did their job
+            book: Approvals | None = getattr(rt, "_approvals", None)
+            own = book.own_doing(new.subject, new.predicate, new.value) if book else []
+            if book is None or not own:
+                rt.retract(viewer, old.id, item.tick, reason)
+                continue
+            done = ", ".join(f"{p.id} ({p.tool})" for p in own)
+            reason += f"; this is the team's own action {done} taking effect"
+            with book.confirming_effects(own, f"{item.source} reads back {self.render(new)}"):
+                rt.retract(viewer, old.id, item.tick, reason)
 
     def _supersede(self, viewer: str, new: Belief, item: Item) -> None:
         """A source changed its mind: retire what it said before about the same thing."""
