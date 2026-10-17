@@ -20,6 +20,7 @@ from ..core.compiler import compile_context, estimate_tokens
 from ..core.model import Belief, Edge, Entity, Observation
 from ..core.registry import Predicate, contradicts
 from .nodes import Approvals
+from .notes import NOTES_PROMPT, SharedNotes, uses_notes
 from .runtime import Item, Runtime
 from .spec import NodeSpec
 
@@ -56,6 +57,7 @@ class BasePack:
         # facts here change over time: evidence refutes only claims made this many ticks before
         # it at most (see policies.within); a newer check retires an older one
         self.claim_window: int | None = 1
+        self._notes: SharedNotes | None = None  # the baseline's memory (frame/notes.py), if on
 
     @property
     def runtime(self) -> Runtime:
@@ -68,8 +70,19 @@ class BasePack:
         """Ground truth: a system of record the domain names, or a checking tool's result."""
         return item.source in self.observed_sources or item.source.startswith("tool:")
 
+    def notes(self) -> SharedNotes:
+        """The shared notes file of a run without the graph (made, and its `note` tool offered,
+        the first time it is needed)."""
+        if self._notes is None:
+            self._notes = SharedNotes(self.runtime)
+            self.runtime.providers.append(self._notes)
+        return self._notes
+
     def record_item(self, viewer: str, item: Item) -> list[Belief]:
         rt = self.runtime
+        if uses_notes(rt):  # the baseline: the item goes in the notes, nothing in the graph
+            self.notes().item(item, self.route_of(item))
+            return []
         observed = self.is_observed(item)
         observation = Observation(
             id=rt.ids.next("O"),
@@ -214,6 +227,13 @@ class BasePack:
                 if lines:
                     extra_parts.append(f"## {heading}\n" + "\n".join(lines))
         extra = "\n\n".join(extra_parts)
+        if uses_notes(self.runtime):
+            notes = self.notes()
+            notes.writer = node.id  # this node's turn is starting: its notes are its own
+            card = self.role_card(node)
+            room = budget - estimate_tokens(card) - estimate_tokens(extra)
+            parts = (f"## Role\n{card}", notes.render(max(0, room)), extra, self.clock(tick))
+            return "\n\n".join(p for p in parts if p)
         last = getattr(self.runtime.nodes.get(node.id), "last_turn", None)
         since = 0 if last is None else last  # its last turn's tick too: later news that tick
         compiled = compile_context(
@@ -231,7 +251,7 @@ class BasePack:
         return f"It is tick {tick}."
 
     def system_prompt(self, node: NodeSpec) -> str:
-        return self.prompt
+        return self.prompt + (NOTES_PROMPT if uses_notes(self.runtime) else "")
 
     def describe_refutation(self, belief: Belief, evidence: Belief) -> str:
         return f"told {self.render(belief)}; checked: {self.render(evidence)}"

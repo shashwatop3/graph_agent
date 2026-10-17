@@ -12,6 +12,7 @@ from graph_agent.frame.console import (
     Template,
 )
 from graph_agent.frame.events import EventLog
+from graph_agent.frame.notes import notes_team
 from graph_agent.frame.spec import TeamSpec
 from graph_agent.harness.llm import ModelClient
 
@@ -35,6 +36,12 @@ class OffsiteConsole:
                 Choice("manual", "Wait for me"),
                 Choice("shadow", "Record only (never run)"),
             ],
+        ),
+        # the baseline: the same team with one shared notes file instead of the graph
+        RunOption(
+            "memory",
+            "Memory",
+            [Choice("graph", "Shared graph"), Choice("notes", "Shared notes (baseline, no graph)")],
         ),
     ]
 
@@ -69,6 +76,13 @@ class OffsiteConsole:
     ) -> Session:
         if options.get("approvals") in ("auto", "manual", "shadow"):
             team.settings.approvals = options["approvals"]  # type: ignore[assignment]
+        if options.get("memory") == "notes":
+            if str(getattr(client, "model", "")).endswith("stand-in"):
+                raise ValueError(
+                    "the shared-notes baseline needs a real model: the stand-in desks read the "
+                    "graph, so they cannot stand in for a model reading notes"
+                )
+            team = notes_team(team)
         runtime, world = build_offsite(team, client, store, log=log)
 
         def score() -> dict[str, Any]:
