@@ -1,7 +1,7 @@
 import { type CSSProperties, forwardRef, type ReactNode, useEffect, useRef, useState } from "react";
 import { c } from "../css";
 import type { BeliefView, RunEvent, SpaceState, Why } from "../types";
-import { callText, distrustAt, DROPPED, LIVE, originText, statusAt, str } from "./model";
+import { callText, DROPPED, LIVE, originText, statusAt, str } from "./model";
 
 interface Props {
   style: CSSProperties;
@@ -30,7 +30,7 @@ export const AgentCard = forwardRef<HTMLDivElement, Props>(function AgentCard(p,
   const said = here.filter((e) => e.kind === "message" && e.sender === node);
   const items = here.filter((e) => e.kind === "item" && ((e.to as string[]) ?? []).includes(node));
   const owns = space.team.links.filter((l) => l.kind === "owns" && l.src === node).map((l) => l.dst.replace("type:", ""));
-  const distrusts = distrustAt(events, tick).filter((c) => c.viewer === node).map((c) => c.agent);
+  const trust = events.filter((e) => (e.kind === "exposure" || e.kind === "reinstatement") && e.viewer === node && e.tick <= tick);
   const calls = (turn?.calls as Call[] | undefined) ?? [];
   const thought = str(turn?.text) || calls.map((x) => x.text).filter(Boolean).slice(-1)[0] || "";
 
@@ -94,12 +94,21 @@ export const AgentCard = forwardRef<HTMLDivElement, Props>(function AgentCard(p,
 
       <Actions space={space} node={node} tick={tick} />
 
-      {distrusts.length > 0 && (
+      {trust.length > 0 && (
         <div className="sec">
           <div className="eyebrow">Trust</div>
-          <p className="none" style={{ color: "var(--stale)" }}>
-            Stopped trusting {distrusts.join(", ")}: what they said didn't match the evidence.
-          </p>
+          {trust.map((e) => (
+            <div className="trust" key={e.seq}>
+              <b style={c(e.kind === "exposure" ? "var(--stale)" : "var(--ok)")}>
+                {e.kind === "exposure" ? `stopped trusting ${str(e.agent)}` : `trusts ${str(e.agent)} again`}
+              </b>
+              <span className="when">day {e.tick}</span>
+              <div className="why">{str(e.reason)}</div>
+              {((e.routes as string[][] | undefined) ?? []).filter((r) => r.length > 1).map((r) => (
+                <div className="route" key={r.join(">")}>claim came {r.join(" → ")} → {node}</div>
+              ))}
+            </div>
+          ))}
         </div>
       )}
     </div>

@@ -296,3 +296,9 @@ pre.ctx { max-height: 260px; overflow: auto; white-space: pre-wrap; font-family:
 /* a node shows focus with its own ring, not the browser's box */
 .graph .node:focus { outline: none; }
 .graph .node:focus-visible .disc { stroke-width: 3.5; stroke: var(--accent); }
+
+.trust { padding: 4px 0; border-top: 1px dashed var(--line); font-size: 12px; }
+.trust:first-of-type { border-top: 0; }
+.trust .when { margin-left: 6px; color: var(--muted); }
+.trust .why { color: var(--ink); }
+.trust .route { color: var(--muted); font-family: var(--mono, monospace); font-size: 11px; }
