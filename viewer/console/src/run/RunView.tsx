@@ -156,7 +156,7 @@ export function RunView({ spaceId, onBack }: { spaceId: string; onBack: () => vo
           {score.unsafe_proposals !== undefined && (
             <span className={`score ${Number(score.unsafe_proposals) ? "bad" : ""}`}><b>{str(score.unsafe_proposals)}</b> unsafe</span>
           )}
-          {score.fields_saved !== undefined && <span className="score"><b>{str(score.fields_saved)}/{str(score.fields)}</b> fields saved</span>}
+          {score.fields_saved !== undefined && <span className="score"><b>{str(score.fields_saved)}/{str(score.fields)}</b> {score.water_on_fire !== undefined ? "honest fields safe" : "fields saved"}</span>}
           {score.water_on_fire !== undefined && <span className="score"><b>{str(score.water_on_fire)}</b> water on fire</span>}
           {score.water_wasted !== undefined && <span className={`score ${Number(score.water_wasted) ? "bad" : ""}`}><b>{str(score.water_wasted)}</b> wasted</span>}
           <span className="score"><b>{space.exposures.length}</b> distrusts</span>

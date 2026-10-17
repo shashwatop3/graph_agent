@@ -104,7 +104,7 @@ def test_a_ringfire_space(client):
     summary = run_to_end(client, space["id"])
     state = client.get(f"/api/spaces/{space['id']}").json()
     assert summary["finished"] and state["world"]["lens"] == "ringfire"
-    assert state["score"]["fields"] == 6
+    assert state["score"]["fields"] == 5  # the honest keepers' fields: one of 6 is an imposter
 
 
 def test_the_real_accounts_team_is_offered_and_says_what_is_missing(client, monkeypatch):

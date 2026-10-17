@@ -245,12 +245,18 @@ class RingFirePack:
 
     def score(self, runtime: Runtime) -> dict[str, Any]:
         """The running score the console shows."""
-        liars = {f"A{a}" for a in self.game.net.imposters}
+        imposters = self.game.net.imposters
+        liars = {f"A{a}" for a in imposters}
+        honest_fields = [f for f in self.game.sim.fields if f.owner not in imposters]
         honest = {n for n in runtime.nodes if n.startswith("A")} - liars
         pairs = runtime.exposed_pairs
         return {
-            "fields_saved": self.fields_saved(),
-            "fields": self.game.sim.world.n_fields,
+            # the linear game scores the honest keepers only: an imposter's own fields and water
+            # say nothing about how well the team did
+            "fields_saved": sum(1 for f in honest_fields if f.state.value == "unburnt")
+            if self.linear
+            else self.fields_saved(),
+            "fields": len(honest_fields) if self.linear else self.game.sim.world.n_fields,
             # honest agents wrongly distrusted by honest agents, now and at any time
             "honest_blamed": sum(1 for v, a in pairs if v in honest and a in honest),
             "honest_blamed_ever": sum(
@@ -258,9 +264,13 @@ class RingFirePack:
             ),
             "liars_caught": sum(1 for v, a in pairs if v in honest and a in liars),
             # waterings that met fire at one of the agent's fields, and waterings that did not
-            "water_on_fire": sum(len(d.report.water_on_fire) for d in self.days),
-            "water_wasted": sum(len(d.report.water_wasted) for d in self.days),
-            "fields_lost": sum(1 for f in self.game.sim.fields if f.state.value == "burnt"),
+            "water_on_fire": sum(
+                1 for d in self.days for a in d.report.water_on_fire if a not in imposters
+            ),
+            "water_wasted": sum(
+                1 for d in self.days for a in d.report.water_wasted if a not in imposters
+            ),
+            "fields_lost": sum(1 for f in honest_fields if f.state.value == "burnt"),
             # the honest keepers' fields: strength summed over every night they burned
             "damage": sum(
                 strength
