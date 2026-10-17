@@ -330,6 +330,7 @@ function KeysPanel({ keys, onChange }: { keys: Keys; onChange: (change: Partial<
   const [values, setValues] = useState<Record<string, string>>({});
   const [other, setOther] = useState("");
   const [extra, setExtra] = useState<string[]>([]); // names added here, not saved yet
+  const [deleting, setDeleting] = useState(false); // asked to confirm deleting the account
   const [problem, setProblem] = useState("");
   const names = [...new Set([...keys.wanted, ...keys.saved, ...extra])].sort();
 
@@ -348,6 +349,9 @@ function KeysPanel({ keys, onChange }: { keys: Keys; onChange: (change: Partial<
   }
   async function disconnect() {
     try { onChange(await api.disconnectGoogle()); } catch (e) { setProblem((e as Error).message); }
+  }
+  async function deleteAccount() {
+    try { await api.deleteMe(); window.location.assign("/"); } catch (e) { setProblem((e as Error).message); }
   }
 
   return (
@@ -378,6 +382,15 @@ function KeysPanel({ keys, onChange }: { keys: Keys; onChange: (change: Partial<
         <label>Another key, by the name an app uses<input value={other} placeholder="NOTES_TOKEN" onChange={(e) => setOther(e.target.value.toUpperCase())} /></label>
         <div><button className="btn" disabled={!/^[A-Z_][A-Z0-9_]*$/.test(other)} onClick={() => { setExtra((x) => [...x, other]); setOther(""); }}>+ Add it to the list</button></div>
         {problem && <p className="err">{problem}</p>}
+        {deleting
+          ? (
+            <p className="note">
+              Delete your account? Your keys, apps, teams, runs and cache are removed, and Google's access is revoked.{" "}
+              <button className="btn danger" onClick={() => void deleteAccount()}>Yes, delete it all</button>{" "}
+              <button className="linkish" onClick={() => setDeleting(false)}>Keep it</button>
+            </p>
+          )
+          : <div><button className="btn danger" onClick={() => setDeleting(true)}>Delete my account…</button></div>}
       </div>
     </section>
   );

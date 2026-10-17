@@ -54,7 +54,7 @@ TOKEN = "https://oauth2.googleapis.com/token"
 USERINFO = "https://openidconnect.googleapis.com/v1/userinfo"
 REVOKE = "https://oauth2.googleapis.com/revoke"
 STATE = "cascade_signin"  # the cookie that ties Google's answer to the sign-in this browser began
-OPEN = {"/api/me"}  # API paths that need no session
+OPEN = {"/api/me"}  # API paths whose GET needs no session
 SIGN_IN = "openid email profile"
 READ = (
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -150,6 +150,15 @@ def hosted_presets() -> dict[str, dict[str, Any]]:
     return {**PRESETS, "google": shared_google(url)}
 
 
+def forget_google(user: User) -> None:
+    """Revoke the person's Google access (Google forgets it too) and drop it here."""
+    refresh = secrets_of(user).get(REFRESH)
+    if refresh:
+        httpx.post(REVOKE, data={"token": refresh}, timeout=20)
+    delete_secret(user, REFRESH)
+    _access.pop(user.id, None)
+
+
 def google_connected(user: User) -> bool:
     return REFRESH in secrets_of(user)
 
@@ -160,7 +169,7 @@ def guard(request: Request) -> None:
     if not hosted():
         return
     path = request.url.path
-    if not path.startswith("/api/") or path in OPEN:
+    if not path.startswith("/api/") or (path in OPEN and request.method == "GET"):
         return
     user = from_cookie(request.cookies.get(COOKIE))
     if user is None:
@@ -277,12 +286,9 @@ def router() -> APIRouter:
 
     @api.post("/api/google/disconnect")
     def disconnect(request: Request) -> dict[str, bool]:
-        user = current_user(request)
-        refresh = secrets_of(user).get(REFRESH) if hosted() else None
-        if refresh:
-            httpx.post(REVOKE, data={"token": refresh}, timeout=20)  # Google forgets it too
-        delete_secret(user, REFRESH)
-        _access.pop(user.id, None)
+        if not hosted():
+            raise HTTPException(404, "the local console connects Google through .env")
+        forget_google(current_user(request))
         return {"google": False}
 
     @api.post("/auth/logout")

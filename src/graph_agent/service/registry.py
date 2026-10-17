@@ -34,6 +34,11 @@ def packs_for(user: User = LOCAL) -> dict[str, ConsolePack]:
     return _yours[user.folder]
 
 
+def forget_packs(user: User) -> None:
+    """Drop a person's packs (their account is being deleted)."""
+    _yours.pop(user.folder, None)
+
+
 def pack_named(name: str, user: User = LOCAL) -> ConsolePack:
     packs = packs_for(user)
     try:

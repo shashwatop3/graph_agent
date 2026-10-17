@@ -19,28 +19,34 @@
     /api/connections, /api/packs/{pack}/setup   your apps and your agents (service/connections.py)
 
 Local only by default: it binds 127.0.0.1, and a real model run spends from the key in .env.
-Hosted (GRAPH_AGENT_PUBLIC_URL set): people sign in with Google first (auth.py, users.py).
+Hosted (GRAPH_AGENT_PUBLIC_URL set): people sign in with Google first (auth.py, users.py). Each
+person keeps at most LIVE_EACH runs (a new one closes their oldest) and plays one at a time; runs
+older than OLDEST are closed; the store is the in-memory one. DELETE /api/me deletes the account.
 """
 
 import asyncio
 import json
+import shutil
+import time
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
 from ..frame.nodes import catalogue_info
 from ..frame.spec import TeamSpec
-from .auth import current_user, guard
+from .auth import current_user, forget_google, guard
 from .auth import router as auth_router
 from .connections import router as connections_router
-from .registry import pack_named, packs_for
+from .registry import forget_packs, pack_named, packs_for
 from .spaces import ROOT, Spaces
-from .users import User, hosted, secret_key, secrets_of
+from .users import COOKIE, User, data_dir, hosted, secret_key, secrets_of
 
 CONSOLE = ROOT / "viewer" / "console" / "dist"
+LIVE_EACH = 3  # hosted: the runs kept open for each person (a new one closes their oldest)
+OLDEST = 6 * 3600  # hosted: a run open longer than this (seconds) is closed when another starts
 
 TRIGGERS = {
     "tick": "every tick of the clock",
@@ -161,9 +167,7 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
         """A ready-made team with the pack's own settings (for example how many agents)."""
         return build_template(pack, name, options, user)
 
-    def build_template(
-        pack: str, name: str, options: dict[str, Any], user: User
-    ) -> dict[str, Any]:
+    def build_template(pack: str, name: str, options: dict[str, Any], user: User) -> dict[str, Any]:
         chosen = pack_or_404(pack, user)
         if name not in {t.name for t in chosen.templates()}:
             raise HTTPException(404, f"no template {pack}/{name}")
@@ -183,8 +187,26 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
     def list_spaces(user: User = You) -> list[dict[str, Any]]:
         return [s.summary() for s in registry.spaces.values() if s.owner == user.id]
 
+    def make_room(user: User) -> None:
+        """Hosted: before a new run, close runs left open too long (they live in memory) and the
+        person's oldest beyond LIVE_EACH - 1."""
+        if not hosted():
+            return
+        now = time.time()
+        for space in list(registry.spaces.values()):
+            if now - space.created > OLDEST and not space.running:
+                registry.delete(space.id)
+        mine = sorted(
+            (s for s in registry.spaces.values() if s.owner == user.id), key=lambda s: s.created
+        )
+        for space in mine[: max(0, len(mine) - (LIVE_EACH - 1))]:
+            registry.delete(space.id)
+
     @app.post("/api/spaces")
     def create_space(body: CreateSpace, user: User = You) -> dict[str, Any]:
+        if hosted() and body.store != "memory":
+            raise HTTPException(400, "this console keeps runs in memory only (store: memory)")
+        make_room(user)
         try:
             team = TeamSpec.model_validate(body.team)
             space = registry.create(
@@ -225,6 +247,9 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
     @app.post("/api/spaces/{space_id}/play")
     def play(space_id: str, delay: float = 0.0, user: User = You) -> dict[str, Any]:
         space = space_or_404(space_id, user)
+        others = [s for s in registry.spaces.values() if s.owner == user.id and s is not space]
+        if hosted() and any(s.running for s in others):
+            raise HTTPException(409, "another of your runs is playing; pause it first")
         space.play(delay)
         return space.summary()
 
@@ -330,6 +355,7 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
         if body.name not in {r.name for r in pack.recorded()}:
             raise HTTPException(404, f"no recorded run {body.pack}/{body.name}")
         options = {k: v for k, v in body.options.items() if k != "model"}
+        make_room(user)
         try:
             space = registry.create(
                 pack,
@@ -345,6 +371,24 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
             raise HTTPException(400, str(error)) from error
         space.play()
         return space.summary()
+
+    # ---- your account (hosted) ----------------------------------------------------------------
+
+    @app.delete("/api/me")
+    def delete_me(user: User = You) -> JSONResponse:
+        """Delete the account: Google's access is revoked, the person's runs are closed, and their
+        folder (keys, apps, teams, model cache) is removed. Signing in again starts afresh."""
+        if not hosted():
+            raise HTTPException(404, "the local console has no account")
+        forget_google(user)
+        for space in [s for s in registry.spaces.values() if s.owner == user.id]:
+            registry.delete(space.id)
+        forget_packs(user)
+        if user.folder.resolve().parent == (data_dir() / "users").resolve():
+            shutil.rmtree(user.folder)
+        response = JSONResponse({"deleted": user.email})
+        response.delete_cookie(COOKIE, path="/")
+        return response
 
     app.include_router(connections_router())
     app.include_router(auth_router())

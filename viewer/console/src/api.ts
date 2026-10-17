@@ -64,6 +64,7 @@ export const api = {
   // hosted: your own keys (names only come back, never a value)
   keys: () => call<Keys>("/api/keys"),
   disconnectGoogle: () => post<{ google: boolean }>("/api/google/disconnect"),
+  deleteMe: () => call<{ deleted: string }>("/api/me", { method: "DELETE" }),
   saveKey: (name: string, value: string) =>
     call<{ saved: string[] }>(`/api/keys/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify({ value }) }),
   deleteKey: (name: string) => call<{ saved: string[] }>(`/api/keys/${encodeURIComponent(name)}`, { method: "DELETE" }),

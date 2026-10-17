@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from graph_agent.service import auth, users  # noqa: E402
 from graph_agent.service.app import create_app  # noqa: E402
+from graph_agent.service.spaces import Spaces  # noqa: E402
 
 PUBLIC = "https://cascade.example"
 
@@ -25,15 +26,22 @@ def hosted(tmp_path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN001, ANN201
     return tmp_path
 
 
-def page(**headers: str) -> TestClient:
-    return TestClient(create_app(), base_url=PUBLIC, headers={"origin": PUBLIC, **headers})
+def page(app: Any = None, **headers: str) -> TestClient:
+    """A browser on the console (`app`: one already made, so that two people share it)."""
+    return TestClient(app or create_app(), base_url=PUBLIC, headers={"origin": PUBLIC, **headers})
 
 
-def signed_in(user_id: str = "1001") -> TestClient:
+def signed_in(user_id: str = "1001", app: Any = None) -> TestClient:
     users.remember(user_id, f"{user_id}@example.com", "Someone")
-    client = page()
+    client = page(app)
     client.cookies.set(users.COOKIE, users.session_cookie(user_id))
     return client
+
+
+def two() -> tuple[TestClient, TestClient]:
+    """Two people signed in to the same console."""
+    app = create_app()
+    return signed_in("1", app), signed_in("2", app)
 
 
 def test_the_local_console_needs_no_sign_in():
@@ -111,7 +119,7 @@ def test_no_hosted_console_without_a_secret_key(hosted, monkeypatch: pytest.Monk
 
 
 def test_a_run_is_only_seen_and_driven_by_whoever_started_it(hosted):  # noqa: ANN001
-    alice, bob = signed_in("1"), signed_in("2")
+    alice, bob = two()
     life = next(t for t in alice.get("/api/templates").json() if t["pack"] == "life")
     team = alice.get(f"/api/templates/life/{life['name']}").json()
     made = alice.post("/api/spaces", json={"pack": "life", "team": team}).json()
@@ -125,7 +133,7 @@ def test_a_run_is_only_seen_and_driven_by_whoever_started_it(hosted):  # noqa: A
 
 
 def test_apps_and_teams_are_kept_in_each_persons_folder(hosted):  # noqa: ANN001
-    alice, bob = signed_in("1"), signed_in("2")
+    alice, bob = two()
     saved = alice.put("/api/connections", json={"connections": [{"preset": "todoist"}]})
     assert saved.status_code == 200
     assert (hosted / "users" / "1" / "connections.json").exists()
@@ -162,7 +170,7 @@ def test_keys_are_kept_encrypted_per_person_and_never_sent_back(
     hosted,
     monkeypatch: pytest.MonkeyPatch,  # noqa: ANN001
 ):
-    alice, bob = signed_in("1"), signed_in("2")
+    alice, bob = two()
     assert alice.get("/api/keys").json() == {
         "saved": [],
         "wanted": ["ANTHROPIC_API_KEY"],
@@ -313,3 +321,58 @@ def test_disconnecting_google_revokes_and_forgets_it(hosted, monkeypatch):  # no
     )
     assert client.post("/api/google/disconnect").json() == {"google": False}
     assert revoked == ["r1"] and not client.get("/api/keys").json()["google"]
+
+
+# ---- D5: limits, and deleting your account -------------------------------------------------------
+
+
+def a_life_team(client: TestClient) -> dict[str, Any]:
+    life = next(t for t in client.get("/api/templates").json() if t["pack"] == "life")
+    return client.get(f"/api/templates/life/{life['name']}").json()
+
+
+def test_each_person_keeps_a_few_runs_and_plays_one_at_a_time(hosted):  # noqa: ANN001
+    from graph_agent.service import app as service
+
+    client, other = two()
+    team = a_life_team(client)
+    made = [
+        client.post("/api/spaces", json={"pack": "life", "team": team}).json()["id"]
+        for _ in range(4)
+    ]
+    assert [s["id"] for s in client.get("/api/spaces").json()] == made[-service.LIVE_EACH :]
+    assert other.post("/api/spaces", json={"pack": "life", "team": team}).is_success
+    assert len(client.get("/api/spaces").json()) == service.LIVE_EACH  # not counted against you
+    falkor = client.post("/api/spaces", json={"pack": "life", "team": team, "store": "falkor"})
+    assert falkor.status_code == 400
+
+
+def test_a_second_run_of_yours_cannot_play_while_one_does(hosted):  # noqa: ANN001
+    spaces = Spaces()
+    client = TestClient(create_app(spaces), base_url=PUBLIC, headers={"origin": PUBLIC})
+    users.remember("1", "1@example.com", "")
+    client.cookies.set(users.COOKIE, users.session_cookie("1"))
+    team = a_life_team(client)
+    first, second = (
+        client.post("/api/spaces", json={"pack": "life", "team": team}).json()["id"]
+        for _ in range(2)
+    )
+    spaces.get(first).running = True  # as if it were playing
+    assert client.post(f"/api/spaces/{second}/play").status_code == 409
+    spaces.get(first).running = False
+    assert client.post(f"/api/spaces/{second}/play").status_code == 200
+
+
+def test_deleting_your_account_removes_everything_kept_for_you(hosted, monkeypatch):  # noqa: ANN001
+    client = signed_in("1")
+    connect_google(client, monkeypatch)
+    client.put("/api/keys/TODOIST_API_KEY", json={"value": "t"})
+    client.post("/api/spaces", json={"pack": "life", "team": a_life_team(client)})
+    revoked: list[str] = []
+    monkeypatch.setattr(
+        auth.httpx, "post", lambda url, data, timeout: revoked.append(data["token"])
+    )
+    assert page().delete("/api/me").status_code == 401  # nobody's account
+    assert client.delete("/api/me").json() == {"deleted": "1@example.com"}
+    assert revoked == ["r1"] and not (hosted / "users" / "1").exists()
+    assert client.get("/api/spaces").status_code == 401  # signed out, and no one to sign in as
