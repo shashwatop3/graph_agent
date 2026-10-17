@@ -28,6 +28,8 @@ ALLOWED = {
 # Words that must never appear in the core. "field" is left out on purpose:
 # pydantic's Field would be a false positive.
 DOMAIN_WORDS = ["fire", "water", "imposter", "burn", "quake", "earthquake", "hualien"]
+# the one file whose job is to list the packs by name
+NAMES_THE_PACKS = {"service/registry.py"}
 
 
 def imported_packages(source: str, module: str) -> set[str]:
@@ -88,6 +90,8 @@ def test_the_main_project_has_no_domain_vocabulary(package):
     pattern = re.compile(r"\b(" + "|".join(DOMAIN_WORDS) + r")\b", re.IGNORECASE)
     hits = []
     for path in _python_files(package):
+        if path.relative_to(ROOT).as_posix() in NAMES_THE_PACKS:
+            continue
         for lineno, line in enumerate(path.read_text().splitlines(), start=1):
             match = pattern.search(line)
             if match:

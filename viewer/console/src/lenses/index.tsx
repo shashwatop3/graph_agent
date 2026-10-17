@@ -4,6 +4,7 @@ import type { ReactElement } from "react";
 import type { RunEvent, SpaceState } from "../types";
 import { describeLife, LifeBody } from "./life";
 import { describeReal, RealBody } from "./real";
+import { describeQuake, QuakeBody } from "./hualien";
 import { describeFire, FireBody } from "./ringfire";
 
 export interface Lens {
@@ -16,5 +17,6 @@ export interface Lens {
 export const LENSES: Record<string, Lens> = {
   life: { eyebrow: "Ground truth · agents only see it through tools", title: "The week", Body: LifeBody, describe: describeLife },
   ringfire: { eyebrow: "Ground truth · agents never see this", title: "Real world", Body: FireBody, describe: describeFire },
+  hualien: { eyebrow: "Ground truth · real figures, invented fabs", title: "The quake", Body: QuakeBody, describe: describeQuake },
   real: { eyebrow: "Your accounts · read-only", title: "What it has read", Body: RealBody, describe: describeReal },
 };

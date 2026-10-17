@@ -14,7 +14,7 @@ from typing import Any, cast
 
 from graph_agent.core.model import Belief, Entity
 from graph_agent.core.registry import Predicate
-from graph_agent.frame.nodes import Approvals, approvals
+from graph_agent.frame import sections
 from graph_agent.frame.pack import BasePack
 from graph_agent.frame.runtime import Item, Runtime
 from graph_agent.frame.spec import NodeSpec
@@ -206,50 +206,13 @@ class LifePack(BasePack):
         return []
 
     def _team(self, node: NodeSpec, tick: int) -> list[tuple[str, list[str]]]:
-        rt = self.runtime
-        lines: list[str] = []
-        for peer in rt.network.neighbours(node.id):
-            spec = rt.team.node(peer) if peer in rt.nodes else None
-            if spec is not None:
-                lines.append(f"- {peer}: {spec.role or spec.type}")
-        return [("Your team (you can send them beliefs)", lines)]
+        return sections.team(self.runtime, node)
 
     def _unsent(self, node: NodeSpec, tick: int) -> list[tuple[str, list[str]]]:
-        """Plans this node made that no teammate has received: a plan nobody hears of is never
-        carried out (the same nudge as Ring Fire's "worth telling")."""
-        rt = self.runtime
-        peers = rt.network.neighbours(node.id)
-        if not peers:
-            return []
-        doers = [p for p in peers if rt.team.node(p).type == "responder"] or peers
-        lines: list[str] = []
-        for b in rt.store.beliefs(node.id):
-            if b.origin != "derived" or b.predicate not in PLANS or b.status != "active":
-                continue
-            if rt.copies.get((node.id, b.id)):
-                continue  # someone has it
-            lines.append(
-                f'- {b.id} {self.render(b)}: nobody has it yet; send(to="{doers[0]}", '
-                f'belief_id="{b.id}")'
-            )
-        return [("Plans you have not sent yet", lines)]
+        return sections.unsent_plans(self.runtime, node, PLANS, self.render)
 
     def _actions(self, node: NodeSpec, tick: int) -> list[tuple[str, list[str]]]:
-        book: Approvals = approvals(self.runtime)
-        lines: list[str] = []
-        for p in book.proposals.values():
-            if p.node != node.id:
-                continue
-            # sorted: the model cache stores arguments sorted, so a replay renders them the same
-            args = ", ".join(f"{k}={v}" for k, v in sorted(p.arguments.items()))
-            basis = ", ".join(p.basis) or "nothing"
-            line = f"- {p.id} {p.tool}({args}) resting on {basis}: {p.status}"
-            if p.result:
-                line += f" -> {p.result}"
-            if p.status == "held":
-                line += f". HELD: {p.note}"
-            lines.append(line)
-        return [("Your actions (held ones need you: undo or adjust them)", lines[-12:])]
+        return sections.actions(self.runtime, node)
 
     def role_card(self, node: NodeSpec) -> str:
         rt = self.runtime
