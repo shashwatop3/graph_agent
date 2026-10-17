@@ -48,6 +48,8 @@ class Feed(Strict):
     ids: str | None = None  # a regex with one group: the id of each item in the result
     open: str | None = None  # the tool that reads one item ...
     open_arg: str = "id"  # ... given its id as this argument
+    newest_first: bool = True  # the result lists the newest first (items go to the team oldest
+    # first, so a later item can correct an earlier one)
     sender: str | None = None  # a header line ("From") naming who sent each item
     me: str = ""  # the person's own address: what they sent comes from "me"
     # a system of record (the person's own calendar): its items are evidence, not hearsay
