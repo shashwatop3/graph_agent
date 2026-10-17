@@ -48,9 +48,10 @@ class AppsConsole:
         )
     ]
 
-    def __init__(self) -> None:
-        self.teams_dir = TEAMS
-        self.connections_file = CONNECTIONS
+    def __init__(self, teams_dir: Path = TEAMS, connections_file: Path = CONNECTIONS) -> None:
+        # the repository's files by default; a hosted console gives each person their own
+        self.teams_dir = teams_dir
+        self.connections_file = connections_file
 
     def connections(self) -> list[Connection]:
         """Yours, from connections.json (their secrets from .env)."""
@@ -194,7 +195,7 @@ class AppsConsole:
         if write:
             # the example is never saved over: saving it makes a team of your own
             team = team if team not in (None, "example") else self.new_id(setup.name)
-            self.teams_dir.mkdir(exist_ok=True)
+            self.teams_dir.mkdir(parents=True, exist_ok=True)
             self._file(team).write_text(
                 setup.model_dump_json(indent=2, exclude_defaults=True) + "\n"
             )

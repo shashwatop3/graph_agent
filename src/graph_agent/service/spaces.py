@@ -42,7 +42,9 @@ def _env() -> None:
                 os.environ.setdefault(key.strip(), value.strip())
 
 
-def make_client(model: str, pack: ConsolePack, team: TeamSpec) -> ModelClient:
+def make_client(model: str, pack: ConsolePack, team: TeamSpec, cache: Path) -> ModelClient:
+    """The model a space runs on. `cache`: the folder of model caches (each person's own, hosted:
+    what one person's run asked, with their mail in it, is never replayed to another)."""
     if model == "stand-in":
         return pack.stand_in(team)
     _env()
@@ -52,7 +54,7 @@ def make_client(model: str, pack: ConsolePack, team: TeamSpec) -> ModelClient:
     real = AnthropicClient(
         model, key, max_tokens=2000, workspace_id=os.environ.get("ANTHROPIC_WORKSPACE_ID", "")
     )
-    return CachedClient(real, ROOT / "runs" / "cache" / f"{model}-mt2000{pack.cache_suffix}")
+    return CachedClient(real, cache / f"{model}-mt2000{pack.cache_suffix}")
 
 
 @dataclass
@@ -63,6 +65,7 @@ class Space:
     model: str
     session: Session
     store: Store
+    owner: str = "local"  # who started it (users.User.id): only they can see or drive it
     created: float = field(default_factory=time.time)
     lock: threading.RLock = field(default_factory=threading.RLock)
     running: bool = False
@@ -424,6 +427,8 @@ class Spaces:
         model: str = "stand-in",
         store: str = "memory",
         options: dict[str, str] | None = None,
+        owner: str = "local",
+        cache: Path = ROOT / "runs" / "cache",
     ) -> Space:
         space_id = uuid.uuid4().hex[:8]
         the_store: Store = (
@@ -431,9 +436,9 @@ class Spaces:
             if store == "falkor"
             else MemoryStore()
         )
-        client = make_client(model, pack, team)
+        client = make_client(model, pack, team, cache)
         session = pack.start(team, client, the_store, EventLog(), options or {})
-        space = Space(space_id, pack.name, name or team.name, model, session, the_store)
+        space = Space(space_id, pack.name, name or team.name, model, session, the_store, owner)
         with space.lock:
             session.runtime.start()
         self.spaces[space_id] = space

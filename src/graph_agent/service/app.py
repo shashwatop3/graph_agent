@@ -33,12 +33,12 @@ from pydantic import BaseModel, ValidationError
 
 from ..frame.nodes import catalogue_info
 from ..frame.spec import TeamSpec
-from .auth import guard
+from .auth import current_user, guard
 from .auth import router as auth_router
 from .connections import router as connections_router
-from .registry import PACKS, pack_named
+from .registry import pack_named, packs_for
 from .spaces import ROOT, Spaces
-from .users import hosted, secret_key
+from .users import User, hosted, secret_key
 
 CONSOLE = ROOT / "viewer" / "console" / "dist"
 
@@ -80,22 +80,27 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
     registry = spaces or Spaces()
     app.state.spaces = registry
 
-    def space_or_404(space_id: str):  # noqa: ANN202
+    def space_or_404(space_id: str, user: User):  # noqa: ANN202
         try:
-            return registry.get(space_id)
+            space = registry.get(space_id)
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
+        if space.owner != user.id:  # someone else's run: as if there were none
+            raise HTTPException(404, f"no space {space_id}")
+        return space
+
+    You = Depends(current_user)  # the person asking (the local one, when not hosted)
 
     # ---- building a team ----------------------------------------------------------------------
 
-    def pack_or_404(name: str):  # noqa: ANN202
+    def pack_or_404(name: str, user: User):  # noqa: ANN202
         try:
-            return pack_named(name)
+            return pack_named(name, user)
         except ValueError as error:
             raise HTTPException(404, str(error)) from error
 
     @app.get("/api/packs")
-    def packs() -> list[dict[str, Any]]:
+    def packs(user: User = You) -> list[dict[str, Any]]:
         return [
             {
                 "name": pack.name,
@@ -109,12 +114,12 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
                     for o in pack.options
                 ],
             }
-            for pack in PACKS.values()
+            for pack in packs_for(user).values()
         ]
 
     @app.get("/api/catalogue")
-    def catalogue(pack: str = "life") -> dict[str, Any]:
-        extra = pack_or_404(pack).catalogue()
+    def catalogue(pack: str = "life", user: User = You) -> dict[str, Any]:
+        extra = pack_or_404(pack, user).catalogue()
         return {
             "nodes": [*catalogue_info(), *extra.nodes],
             "tools": extra.tools,
@@ -134,24 +139,28 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
         }
 
     @app.get("/api/templates")
-    def templates() -> list[dict[str, str]]:
+    def templates(user: User = You) -> list[dict[str, str]]:
         return [
             {"pack": pack.name, "name": t.name, "title": t.title, "description": t.description}
-            for pack in PACKS.values()
+            for pack in packs_for(user).values()
             for t in pack.templates()
         ]
 
     @app.get("/api/templates/{pack}/{name}")
-    def template(pack: str, name: str) -> dict[str, Any]:
-        return build_template(pack, name, {})
+    def template(pack: str, name: str, user: User = You) -> dict[str, Any]:
+        return build_template(pack, name, {}, user)
 
     @app.post("/api/templates/{pack}/{name}")
-    def template_variant(pack: str, name: str, options: dict[str, Any]) -> dict[str, Any]:
+    def template_variant(
+        pack: str, name: str, options: dict[str, Any], user: User = You
+    ) -> dict[str, Any]:
         """A ready-made team with the pack's own settings (for example how many agents)."""
-        return build_template(pack, name, options)
+        return build_template(pack, name, options, user)
 
-    def build_template(pack: str, name: str, options: dict[str, Any]) -> dict[str, Any]:
-        chosen = pack_or_404(pack)
+    def build_template(
+        pack: str, name: str, options: dict[str, Any], user: User
+    ) -> dict[str, Any]:
+        chosen = pack_or_404(pack, user)
         if name not in {t.name for t in chosen.templates()}:
             raise HTTPException(404, f"no template {pack}/{name}")
         return chosen.team(name, options).model_dump(mode="json")
@@ -167,38 +176,40 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
     # ---- spaces ---------------------------------------------------------------------------------
 
     @app.get("/api/spaces")
-    def list_spaces() -> list[dict[str, Any]]:
-        return [s.summary() for s in registry.spaces.values()]
+    def list_spaces(user: User = You) -> list[dict[str, Any]]:
+        return [s.summary() for s in registry.spaces.values() if s.owner == user.id]
 
     @app.post("/api/spaces")
-    def create_space(body: CreateSpace) -> dict[str, Any]:
+    def create_space(body: CreateSpace, user: User = You) -> dict[str, Any]:
         try:
             team = TeamSpec.model_validate(body.team)
             space = registry.create(
-                pack_or_404(body.pack),
+                pack_or_404(body.pack, user),
                 team,
                 name=body.name,
                 model=body.model,
                 store=body.store,
                 options=body.options,
+                owner=user.id,
+                cache=user.folder / "runs" / "cache",  # local: the repository's runs/cache
             )
         except (ValidationError, ValueError, KeyError) as error:
             raise HTTPException(400, str(error)) from error
         return space.summary()
 
     @app.delete("/api/spaces/{space_id}")
-    def delete_space(space_id: str) -> dict[str, str]:
-        space_or_404(space_id)
+    def delete_space(space_id: str, user: User = You) -> dict[str, str]:
+        space_or_404(space_id, user)
         registry.delete(space_id)
         return {"deleted": space_id}
 
     @app.get("/api/spaces/{space_id}")
-    def state(space_id: str) -> dict[str, Any]:
-        return space_or_404(space_id).state()
+    def state(space_id: str, user: User = You) -> dict[str, Any]:
+        return space_or_404(space_id, user).state()
 
     @app.post("/api/spaces/{space_id}/step")
-    def step(space_id: str) -> dict[str, Any]:
-        space = space_or_404(space_id)
+    def step(space_id: str, user: User = You) -> dict[str, Any]:
+        space = space_or_404(space_id, user)
         if space.running:
             raise HTTPException(409, "it is playing; pause it first")
         space.step()
@@ -207,28 +218,30 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
         return space.summary()
 
     @app.post("/api/spaces/{space_id}/play")
-    def play(space_id: str, delay: float = 0.0) -> dict[str, Any]:
-        space = space_or_404(space_id)
+    def play(space_id: str, delay: float = 0.0, user: User = You) -> dict[str, Any]:
+        space = space_or_404(space_id, user)
         space.play(delay)
         return space.summary()
 
     @app.post("/api/spaces/{space_id}/pause")
-    def pause(space_id: str) -> dict[str, Any]:
-        space = space_or_404(space_id)
+    def pause(space_id: str, user: User = You) -> dict[str, Any]:
+        space = space_or_404(space_id, user)
         space.pause()
         return space.summary()
 
     @app.get("/api/spaces/{space_id}/events")
-    def events(space_id: str, since: int = 0) -> list[dict[str, Any]]:
-        space = space_or_404(space_id)
+    def events(space_id: str, since: int = 0, user: User = You) -> list[dict[str, Any]]:
+        space = space_or_404(space_id, user)
         return [
             {"seq": e.seq, "tick": e.tick, "kind": e.kind, **e.data}
             for e in space.runtime.log.since(since)
         ]
 
     @app.get("/api/spaces/{space_id}/stream")
-    async def stream(space_id: str, request: Request, since: int = 0) -> StreamingResponse:
-        space = space_or_404(space_id)
+    async def stream(
+        space_id: str, request: Request, since: int = 0, user: User = You
+    ) -> StreamingResponse:
+        space = space_or_404(space_id, user)
         queue: asyncio.Queue[str] = asyncio.Queue()
         loop = asyncio.get_running_loop()
 
@@ -265,16 +278,16 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
         return StreamingResponse(body(), media_type="text/event-stream")
 
     @app.get("/api/spaces/{space_id}/why/{node}/{belief}")
-    def why(space_id: str, node: str, belief: str) -> dict[str, Any]:
-        space = space_or_404(space_id)
+    def why(space_id: str, node: str, belief: str, user: User = You) -> dict[str, Any]:
+        space = space_or_404(space_id, user)
         try:
             return space.why(node, belief)
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 
     @app.post("/api/spaces/{space_id}/approvals/{proposal}")
-    def decide(space_id: str, proposal: str, body: Decision) -> dict[str, str]:
-        space = space_or_404(space_id)
+    def decide(space_id: str, proposal: str, body: Decision, user: User = You) -> dict[str, str]:
+        space = space_or_404(space_id, user)
         try:
             return {"result": space.decide(proposal, body.approved)}
         except (KeyError, ValueError) as error:
@@ -283,7 +296,7 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
     # ---- recorded runs --------------------------------------------------------------------------
 
     @app.get("/api/runs")
-    def runs() -> list[dict[str, Any]]:
+    def runs(user: User = You) -> list[dict[str, Any]]:
         return [
             {
                 "pack": pack.name,
@@ -293,7 +306,7 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
                 "checks_passed": r.checks_passed,
                 "checks_total": r.checks_total,
             }
-            for pack in PACKS.values()
+            for pack in packs_for(user).values()
             for r in pack.recorded()
         ]
 
@@ -304,14 +317,23 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
         model: str = "claude-haiku-5-5"
 
     @app.post("/api/runs/replay")
-    def replay(body: Replay) -> dict[str, Any]:
+    def replay(body: Replay, user: User = You) -> dict[str, Any]:
         """Run a recorded case again with the same model: every request is in the model cache,
-        so it costs nothing and gives the same run, now with everything open to inspect."""
-        pack = pack_or_404(body.pack)
+        so it costs nothing and gives the same run, now with everything open to inspect. The
+        recorded runs are of simulated weeks, so their cache (the repository's) is shared."""
+        pack = pack_or_404(body.pack, user)
+        if body.name not in {r.name for r in pack.recorded()}:
+            raise HTTPException(404, f"no recorded run {body.pack}/{body.name}")
         options = {k: v for k, v in body.options.items() if k != "model"}
         try:
             space = registry.create(
-                pack, pack.team(body.name, {}), name=body.name, model=body.model, options=options
+                pack,
+                pack.team(body.name, {}),
+                name=body.name,
+                model=body.model,
+                options=options,
+                owner=user.id,
+                cache=ROOT / "runs" / "cache",
             )
         except (ValueError, KeyError) as error:
             raise HTTPException(400, str(error)) from error

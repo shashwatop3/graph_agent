@@ -105,3 +105,51 @@ def test_no_hosted_console_without_a_secret_key(hosted, monkeypatch: pytest.Monk
     monkeypatch.setenv("SECRET_KEY", "short")
     with pytest.raises(RuntimeError, match="SECRET_KEY"):
         create_app()
+
+
+# ---- D2: each person's own runs, apps and teams -------------------------------------------------
+
+
+def test_a_run_is_only_seen_and_driven_by_whoever_started_it(hosted):  # noqa: ANN001
+    alice, bob = signed_in("1"), signed_in("2")
+    life = next(t for t in alice.get("/api/templates").json() if t["pack"] == "life")
+    team = alice.get(f"/api/templates/life/{life['name']}").json()
+    made = alice.post("/api/spaces", json={"pack": "life", "team": team}).json()
+    assert [s["id"] for s in alice.get("/api/spaces").json()] == [made["id"]]
+    assert bob.get("/api/spaces").json() == []
+    for path in ("", "/events", "/stream"):
+        assert bob.get(f"/api/spaces/{made['id']}{path}").status_code == 404, path
+    assert bob.post(f"/api/spaces/{made['id']}/step").status_code == 404
+    assert bob.delete(f"/api/spaces/{made['id']}").status_code == 404
+    assert alice.post(f"/api/spaces/{made['id']}/step").status_code == 200
+
+
+def test_apps_and_teams_are_kept_in_each_persons_folder(hosted):  # noqa: ANN001
+    alice, bob = signed_in("1"), signed_in("2")
+    saved = alice.put("/api/connections", json={"connections": [{"preset": "todoist"}]})
+    assert saved.status_code == 200
+    assert (hosted / "users" / "1" / "connections.json").exists()
+    assert bob.get("/api/connections").json()["entries"] == []
+    team = {"name": "Uni", "agents": [{"name": "inbox", "job": "Read my mail."}]}
+    assert alice.put("/api/packs/apps/setup", json=team).json()["team"] == "uni"
+    assert (hosted / "users" / "1" / "my-teams" / "uni.json").exists()
+    assert bob.get("/api/packs/apps/setup").json()["teams"] == []
+    assert ("apps", "uni") not in {(t["pack"], t["name"]) for t in bob.get("/api/templates").json()}
+
+
+def test_hosted_has_no_real_mailbox_of_the_server(hosted):  # noqa: ANN001
+    client = signed_in()
+    names = {(t["pack"], t["name"]) for t in client.get("/api/templates").json()}
+    assert ("life", "real") not in names
+    assert client.get("/api/templates/life/real").status_code == 404
+    life = next(t for t in client.get("/api/templates").json() if t["pack"] == "life")
+    team = client.get(f"/api/templates/life/{life['name']}").json()
+    team["settings"]["extra"]["real"] = True  # asked for anyway, by a team made by hand
+    refused = client.post("/api/spaces", json={"pack": "life", "team": team})
+    assert refused.status_code == 400 and "real mailbox" in refused.json()["detail"]
+
+
+def test_only_recorded_runs_replay_from_the_shared_cache(hosted):  # noqa: ANN001
+    client = signed_in()
+    asked = client.post("/api/runs/replay", json={"pack": "apps", "name": "uni"})
+    assert asked.status_code == 404

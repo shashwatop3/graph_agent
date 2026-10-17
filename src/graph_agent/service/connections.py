@@ -15,6 +15,7 @@ comes from this console itself, on this machine: a page on another site (or a DN
 
 import json
 import re
+from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlparse
 
@@ -24,11 +25,12 @@ from pydantic import BaseModel, ValidationError
 from ..frame.connections import Connection, connect, from_entry, load_env, tool_table
 from ..frame.feeds import ConnectionFeed, NeedsSignIn
 from ..frame.presets import PRESETS
+from .auth import current_user
 from .registry import pack_named
 from .spaces import ROOT
-from .users import hosted
+from .users import User, hosted
 
-CONNECTIONS = ROOT / "connections.json"
+CONNECTIONS = ROOT / "connections.json"  # the local person's; hosted, each has one in their folder
 LOCAL = {"127.0.0.1", "localhost", "::1"}
 
 
@@ -61,10 +63,14 @@ def describe(connection: Connection) -> dict[str, Any]:
     }
 
 
-def read_entries() -> list[dict[str, Any]]:
-    if not CONNECTIONS.exists():
+def connections_file(user: User) -> Path:
+    return CONNECTIONS if user.id == "local" else user.folder / "connections.json"
+
+
+def read_entries(file: Path) -> list[dict[str, Any]]:
+    if not file.exists():
         return []
-    data = cast(dict[str, Any], json.loads(CONNECTIONS.read_text()))
+    data = cast(dict[str, Any], json.loads(file.read_text()))
     return list(data.get("connections", []))
 
 
@@ -80,9 +86,9 @@ def parse(entries: list[dict[str, Any]]) -> list[Connection]:
     return found
 
 
-def setup_pack(name: str) -> Any:
+def setup_pack(name: str, user: User) -> Any:
     try:
-        pack = pack_named(name)
+        pack = pack_named(name, user)
     except ValueError as error:
         raise HTTPException(404, str(error)) from error
     if not hasattr(pack, "setup_view"):
@@ -92,11 +98,12 @@ def setup_pack(name: str) -> Any:
 
 def router() -> APIRouter:
     api = APIRouter()
+    You = Depends(current_user)  # the person asking (the local one, when not hosted)
 
     @api.get("/api/connections")
-    def connections() -> dict[str, Any]:
+    def connections(user: User = You) -> dict[str, Any]:
         load_env(ROOT / ".env")
-        entries = read_entries()
+        entries = read_entries(connections_file(user))
         return {
             "presets": [
                 {"name": name, "label": p.get("label", name), "about": p.get("about", "")}
@@ -107,9 +114,11 @@ def router() -> APIRouter:
         }
 
     @api.put("/api/connections", dependencies=[Depends(local_only)])
-    def save(body: Entries) -> dict[str, Any]:
+    def save(body: Entries, user: User = You) -> dict[str, Any]:
         found = parse(body.connections)
-        CONNECTIONS.write_text(json.dumps({"connections": body.connections}, indent=2) + "\n")
+        file = connections_file(user)
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(json.dumps({"connections": body.connections}, indent=2) + "\n")
         load_env(ROOT / ".env")
         return {"connections": [describe(c) for c in found]}
 
@@ -146,27 +155,29 @@ def router() -> APIRouter:
     # ---- a pack's setup form --------------------------------------------------------------------
 
     @api.get("/api/packs/{pack}/setup")
-    def setup(pack: str, team: str | None = None) -> dict[str, Any]:
+    def setup(pack: str, team: str | None = None, user: User = You) -> dict[str, Any]:
         try:
-            return setup_pack(pack).setup_view(team)
+            return setup_pack(pack, user).setup_view(team)
         except ValueError as error:
             raise HTTPException(404, str(error)) from error
 
     @api.put("/api/packs/{pack}/setup", dependencies=[Depends(local_only)])
-    def save_setup(pack: str, data: dict[str, Any], team: str | None = None) -> dict[str, Any]:
+    def save_setup(
+        pack: str, data: dict[str, Any], team: str | None = None, user: User = You
+    ) -> dict[str, Any]:
         try:
-            return setup_pack(pack).save_setup(data, write=True, team=team)
+            return setup_pack(pack, user).save_setup(data, write=True, team=team)
         except ValueError as error:
             raise HTTPException(400, str(error)) from error
 
     @api.post("/api/packs/{pack}/setup/check")
-    def check_setup(pack: str, data: dict[str, Any]) -> dict[str, Any]:
-        return setup_pack(pack).save_setup(data, write=False)
+    def check_setup(pack: str, data: dict[str, Any], user: User = You) -> dict[str, Any]:
+        return setup_pack(pack, user).save_setup(data, write=False)
 
     @api.delete("/api/packs/{pack}/setup", dependencies=[Depends(local_only)])
-    def delete_setup(pack: str, team: str) -> dict[str, Any]:
+    def delete_setup(pack: str, team: str, user: User = You) -> dict[str, Any]:
         try:
-            setup_pack(pack).delete_setup(team)
+            setup_pack(pack, user).delete_setup(team)
         except ValueError as error:
             raise HTTPException(404, str(error)) from error
         return {"deleted": team}

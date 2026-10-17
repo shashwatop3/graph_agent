@@ -60,13 +60,20 @@ class LifeConsole:
         ),
     ]
 
+    def __init__(self, real: bool = True) -> None:
+        # "Real mailbox" reads the accounts in this machine's .env: a hosted console, used by
+        # other people, does not offer it (they connect their own on the My apps page)
+        self.real = real
+
     def templates(self) -> list[Template]:
         found = [Template(n, make().name, make().description) for n, make in TEAMS.items()]
+        if not self.real:
+            return found
         real = real_team()
         return [*found, Template("real", real.name, real.description)]
 
     def team(self, name: str, options: dict[str, Any]) -> TeamSpec:
-        if name == "real":
+        if name == "real" and self.real:
             return real_team()
         team = TEAMS[name]()
         team.settings.extra["case"] = name  # which checks of the week it answers for
@@ -98,6 +105,8 @@ class LifeConsole:
         if options.get("approvals") in ("auto", "manual", "shadow"):
             team.settings.approvals = options["approvals"]  # type: ignore[assignment]
         if team.settings.extra.get("real"):
+            if not self.real:
+                raise ValueError("this console does not offer the real mailbox; use My apps")
             return self.start_real(team, client, store, log)
         runtime, world, _ = build_life(
             team,
