@@ -1,0 +1,334 @@
+"""The HTTP API the console uses, plus the console itself.
+
+    uv run python -m graph_agent.service            # http://127.0.0.1:8765
+
+    GET  /api/packs                      the packs the page can load, and their run options
+    GET  /api/catalogue?pack=life        node types, tools, predicates, triggers and link kinds
+    GET  /api/templates                  ready-made teams; GET /api/templates/{pack}/{name};
+                                         POST the same path with settings for a variant
+    POST /api/validate                   check a team file
+    GET  /api/spaces                     live runs;  POST /api/spaces  {pack, team, model, ...}
+    GET  /api/spaces/{id}                everything the console shows (nodes, beliefs, actions,
+                                         exposures, the world, the score)
+    POST /api/spaces/{id}/step | play | pause
+    GET  /api/spaces/{id}/events?since=N the event log;  GET .../stream  the same, live (SSE)
+    GET  /api/spaces/{id}/why/{node}/{belief}   why a node believes something (with the Cypher;
+                                         run live, with timings, when the store is FalkorDB)
+    POST /api/spaces/{id}/approvals/{proposal}  {approved: true|false}
+    GET  /api/runs                       recorded runs to replay from the model cache
+
+Local only by default: it binds 127.0.0.1, and a real model run spends from the key in .env.
+"""
+
+import asyncio
+import json
+from typing import Any
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, ValidationError
+
+from ..frame.nodes import catalogue_info
+from ..frame.spec import TeamSpec
+from .registry import PACKS, pack_named
+from .spaces import ROOT, Spaces
+
+CONSOLE = ROOT / "viewer" / "console" / "dist"
+
+TRIGGERS = {
+    "tick": "every tick of the clock",
+    "schedule": "every N ticks (every, at)",
+    "item": "an item reached it (it owns what the item is about)",
+    "message": "a teammate sent it a belief",
+    "change": "one of its beliefs changed (a correction reached it)",
+    "due": "a belief of its own falls due soon (within)",
+    "exposure": "a teammate was exposed as unreliable",
+    "approval": "a person approved or rejected its action",
+}
+LINKS = {
+    "feeds": "a stream hands its items to a router or node",
+    "owns": "a node looks after an entity, or every entity of a type (type:Flight)",
+    "talks_to": "two nodes can send each other beliefs",
+    "watches": "a responder or checker reacts to this node's cascades",
+}
+
+
+class CreateSpace(BaseModel):
+    pack: str
+    team: dict[str, Any]
+    name: str = ""
+    model: str = "stand-in"
+    store: str = "memory"
+    options: dict[str, str] = {}
+
+
+class Decision(BaseModel):
+    approved: bool
+
+
+def create_app(spaces: Spaces | None = None) -> FastAPI:
+    app = FastAPI(title="graph-agent console", version="0.1.0")
+    registry = spaces or Spaces()
+    app.state.spaces = registry
+
+    def space_or_404(space_id: str):  # noqa: ANN202
+        try:
+            return registry.get(space_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    # ---- building a team ----------------------------------------------------------------------
+
+    def pack_or_404(name: str):  # noqa: ANN202
+        try:
+            return pack_named(name)
+        except ValueError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.get("/api/packs")
+    def packs() -> list[dict[str, Any]]:
+        return [
+            {
+                "name": pack.name,
+                "title": pack.title,
+                "options": [
+                    {
+                        "key": o.key,
+                        "label": o.label,
+                        "choices": [{"value": c.value, "label": c.label} for c in o.choices],
+                    }
+                    for o in pack.options
+                ],
+            }
+            for pack in PACKS.values()
+        ]
+
+    @app.get("/api/catalogue")
+    def catalogue(pack: str = "life") -> dict[str, Any]:
+        extra = pack_or_404(pack).catalogue()
+        return {
+            "nodes": [*catalogue_info(), *extra.nodes],
+            "tools": extra.tools,
+            "graph_tools": [
+                "recall",
+                "explain",
+                "traverse",
+                "shortest_path",
+                "assert_belief",
+                "retract",
+                "send",
+                "act",
+            ],
+            "predicates": extra.predicates,
+            "triggers": TRIGGERS,
+            "links": LINKS,
+        }
+
+    @app.get("/api/templates")
+    def templates() -> list[dict[str, str]]:
+        return [
+            {"pack": pack.name, "name": t.name, "title": t.title, "description": t.description}
+            for pack in PACKS.values()
+            for t in pack.templates()
+        ]
+
+    @app.get("/api/templates/{pack}/{name}")
+    def template(pack: str, name: str) -> dict[str, Any]:
+        return build_template(pack, name, {})
+
+    @app.post("/api/templates/{pack}/{name}")
+    def template_variant(pack: str, name: str, options: dict[str, Any]) -> dict[str, Any]:
+        """A ready-made team with the pack's own settings (for example how many agents)."""
+        return build_template(pack, name, options)
+
+    def build_template(pack: str, name: str, options: dict[str, Any]) -> dict[str, Any]:
+        chosen = pack_or_404(pack)
+        if name not in {t.name for t in chosen.templates()}:
+            raise HTTPException(404, f"no template {pack}/{name}")
+        return chosen.team(name, options).model_dump(mode="json")
+
+    @app.post("/api/validate")
+    def validate(team: dict[str, Any]) -> dict[str, Any]:
+        try:
+            TeamSpec.model_validate(team)
+        except ValidationError as error:
+            return {"ok": False, "errors": [e["msg"] for e in error.errors()]}
+        return {"ok": True, "errors": []}
+
+    # ---- spaces ---------------------------------------------------------------------------------
+
+    @app.get("/api/spaces")
+    def list_spaces() -> list[dict[str, Any]]:
+        return [s.summary() for s in registry.spaces.values()]
+
+    @app.post("/api/spaces")
+    def create_space(body: CreateSpace) -> dict[str, Any]:
+        try:
+            team = TeamSpec.model_validate(body.team)
+            space = registry.create(
+                pack_or_404(body.pack),
+                team,
+                name=body.name,
+                model=body.model,
+                store=body.store,
+                options=body.options,
+            )
+        except (ValidationError, ValueError, KeyError) as error:
+            raise HTTPException(400, str(error)) from error
+        return space.summary()
+
+    @app.delete("/api/spaces/{space_id}")
+    def delete_space(space_id: str) -> dict[str, str]:
+        space_or_404(space_id)
+        registry.delete(space_id)
+        return {"deleted": space_id}
+
+    @app.get("/api/spaces/{space_id}")
+    def state(space_id: str) -> dict[str, Any]:
+        return space_or_404(space_id).state()
+
+    @app.post("/api/spaces/{space_id}/step")
+    def step(space_id: str) -> dict[str, Any]:
+        space = space_or_404(space_id)
+        if space.running:
+            raise HTTPException(409, "it is playing; pause it first")
+        space.step()
+        if space.finished:
+            space.finish()
+        return space.summary()
+
+    @app.post("/api/spaces/{space_id}/play")
+    def play(space_id: str, delay: float = 0.0) -> dict[str, Any]:
+        space = space_or_404(space_id)
+        space.play(delay)
+        return space.summary()
+
+    @app.post("/api/spaces/{space_id}/pause")
+    def pause(space_id: str) -> dict[str, Any]:
+        space = space_or_404(space_id)
+        space.pause()
+        return space.summary()
+
+    @app.get("/api/spaces/{space_id}/events")
+    def events(space_id: str, since: int = 0) -> list[dict[str, Any]]:
+        space = space_or_404(space_id)
+        return [
+            {"seq": e.seq, "tick": e.tick, "kind": e.kind, **e.data}
+            for e in space.runtime.log.since(since)
+        ]
+
+    @app.get("/api/spaces/{space_id}/stream")
+    async def stream(space_id: str, request: Request, since: int = 0) -> StreamingResponse:
+        space = space_or_404(space_id)
+        queue: asyncio.Queue[str] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        def push(event: Any) -> None:
+            data = json.dumps(
+                {"seq": event.seq, "tick": event.tick, "kind": event.kind, **event.data},
+                default=str,
+            )
+            loop.call_soon_threadsafe(queue.put_nowait, data)
+
+        with space.lock:  # no event can slip between the backlog and the live feed
+            backlog = list(space.runtime.log.since(since))
+            stop = space.runtime.log.listen(push)
+
+        async def body():  # noqa: ANN202
+            try:
+                for event in backlog:
+                    payload = {
+                        "seq": event.seq,
+                        "tick": event.tick,
+                        "kind": event.kind,
+                        **event.data,
+                    }
+                    yield f"data: {json.dumps(payload, default=str)}\n\n"
+                while not await request.is_disconnected():
+                    try:
+                        data = await asyncio.wait_for(queue.get(), timeout=15)
+                        yield f"data: {data}\n\n"
+                    except TimeoutError:
+                        yield ": keep-alive\n\n"
+            finally:
+                stop()
+
+        return StreamingResponse(body(), media_type="text/event-stream")
+
+    @app.get("/api/spaces/{space_id}/why/{node}/{belief}")
+    def why(space_id: str, node: str, belief: str) -> dict[str, Any]:
+        space = space_or_404(space_id)
+        try:
+            return space.why(node, belief)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.post("/api/spaces/{space_id}/approvals/{proposal}")
+    def decide(space_id: str, proposal: str, body: Decision) -> dict[str, str]:
+        space = space_or_404(space_id)
+        try:
+            return {"result": space.decide(proposal, body.approved)}
+        except (KeyError, ValueError) as error:
+            raise HTTPException(400, str(error)) from error
+
+    # ---- recorded runs --------------------------------------------------------------------------
+
+    @app.get("/api/runs")
+    def runs() -> list[dict[str, Any]]:
+        return [
+            {
+                "pack": pack.name,
+                "path": r.path,
+                "name": r.name,
+                "options": r.options,
+                "checks_passed": r.checks_passed,
+                "checks_total": r.checks_total,
+            }
+            for pack in PACKS.values()
+            for r in pack.recorded()
+        ]
+
+    class Replay(BaseModel):
+        pack: str
+        name: str
+        options: dict[str, str] = {}
+        model: str = "claude-haiku-5-5"
+
+    @app.post("/api/runs/replay")
+    def replay(body: Replay) -> dict[str, Any]:
+        """Run a recorded case again with the same model: every request is in the model cache,
+        so it costs nothing and gives the same run, now with everything open to inspect."""
+        pack = pack_or_404(body.pack)
+        options = {k: v for k, v in body.options.items() if k != "model"}
+        try:
+            space = registry.create(
+                pack, pack.team(body.name, {}), name=body.name, model=body.model, options=options
+            )
+        except (ValueError, KeyError) as error:
+            raise HTTPException(400, str(error)) from error
+        space.play()
+        return space.summary()
+
+    # ---- the console ----------------------------------------------------------------------------
+
+    if CONSOLE.exists():
+        app.mount("/assets", StaticFiles(directory=CONSOLE / "assets", check_dir=False), "assets")
+
+        @app.get("/")
+        def index() -> FileResponse:
+            return FileResponse(CONSOLE / "index.html")
+
+    return app
+
+
+app = create_app()
+
+
+def main(host: str = "127.0.0.1", port: int = 8765) -> None:
+    import uvicorn
+
+    uvicorn.run(app, host=host, port=port, log_level="warning")
+
+
+__all__ = ["app", "create_app", "main"]

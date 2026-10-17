@@ -1,23 +1,28 @@
 """Architecture rules, checked statically (no services needed).
 
 1. Package boundaries: which graph_agent packages may import which.
-2. The core contains no domain vocabulary.
+2. The generic project (core, frame, harness, service) contains no domain vocabulary.
+3. Packs do not import each other, and the fire simulator imports nothing outside itself.
 """
 
 import ast
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1] / "src" / "graph_agent"
 PACKAGE = "graph_agent"
 
-# package -> packages it may import (itself is always allowed)
+# package -> packages it may import (itself is always allowed). The main project is generic: it
+# knows no pack. Packs (Ring Fire, life, Hualien) sit on top of it, and only the service lists them.
 ALLOWED = {
     "core": set(),
-    "sim": set(),
     "stores": {"core"},
-    "adapters": {"core"},
-    "harness": {"core", "stores", "adapters", "sim"},
+    "harness": {"core"},  # the model client, the turn loop, the run trace
+    "frame": {"core", "harness"},
+    "packs": {"core", "stores", "harness", "frame"},
+    "service": {"core", "stores", "harness", "frame", "packs"},
 }
 
 # Words that must never appear in the core. "field" is left out on purpose:
@@ -78,12 +83,45 @@ def test_package_boundaries():
     assert not violations, "\n".join(violations)
 
 
-def test_core_has_no_domain_vocabulary():
+@pytest.mark.parametrize("package", ["core", "frame", "harness", "service"])
+def test_the_main_project_has_no_domain_vocabulary(package):
     pattern = re.compile(r"\b(" + "|".join(DOMAIN_WORDS) + r")\b", re.IGNORECASE)
     hits = []
-    for path in _python_files("core"):
+    for path in _python_files(package):
         for lineno, line in enumerate(path.read_text().splitlines(), start=1):
             match = pattern.search(line)
             if match:
                 hits.append(f"{path.relative_to(ROOT.parent)}:{lineno}: '{match.group(0)}'")
     assert not hits, "\n".join(hits)
+
+
+PACKS_ROOT = ROOT / "packs"
+
+
+def test_packs_do_not_import_each_other():
+    violations = []
+    for pack in [d.name for d in PACKS_ROOT.iterdir() if d.is_dir() and d.name != "__pycache__"]:
+        for path in sorted((PACKS_ROOT / pack).rglob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text())):
+                names = (
+                    [node.module or ""]
+                    if isinstance(node, ast.ImportFrom) and not node.level
+                    else []
+                )
+                for name in names:
+                    parts = name.split(".")
+                    if parts[:2] == [PACKAGE, "packs"] and len(parts) > 2 and parts[2] != pack:
+                        violations.append(f"{path.relative_to(ROOT.parent)} imports {name}")
+    assert not violations, "\n".join(violations)
+
+
+def test_the_fire_simulator_imports_nothing_outside_itself():
+    sim = PACKS_ROOT / "ringfire" / "sim"
+    violations = []
+    for path in sorted(sim.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.ImportFrom) and (
+                node.level > 1 or (node.module or "").startswith(PACKAGE)
+            ):
+                violations.append(f"{path.relative_to(ROOT.parent)}: {node.module}")
+    assert not violations, "\n".join(violations)
