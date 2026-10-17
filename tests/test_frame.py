@@ -90,6 +90,9 @@ def test_an_item_goes_to_whoever_owns_what_it_is_about():
     rt.run(max_ticks=2)
     routed = {e.data["item"]: e.data["to"] for e in rt.log.events if e.kind == "item"}
     assert routed == {"m1": ["travel"], "m2": ["inbox"]}
+    # the log names the path each took, so the console can draw sender -> stream -> router -> owner
+    paths = [e.data["via"] for e in rt.log.events if e.kind == "item"]
+    assert paths == [["mail", "router"], ["mail", "router"]]
     assert [b.value for b in rt.store.beliefs("travel")] == ["on time"]
     turns = [(t, node) for t, node, _ in rt.turns]
     assert (1, "travel") in turns and (1, "inbox") in turns

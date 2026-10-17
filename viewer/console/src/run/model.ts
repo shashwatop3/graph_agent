@@ -141,7 +141,7 @@ export function describe(e: RunEvent, state: SpaceState): string {
   switch (e.kind) {
     case "run_start": return `The team "${state.team.name}" starts.`;
     case "tick": return `— ${state.clocks[e.tick] ?? e.tick} begins —`;
-    case "item": return `${d("source")} → ${(e.to as string[] | undefined)?.join(", ") || "nobody"}: ${str((e.payload as Record<string, unknown> | undefined)?.subject) || d("item_kind")}`;
+    case "item": return `${[d("source"), ...((e.via as string[] | undefined) ?? [])].join(" → ")} → ${(e.to as string[] | undefined)?.join(", ") || "nobody"}: ${str((e.payload as Record<string, unknown> | undefined)?.subject) || d("item_kind")}`;
     case "message": return `${d("sender")} told ${d("receiver")}: ${d("subject")} ${d("predicate")} = ${d("value")}${e.believed ? "" : " (not believed: it came through someone it distrusts)"}`;
     case "turn": return `${d("node")} took a turn (${(e.calls as unknown[] | undefined)?.length ?? 0} tool calls): ${d("text")}`;
     case "tool": return `${d("node")} · ${d("tool")} → ${d("result").slice(0, 140)}`;

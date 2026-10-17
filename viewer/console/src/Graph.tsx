@@ -22,7 +22,9 @@ export interface Live {
   waiting: Set<string>; // something is pending for it
   held: Set<string>; // has actions held because what they rested on changed
   messages: { src: string; dst: string; bad: boolean; label: string }[]; // delivered this tick
-  items: { src: string; dst: string }[]; // outside sender -> node, routed this tick
+  items: { src: string; dst: string; n: number }[]; // hops of the items routed this tick:
+  // sender -> stream -> router -> each recipient (n: how many items took that hop)
+  carried: Set<string>; // streams and routers that passed items on this tick
   links: { src: string; dst: string }[]; // who can talk to whom now
   outside: { id: string; quarantined: boolean; active: boolean }[];
   cuts: { viewer: string; agent: string }[]; // trust cut between two nodes of the team
@@ -108,7 +110,9 @@ export function Graph(p: Props) {
           </marker>
         ))}
         {(["tru", "lie", "item"] as const).map((id) => (
-          <marker key={id} id={`h-${id}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <marker key={id} id={`h-${id}`} viewBox="0 0 10 10" refX="9" refY="5" orient="auto"
+            // an item's arrow keeps one size however thick its hop is drawn
+            {...(id === "item" ? { markerUnits: "userSpaceOnUse", markerWidth: 12, markerHeight: 12 } : { markerWidth: 7, markerHeight: 7 })}>
             <path d="M0,0 L10,5 L0,10 z" fill={id === "lie" ? "var(--lie)" : id === "item" ? "var(--water)" : "var(--accent)"} />
           </marker>
         ))}
@@ -175,7 +179,8 @@ export function Graph(p: Props) {
         const d = arc(a, b, 0.08);
         return (
           <g key={`i${k}`}>
-            <path d={d} fill="none" stroke="var(--water)" strokeWidth={1.8} opacity={0.75} markerEnd="url(#h-item)" />
+            <title>{`${m.n} item${m.n > 1 ? "s" : ""}: ${m.src} → ${m.dst}`}</title>
+            <path d={d} fill="none" stroke="var(--water)" strokeWidth={1.8 + Math.min(m.n - 1, 4) * 0.6} opacity={0.75} markerEnd="url(#h-item)" />
             <circle className="comet" r={3.5} fill="var(--water)">
               <animateMotion dur="1.6s" repeatCount="indefinite" path={d} begin={`${(k % 4) * 0.3}s`} />
             </circle>
@@ -221,6 +226,7 @@ export function Graph(p: Props) {
         const colour = KIND_COLOUR[kind];
         const r = radius(node.id);
         const on = live?.active.has(node.id) ?? false;
+        const carried = live?.carried.has(node.id) ?? false;
         const label = node.label || node.id;
         const compact = isRingAgent(team, node.id);
         const owns = team.links.filter((l) => l.kind === "owns" && l.src === node.id).map((l) => l.dst.replace("type:", ""));
@@ -228,6 +234,7 @@ export function Graph(p: Props) {
           "node",
           selected === node.id ? "sel" : "",
           on ? "active" : "",
+          carried ? "carried" : "",
           live?.waiting.has(node.id) ? "waiting" : "",
           live?.held.has(node.id) ? "held" : "",
           p.linkFrom === node.id ? "linking" : "",
@@ -250,6 +257,7 @@ export function Graph(p: Props) {
           >
             <title>{`${label} · ${node.type}${owns.length ? ` · owns ${owns.join(", ")}` : ""}`}</title>
             {selected === node.id && <circle cx={x} cy={y} r={r + 7} fill="none" stroke="var(--ink)" strokeWidth={2} />}
+            {carried && <circle cx={x} cy={y} r={r + 4} fill="none" stroke="var(--water)" strokeWidth={2.5} />}
             {live?.held.has(node.id) && <circle cx={x} cy={y} r={r + 4} fill="none" stroke="var(--gold)" strokeWidth={2.5} strokeDasharray="4 3" />}
             <circle className="disc" cx={x} cy={y} r={r} fill={on ? "var(--ink)" : "var(--panel)"}
               stroke={kind === "scripted" ? "var(--lie)" : "var(--ink)"} strokeWidth={1.5}

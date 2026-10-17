@@ -90,7 +90,8 @@ export function Network(p: Props) {
         )}
       </div>
       <div className="legend">
-        <span><i style={c("var(--water)")} />item read</span>
+        <span><i style={c("var(--water)")} />item: sender → stream → router → owner</span>
+        <span><i className="o" style={c("var(--water)")} />stream or router passed items on</span>
         <span><i style={c("var(--accent)")} />message believed</span>
         <span><i style={c("var(--lie)")} />not believed</span>
         <span><i style={c("var(--stale)")} />trust cut</span>

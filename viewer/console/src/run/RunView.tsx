@@ -103,9 +103,8 @@ export function RunView({ spaceId, onBack }: { spaceId: string; onBack: () => vo
         bad: !e.believed,
         label: `${str(e.subject)}: ${str(e.value)}`.slice(0, 34),
       })),
-      items: here
-        .filter((e) => e.kind === "item" && !team.has(str(e.source)))
-        .flatMap((e) => ((e.to as string[]) ?? []).map((dst) => ({ src: str(e.source), dst }))),
+      items: itemHops(here.filter((e) => e.kind === "item" && !team.has(str(e.source)))),
+      carried: new Set(here.filter((e) => e.kind === "item").flatMap((e) => (e.via as string[] | undefined) ?? [])),
       links: space.links,
       outside: space.outside.map((o) => ({
         id: o.id,
@@ -210,4 +209,23 @@ export function RunView({ spaceId, onBack }: { spaceId: string; onBack: () => vo
       </div>
     </div>
   );
+}
+
+/** Each item's path at this tick as hops: its sender, the stream it came in on, the router, then
+ * each agent it went to. The same hop for several items is drawn once, thicker. */
+function itemHops(items: RunEvent[]): Live["items"] {
+  const hops = new Map<string, Live["items"][number]>();
+  for (const e of items) {
+    const path = [str(e.source), ...((e.via as string[] | undefined) ?? [])];
+    const last = path[path.length - 1]!;
+    const steps = path.slice(1).map((dst, i) => [path[i]!, dst] as const);
+    for (const dst of (e.to as string[] | undefined) ?? []) steps.push([last, dst]);
+    for (const [src, dst] of steps) {
+      const key = `${src}>${dst}`;
+      const hop = hops.get(key) ?? { src, dst, n: 0 };
+      hop.n++;
+      hops.set(key, hop);
+    }
+  }
+  return [...hops.values()];
 }

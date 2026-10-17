@@ -616,8 +616,12 @@ class Runtime:
         for message in held:
             self.deliver(message)
 
-    def route(self, item: Item, recipients: Sequence[str]) -> dict[str, list[Belief]]:
-        """Record `item` for each recipient (in order) and tell every node what was observed."""
+    def route(
+        self, item: Item, recipients: Sequence[str], via: Sequence[str] = ()
+    ) -> dict[str, list[Belief]]:
+        """Record `item` for each recipient (in order) and tell every node what was observed.
+        `via`: the nodes it passed through on the way (its stream, then the router), logged so
+        the console can draw the path."""
         recorded: dict[str, list[Belief]] = {}
         for viewer in recipients:
             beliefs = self.pack.record_item(viewer, item)
@@ -634,6 +638,7 @@ class Runtime:
             source=item.source,
             about=item.about,
             to=list(recipients),
+            via=list(via),
             payload=item.payload,
         )
         return recorded

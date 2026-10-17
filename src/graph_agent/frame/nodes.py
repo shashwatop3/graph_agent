@@ -318,9 +318,9 @@ class StreamNode(Node):
         for item in items:
             if routers:
                 for router in routers:
-                    router.receive(item)
+                    router.receive(item, self.id)
             else:
-                self.rt.route(item, recipients(self.rt, item, None))
+                self.rt.route(item, recipients(self.rt, item, None), via=[self.id])
 
 
 def recipients(rt: Runtime, item: Item, fallback: str | None) -> list[str]:
@@ -344,11 +344,12 @@ class RouterNode(Node):
 
     description = "Links items to entities and delivers them to the owners (config: fallback)."
 
-    def receive(self, item: Item) -> None:
+    def receive(self, item: Item, stream: str | None = None) -> None:
         extract: Extractor | None = getattr(self.rt.pack, "extract", None)
         if extract is not None and (not item.about or not item.claims):
             item = extract(self.rt, item)
-        self.rt.route(item, recipients(self.rt, item, self.spec.config.get("fallback")))
+        via = [stream, self.id] if stream else [self.id]
+        self.rt.route(item, recipients(self.rt, item, self.spec.config.get("fallback")), via=via)
 
 
 # ---- model agents --------------------------------------------------------------------------------
