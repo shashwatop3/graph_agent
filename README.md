@@ -22,6 +22,7 @@ pack, loaded into the console like any other.
 | `src/graph_agent/packs/ringfire/` | The fire game: `sim/` engine, `adapter.py`, `benchmark/` (original loop, baselines, scoring), `pack.py` (on the frame), `viewer/` | core, stores, harness, frame |
 | `src/graph_agent/packs/life/` | Mail, calendar, travel, promises, money: a simulated week, tools, teams, MCP server | core, stores, harness, frame |
 | `src/graph_agent/packs/hualien/` | The Hualien earthquake adapter (real data, second domain) | core |
+| `src/graph_agent/packs/apps/` | Your own agents on your own apps: a few lines per agent, any MCP server per app | core, stores, harness, frame |
 | `viewer/console/` | The page: build a team on a canvas, run it, see why | n/a |
 | `benchmarks/` | Run scripts: `ringfire/`, `life/`, and the store micro-benchmark | n/a |
 | `tests/` | Tests: shared at the top, per pack in `ringfire/`, `life/`, `hualien/` | n/a |
@@ -82,5 +83,26 @@ TODOIST_API_KEY=...
 uv run python -m graph_agent.packs.life.real auth   # once: prints a link, you sign in
 ```
 Then pick "Real mailbox" in the console, leave "Outward actions" on "Record only", press Step.
+
+## Your own agents on your own apps
+
+Open the console's **My apps** page. In three steps:
+
+1. **Your apps.** Add Gmail and Calendar or Todoist from a preset, or any MCP server (a command
+   to start, or a URL). Press **Test**: it starts the server, lists its tools (which ones only read,
+   which ask you first) and reads each feed once, showing a sign-in link if the server wants one.
+   Secrets never go in the page: an app names them (`$TODOIST_API_KEY`) and you put the values in
+   `.env`. Saved to `connections.json` (git-ignored).
+2. **Your agents.** Each one is a name, its job in your words, the kinds of thing it looks after
+   (events, promises, bills, your own kinds) and the app tools it may use. Tick "carries out" for
+   an agent that acts on the team's plans: it reads no mail. Problems are named as you type. Saved
+   to `agents.json` (git-ignored); the streams, router, checker, links and safety settings are
+   made from it (`packs/apps/setup.py`).
+3. **Run it** with a real model, outward actions on "Record only" to start.
+
+Without the page: `uv run python -m graph_agent.packs.apps.run example` writes both files to start
+from, and `... apps.run check` connects each app, lists its tools and checks the agents (free: no
+model is called). The page only writes files or starts servers for requests from itself on
+127.0.0.1.
 
 [workspace-mcp]: https://github.com/taylorwilsdon/google_workspace_mcp

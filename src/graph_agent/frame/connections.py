@@ -86,27 +86,36 @@ class Connection(Strict):
     def prefix(self) -> str:
         return f"{self.name}_"
 
-    def secrets(self) -> list[str]:
-        """The environment names its settings refer to ("$NAME" or "${NAME}")."""
+    def _references(self) -> list[list[str]]:
         values = [*self.env.values(), *self.headers.values(), *self.bind.values(), self.url or ""]
         values += [feed.me for feed in self.feeds]
-        return sorted({name for value in values for name in _names(value)})
+        return [names for value in values for names in _references(value)]
+
+    def secrets(self) -> list[str]:
+        """The environment names its settings refer to ("$NAME", "${NAME}"; of "${A|B}", A)."""
+        return sorted({names[0] for names in self._references()})
 
     def missing(self) -> list[str]:
-        """The secrets not set in the environment."""
-        return [name for name in self.secrets() if not os.environ.get(name)]
+        """The secrets not set in the environment (of "${A|B}", A, when neither is set)."""
+        return sorted({names[0] for names in self._references() if not _lookup(names)})
 
 
-_NAME = re.compile(r"\$\{?([A-Z_][A-Z0-9_]*)\}?")
+# "$NAME", "${NAME}", or "${A|B}": the first of A and B that is set (a .env may already use
+# another name for the same secret)
+_NAME = re.compile(r"\$\{([A-Z_][A-Z0-9_]*(?:\|[A-Z_][A-Z0-9_]*)*)\}|\$([A-Z_][A-Z0-9_]*)")
 
 
-def _names(value: str) -> list[str]:
-    return _NAME.findall(value)
+def _references(value: str) -> list[list[str]]:
+    return [(m.group(1) or m.group(2)).split("|") for m in _NAME.finditer(value)]
+
+
+def _lookup(names: list[str]) -> str:
+    return next((os.environ[n] for n in names if os.environ.get(n)), "")
 
 
 def resolve(value: str) -> str:
     """`value` with every "$NAME" replaced by its value in the environment."""
-    return _NAME.sub(lambda m: os.environ.get(m.group(1), ""), value)
+    return _NAME.sub(lambda m: _lookup((m.group(1) or m.group(2)).split("|")), value)
 
 
 def load_env(path: str | Path) -> None:

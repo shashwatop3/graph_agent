@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
 import { api, type RunOptions } from "./api";
+import { AppsView } from "./apps/AppsView";
 import { BuildView } from "./build/BuildView";
 import { RunView } from "./run/RunView";
 import type { RecordedRun, Summary, TeamSpec } from "./types";
 
-type View = { kind: "build" } | { kind: "run"; id: string } | { kind: "runs" };
+type View = { kind: "build" } | { kind: "run"; id: string } | { kind: "runs" } | { kind: "apps" };
 
 function readHash(): View {
   const m = /^#run\/(\w+)$/.exec(window.location.hash);
   if (m) return { kind: "run", id: m[1]! };
+  if (window.location.hash === "#apps") return { kind: "apps" };
   return window.location.hash === "#runs" ? { kind: "runs" } : { kind: "build" };
 }
 
@@ -20,7 +22,7 @@ export function App() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
   const go = (next: View) => {
-    window.location.hash = next.kind === "run" ? `run/${next.id}` : next.kind === "runs" ? "runs" : "";
+    window.location.hash = next.kind === "run" ? `run/${next.id}` : next.kind === "build" ? "" : next.kind;
     setView(next);
   };
 
@@ -38,6 +40,7 @@ export function App() {
         </div>
         <div className="controls">
           <nav className="seg" aria-label="Views">
+            <button aria-pressed={view.kind === "apps"} onClick={() => go({ kind: "apps" })}>My apps</button>
             <button aria-pressed={view.kind === "build"} onClick={() => go({ kind: "build" })}>Build</button>
             <button aria-pressed={view.kind === "run" || view.kind === "runs"} onClick={() => go({ kind: "runs" })}>Runs</button>
           </nav>
@@ -47,6 +50,7 @@ export function App() {
       {view.kind === "build" && <BuildView onRun={run} />}
       {view.kind === "run" && <RunView spaceId={view.id} onBack={() => go({ kind: "build" })} />}
       {view.kind === "runs" && <Runs onOpen={(id) => go({ kind: "run", id })} />}
+      {view.kind === "apps" && <AppsView onRun={run} />}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import type { Catalogue, PackInfo, RecordedRun, RunEvent, SpaceState, Summary, TeamSpec, Template, Why } from "./types";
+import type { AppsSetup, Catalogue, ConnectionEntry, ConnectionInfo, ConnectionTest, PackInfo, Preset, RecordedRun, RunEvent, SetupView, SpaceState, Summary, TeamSpec, Template, Why } from "./types";
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -48,6 +48,15 @@ export const api = {
   replay: (run: RecordedRun) => post<Summary>("/api/runs/replay", { pack: run.pack, name: run.name, options: run.options }),
   decide: (id: string, proposal: string, approved: boolean) =>
     post<{ result: string }>(`/api/spaces/${id}/approvals/${proposal}`, { approved }),
+  // your apps and your agents
+  connections: () => call<{ presets: Preset[]; entries: ConnectionEntry[]; connections: ConnectionInfo[] }>("/api/connections"),
+  saveConnections: (entries: ConnectionEntry[]) =>
+    call<{ connections: ConnectionInfo[] }>("/api/connections", { method: "PUT", body: JSON.stringify({ connections: entries }) }),
+  testConnection: (entry: ConnectionEntry) => post<ConnectionTest>("/api/connections/test", entry),
+  setup: (pack: string) => call<SetupView>(`/api/packs/${pack}/setup`),
+  saveSetup: (pack: string, setup: AppsSetup) =>
+    call<{ problems: string[] }>(`/api/packs/${pack}/setup`, { method: "PUT", body: JSON.stringify(setup) }),
+  checkSetup: (pack: string, setup: AppsSetup) => post<{ problems: string[] }>(`/api/packs/${pack}/setup/check`, setup),
 };
 
 /** Follow a space's event log live. Returns a function that stops listening. */

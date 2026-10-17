@@ -28,8 +28,9 @@ PRESETS: dict[str, dict[str, Any]] = {
             *("--tools", "gmail", "calendar", "--tool-tier", "core", "--read-only"),
         ],
         "env": {
-            "GOOGLE_OAUTH_CLIENT_ID": "$GOOGLE_OAUTH_CLIENT_ID",
-            "GOOGLE_OAUTH_CLIENT_SECRET": "$GOOGLE_OAUTH_CLIENT_SECRET",
+            # the names workspace-mcp reads; a .env may call them GOOGLE_CLIENT_API and _SECRET
+            "GOOGLE_OAUTH_CLIENT_ID": "${GOOGLE_OAUTH_CLIENT_ID|GOOGLE_CLIENT_API}",
+            "GOOGLE_OAUTH_CLIENT_SECRET": "${GOOGLE_OAUTH_CLIENT_SECRET|GOOGLE_CLIENT_SECRET}",
             "WORKSPACE_MCP_DISABLE_LOCAL_FILES": "true",
         },
         "bind": {"user_google_email": "$USER_GOOGLE_EMAIL"},

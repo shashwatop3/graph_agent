@@ -60,6 +60,10 @@ def test_secrets_come_from_the_environment(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("NOTES_KEY", "s3cret")
     assert resolve("Bearer $NOTES_KEY") == "Bearer s3cret"
     assert resolve("Bearer ${NOTES_KEY}!") == "Bearer s3cret!"
+    monkeypatch.delenv("NEW_NAME", raising=False)
+    assert resolve("${NEW_NAME|NOTES_KEY}") == "s3cret"  # the first one set
+    either = Connection(name="x", command="x", env={"K": "${NEW_NAME|NOTES_KEY}"})
+    assert either.secrets() == ["NEW_NAME"] and either.missing() == []
     notes = Connection(name="notes", command="python", args=["-m", "x"], env={"K": "$NOTES_KEY"})
     started = server_of(notes)
     assert started.command == sys.executable  # "python" is this Python

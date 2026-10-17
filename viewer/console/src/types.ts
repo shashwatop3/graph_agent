@@ -174,3 +174,49 @@ export interface Why {
   live: Record<string, { rows: string[][]; ms: number }>;
   store: string;
 }
+
+// ---- your apps and your agents (src/graph_agent/service/connections.py, packs/apps/setup.py) ----
+
+/** One line of connections.json: a preset with changes, or a server in full. */
+export type ConnectionEntry = Record<string, unknown> & { preset?: string; name?: string };
+
+export interface ConnectionInfo {
+  name: string;
+  label: string;
+  about: string;
+  secrets: string[];
+  missing: string[]; // the secrets not set in .env yet
+  feeds: string[];
+  include: string[] | null;
+  outward: Record<string, boolean>;
+}
+
+export interface Preset { name: string; label: string; about: string }
+
+export interface ConnectionTest {
+  ok: boolean;
+  error?: string;
+  tools?: { name: string; description: string; outward: boolean }[];
+  feeds?: { name: string; items?: number; sample?: string[]; sign_in?: string; error?: string }[];
+}
+
+export interface AgentSetup {
+  name: string;
+  job: string;
+  looks_after?: string[];
+  apps?: string[];
+  talks_to?: string[] | null;
+  carries_out?: boolean;
+  role?: string;
+}
+
+export interface AppsSetup {
+  name: string;
+  agents: AgentSetup[];
+  things?: Record<string, string[]>;
+  unowned?: string | null;
+  approvals?: "auto" | "manual" | "shadow";
+  polls?: number;
+}
+
+export interface SetupView { setup: AppsSetup; saved: boolean; kinds: Record<string, string[]>; problems: string[] }

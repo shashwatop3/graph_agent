@@ -302,3 +302,31 @@ pre.ctx { max-height: 260px; overflow: auto; white-space: pre-wrap; font-family:
 .trust .when { margin-left: 6px; color: var(--muted); }
 .trust .why { color: var(--ink); }
 .trust .route { color: var(--muted); font-family: var(--mono, monospace); font-size: 11px; }
+
+/* ---- My apps: your apps, your agents, run (apps/AppsView.tsx) ---- */
+.apps { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 14px; align-items: start; }
+.apps code { font-family: var(--f-mono); font-size: 11.5px; overflow-wrap: anywhere; }
+.apps .muted, .apps small { color: var(--muted); font-size: 12px; }
+.conn { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin-top: 10px; display: grid; gap: 6px; }
+.conn-h { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.conn-h b { font-family: var(--f-mono); font-size: 13.5px; }
+.conn .note { margin: 0; }
+.grow { flex: 1 1 auto; }
+.tools { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.tools th { text-align: left; font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 500; padding: 2px 4px; }
+.tools td { padding: 2px 4px; border-top: 1px solid var(--line); }
+.tools td:not(:first-child), .tools th:not(:first-child) { text-align: center; width: 7em; }
+.feeds li { flex-wrap: wrap; }
+a.btn { display: inline-flex; align-items: center; text-decoration: none; color: var(--ink); }
+.add-app { margin-top: 14px; display: grid; gap: 8px; }
+.add-app .custom { border: 1px dashed var(--line); border-radius: 10px; padding: 10px; }
+.agent .row2, .kinds-of .row2 { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; }
+.agent .row2 label { flex: 1 1 160px; }
+.kinds-of .row2 input { flex: 1 1 120px; min-width: 0; }
+.agent .sub { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.kinds-of summary { cursor: pointer; font-size: 13px; }
+.kinds-of .bl { margin: 8px 0; }
+.problems li { display: block; }
+.ok-line { color: var(--ok); font-size: 12.5px; margin: 0; }
+.agent > label.check { display: flex; flex-wrap: nowrap; align-items: flex-start; gap: 8px; }
+.agent > label.check input { margin-top: 2px; flex: none; }

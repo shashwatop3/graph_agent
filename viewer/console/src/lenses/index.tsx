@@ -2,6 +2,7 @@
 // world" panel). The server names it in `world.lens`; to add a pack's own view, add a file here.
 import type { ReactElement } from "react";
 import type { RunEvent, SpaceState } from "../types";
+import { AppsBody, describeApps } from "./apps";
 import { describeLife, LifeBody } from "./life";
 import { describeReal, RealBody } from "./real";
 import { describeQuake, QuakeBody } from "./hualien";
@@ -21,4 +22,5 @@ export const LENSES: Record<string, Lens> = {
   offsite: { eyebrow: "Ground truth · agents only see it through tools", title: "The offsite", Body: OffsiteBody, describe: describeOffsite },
   hualien: { eyebrow: "Ground truth · real figures, invented fabs", title: "The quake", Body: QuakeBody, describe: describeQuake },
   real: { eyebrow: "Your accounts · read-only", title: "What it has read", Body: RealBody, describe: describeReal },
+  apps: { eyebrow: "Your apps", title: "What it has read", Body: AppsBody, describe: describeApps },
 };
