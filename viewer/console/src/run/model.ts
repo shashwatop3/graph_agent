@@ -22,8 +22,10 @@ export function statusAt(belief: BeliefView, tick: number): string | null {
 }
 
 /** Where a belief came from, in a few words. */
-export function originText(b: BeliefView): string {
-  if (b.origin === "observed") return "seen directly";
+/** Where a belief came from. `owns`: what the node keeps; an observation of anything else was a
+ * check of something it was told, not something it watches. */
+export function originText(b: BeliefView, owns: string[] = []): string {
+  if (b.origin === "observed") return owns.length === 0 || owns.includes(b.subject) ? "seen directly" : "checked (it was told about this)";
   if (b.origin === "derived") return b.sources.length ? `from ${b.sources.join(", ")}` : "worked out";
   const route = b.routes[0];
   return route?.length ? `told by ${route[route.length - 1]}` : "told";

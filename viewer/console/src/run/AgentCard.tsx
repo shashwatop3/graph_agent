@@ -194,6 +194,7 @@ function tagFor(b: BeliefView, status: string): [string, string] {
 }
 
 function Beliefs({ space, node, tick, belief, why, onBelief, onOpen }: Props) {
+  const owns = space.team.links.filter((l) => l.kind === "owns" && l.src === node).map((l) => l.dst.replace("type:", ""));
   const all = (space.beliefs[node] ?? [])
     .map((b) => ({ b, status: statusAt(b, tick) }))
     .filter((x): x is { b: BeliefView; status: string } => x.status !== null)
@@ -215,7 +216,7 @@ function Beliefs({ space, node, tick, belief, why, onBelief, onOpen }: Props) {
       <li key={b.id} className="bi">
         <button className={`brow ${DROPPED.has(status) ? "stale" : ""}`} aria-expanded={expanded} onClick={() => onBelief(expanded ? null : b.id)}>
           <span className="what">
-            <span className="chev">▸</span> <b>{b.text}</b> <small>{b.id} · {originText(b)}</small>
+            <span className="chev">▸</span> <b>{b.text}</b> <small>{b.id} · {originText(b, owns)}</small>
           </span>
           <span className="tag" style={c(colour)}>{label}</span>
         </button>
