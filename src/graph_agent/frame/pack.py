@@ -81,17 +81,19 @@ class BasePack:
             received_tick=item.tick,
         )
         rt.store.add_node(observation)
+        route = self.route_of(item)
         if not observed:
-            rt.ensure_agent(item.source, "outside source")
-            rt.store.add_edge(
-                Edge(kind="RELAYED_VIA", src=observation.id, dst=item.source, props={"hop": 0})
-            )
+            for hop, agent in enumerate(route):
+                rt.ensure_agent(agent, "outside source")
+                rt.store.add_edge(
+                    Edge(kind="RELAYED_VIA", src=observation.id, dst=agent, props={"hop": hop})
+                )
         for entity in item.about:
             if rt.store.get(viewer, entity) is not None:
                 rt.store.add_edge(
                     Edge(kind="ABOUT", src=observation.id, dst=entity, props={"role": "mentioned"})
                 )
-        if not observed and item.source in rt.distrusted(viewer):
+        if not observed and set(route) & rt.distrusted(viewer):
             return []
         beliefs: list[Belief] = []
         for subject, predicate, value in item.claims:
@@ -112,6 +114,13 @@ class BasePack:
             else:
                 self._supersede(viewer, belief, item)
         return beliefs
+
+    def route_of(self, item: Item) -> list[str]:
+        """Who an outside item passed through, first sender first and `item.source` last. Just the
+        source by default; a pack whose items can be forwarded (a mail someone passed on) names
+        the earlier hops, so the claim's route starts where it began and an honest forwarder is
+        not taken for its maker."""
+        return [item.source]
 
     def _newer_reading(self, viewer: str, new: Belief, item: Item) -> None:
         """A fresh check retires an older one that says otherwise (the world moved on)."""

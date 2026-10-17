@@ -3,9 +3,10 @@
 from graph_agent.frame.console import ConsolePack
 from graph_agent.packs.hualien.console import HUALIEN
 from graph_agent.packs.life.console import LIFE
+from graph_agent.packs.offsite.console import OFFSITE
 from graph_agent.packs.ringfire.console import RINGFIRE
 
-PACKS: dict[str, ConsolePack] = {pack.name: pack for pack in (LIFE, RINGFIRE, HUALIEN)}
+PACKS: dict[str, ConsolePack] = {pack.name: pack for pack in (LIFE, OFFSITE, RINGFIRE, HUALIEN)}
 
 
 def pack_named(name: str) -> ConsolePack:
