@@ -188,6 +188,76 @@ class StoreContract:
         assert after["B20"] == before["B20"]  # already stale
         assert after["B12"][0] == "stale"
 
+    # ---- taking an exposure back -------------------------------------------------------------
+
+    def test_reinstating_an_agent_revives_what_went_stale_because_of_it(self, store):
+        store.expose(VIEWER, "A6", tick=7, reason="passed on a lie")
+        changes = store.reinstate(VIEWER, "A6", tick=9, reason="the lie was not its own")
+        assert [(c.belief_id, c.old_status, c.new_status, c.path_len) for c in changes] == [
+            ("B20", "stale", "active", 1),
+            ("B21", "suspect", "active", 2),
+            ("B40", "suspect", "active", 2),
+            ("B22", "suspect", "active", 3),
+        ]
+        assert {b.status for b in store.beliefs(VIEWER)} == {"active"}
+        assert store.get(VIEWER, "B20").updated_tick == 9
+        assert store.get(VIEWER, "B12").support_routes == 2
+        assert store.exposed(VIEWER) == set()
+
+    def test_reinstating_one_agent_keeps_what_rests_on_another_exposed_one(self, store):
+        store.expose(VIEWER, "A3", tick=7)  # every route of B12 passes A3
+        store.expose(VIEWER, "A6", tick=8)
+        store.reinstate(VIEWER, "A6", tick=9)
+        status = {b.id: b.status for b in store.beliefs(VIEWER)}
+        assert status["B12"] == "stale"
+        assert status["B20"] == "active"
+        assert status["B40"] == "suspect"  # still derived from the stale B12
+        assert store.exposed(VIEWER) == {"A3"}
+
+    def test_reinstating_someone_not_exposed_changes_nothing(self, store):
+        assert store.reinstate(VIEWER, "A6", tick=7) == []
+        store.expose(VIEWER, "A6", tick=8)
+        assert store.reinstate(VIEWER, "A6", tick=9)
+        assert store.reinstate(VIEWER, "A6", tick=10) == []
+
+    def test_an_agent_reinstated_can_be_exposed_again(self, store):
+        store.expose(VIEWER, "A6", tick=7)
+        store.reinstate(VIEWER, "A6", tick=8)
+        changes = store.expose(VIEWER, "A6", tick=9)
+        assert [c.belief_id for c in changes][:1] == ["B20"]
+        assert store.get(VIEWER, "B20").status == "stale"
+        assert store.exposed(VIEWER) == {"A6"}
+
+    def test_reinstatement_is_private_to_the_viewer(self, store):
+        store.add_node(belief("X1", "E2", "pressure", 9, owner="A4"))
+        store.add_node(message("OX", ["A6"], receiver="A4"))
+        store.add_edge(edge("RELAYED_VIA", "OX", "A6", hop=0))
+        store.add_edge(edge("SUPPORTS", "OX", "X1"))
+        store.expose("A4", "A6", tick=7)
+        store.expose(VIEWER, "A6", tick=7)
+        store.reinstate(VIEWER, "A6", tick=8)
+        assert store.get("A4", "X1").status == "stale"
+        assert store.exposed("A4") == {"A6"}
+
+    def test_a_retracted_belief_stays_retracted_when_the_agent_is_reinstated(self, store):
+        store.expose(VIEWER, "A6", tick=7)
+        store.reinstate(VIEWER, "A6", tick=8)
+        store.retract(VIEWER, "B20", tick=9)
+        store.expose(VIEWER, "A6", tick=10)
+        store.reinstate(VIEWER, "A6", tick=11)
+        assert store.get(VIEWER, "B20").status == "retracted"
+
+    def test_changes_since_names_the_reinstatement(self, store):
+        store.expose(VIEWER, "A6", tick=7)
+        store.reinstate(VIEWER, "A6", tick=9, reason="not its lie")
+        last = [c for c in store.changes_since(VIEWER, 9) if c.belief_id == "B20"][0]
+        assert (last.new_status, last.correction_type, last.target) == (
+            "active",
+            "reinstatement",
+            "A6",
+        )
+        assert last.reason == "not its lie"
+
     # ---- contradictions ---------------------------------------------------------------------
 
     def test_conflicts_finds_the_viewers_contradicting_beliefs(self, store):

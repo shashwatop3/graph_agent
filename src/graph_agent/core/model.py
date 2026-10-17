@@ -26,7 +26,9 @@ BeliefKind = Literal["fact", "forecast", "assessment", "plan"]
 # retracted: withdrawn by its source.
 BeliefStatus = Literal["active", "suspect", "stale", "superseded", "retracted"]
 ActionStatus = Literal["planned", "committed", "done", "cancelled"]
-CorrectionType = Literal["exposure", "revision", "supersession", "retraction", "new_edge"]
+CorrectionType = Literal[
+    "exposure", "reinstatement", "revision", "supersession", "retraction", "new_edge"
+]
 
 
 # ---- nodes ------------------------------------------------------------------------------------

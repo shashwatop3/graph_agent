@@ -10,11 +10,11 @@ from pathlib import Path
 
 import pytest
 
-from graph_agent.adapters import ringfire as rf
 from graph_agent.core.compiler import compile_context, estimate_tokens
 from graph_agent.core.model import Action, Edge
-from graph_agent.harness.scripted import play_scripted
-from graph_agent.sim.scenario import load_scenario
+from graph_agent.packs.ringfire import adapter as rf
+from graph_agent.packs.ringfire.benchmark.scripted import play_scripted
+from graph_agent.packs.ringfire.sim.scenario import load_scenario
 from graph_agent.stores.memory import MemoryStore
 from stores_param import STORES
 

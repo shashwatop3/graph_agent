@@ -7,21 +7,30 @@ except what the agent wrote into the store, because the next context is compiled
 """
 
 import inspect
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import get_type_hints
+from typing import Protocol, get_type_hints
 
 from pydantic import TypeAdapter
 
 from ..core.compiler import estimate_tokens
 from .llm import ChatMessage, Json, ModelClient, ToolSchema
 from .trace import NO_TRACE, Trace
-from .types import Tools
 
 SYSTEM_PROMPT = (
     "You are one agent in a multi-agent game. You act only by calling tools. Read your situation, "
     "call the tools you need, and when you are finished for today reply with a short sentence and "
     "no tool call. Do not repeat a tool call that already succeeded."
 )
+
+
+class Tools(Protocol):
+    """One agent's tools for one turn. The loop shows the model `names` and calls them by name."""
+
+    now: int
+
+    @property
+    def names(self) -> Sequence[str]: ...
 
 
 def tool_schemas(box: Tools) -> list[ToolSchema]:

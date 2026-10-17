@@ -21,7 +21,7 @@ from ..core.model import (
     check_edge,
     visible,
 )
-from ..core.store import Change, Invalidation, Store
+from ..core.store import Change, Invalidation, Store, fold_exposed, plan_reinstatement
 
 
 class MemoryStore(Store):
@@ -187,7 +187,7 @@ class MemoryStore(Store):
     # ---- propagation -------------------------------------------------------------------------
 
     def expose(self, viewer: str, agent_id: str, tick: int, reason: str = "") -> list[Invalidation]:
-        before = self._exposed(viewer)
+        before = self.exposed(viewer)
         correction = Correction(
             id=self._next_correction_id(),
             type="exposure",
@@ -235,12 +235,40 @@ class MemoryStore(Store):
         hops = [e for e in self._edges if e.src == observation_id and e.kind == "RELAYED_VIA"]
         return tuple(e.dst for e in sorted(hops, key=lambda e: e.props.get("hop", 0)))
 
-    def _exposed(self, viewer: str) -> set[str]:
-        return {
-            n.target
+    def exposed(self, viewer: str) -> set[str]:
+        return fold_exposed(
+            (n.id, n.type, n.target)
             for n in self._nodes.values()
-            if isinstance(n, Correction) and n.type == "exposure" and visible(viewer, n)
-        }
+            if isinstance(n, Correction)
+            and n.type in ("exposure", "reinstatement")
+            and visible(viewer, n)
+        )
+
+    def reinstate(
+        self, viewer: str, agent_id: str, tick: int, reason: str = ""
+    ) -> list[Invalidation]:
+        if agent_id not in self.exposed(viewer):
+            return []
+        correction = Correction(
+            id=self._next_correction_id(),
+            type="reinstatement",
+            issued_by="engine",
+            target=agent_id,
+            tick=tick,
+            reason=reason,
+            observer=viewer,
+        )
+        self._nodes[correction.id] = correction
+        changes = [
+            self._invalidate(correction, c.belief_id, "active", c.path_len)
+            for c in plan_reinstatement(self, viewer, agent_id).values()
+        ]
+        still = self.exposed(viewer)
+        for belief in self._live_beliefs(viewer):
+            routes = [self._route(e.src) for e in self._edges_to(belief.id, "SUPPORTS")]
+            if routes:
+                belief.support_routes = sum(1 for r in routes if not still & set(r))
+        return sorted(changes, key=lambda c: (c.path_len, c.belief_id))
 
     def _live_beliefs(self, viewer: str) -> list[Belief]:
         """The viewer's beliefs that can still change status (the stored objects, not copies)."""

@@ -42,7 +42,7 @@ from ..core.model import (
     check_edge,
     visible,
 )
-from ..core.store import Change, Invalidation, Store
+from ..core.store import Change, Invalidation, Store, fold_exposed, plan_reinstatement
 
 # Longest DERIVED_FROM chain the recursive walk follows (also stops any accidental cycle).
 MAX_DEPTH = 32
@@ -379,15 +379,7 @@ class PostgresStore(Store):
 
     def expose(self, viewer: str, agent_id: str, tick: int, reason: str = "") -> list[Invalidation]:
         # Agents this viewer already treats as exposed, before this call.
-        before = [
-            row[0]
-            for row in self._rows(
-                "SELECT data ->> 'target' FROM nodes WHERE type = 'Correction' "
-                "AND data ->> 'type' = 'exposure' "
-                "AND (data ->> 'observer' IS NULL OR data ->> 'observer' = %(viewer)s)",
-                viewer=viewer,
-            )
-        ]
+        before = sorted(self.exposed(viewer))
         exposed = sorted({*before, agent_id})
 
         correction_id = self._new_correction(
@@ -409,6 +401,35 @@ class PostgresStore(Store):
         }
         self._suspect_dependents(viewer, changes)
         self._write_changes(correction_id, changes, tick)
+        return sorted(changes.values(), key=lambda c: (c.path_len, c.belief_id))
+
+    def exposed(self, viewer: str) -> set[str]:
+        rows = self._rows(
+            "SELECT id, data ->> 'type', data ->> 'target' FROM nodes WHERE type = 'Correction' "
+            "AND data ->> 'type' IN ('exposure', 'reinstatement') "
+            "AND (data ->> 'observer' IS NULL OR data ->> 'observer' = %(viewer)s)",
+            viewer=viewer,
+        )
+        return fold_exposed((row[0], row[1], row[2]) for row in rows)
+
+    def reinstate(
+        self, viewer: str, agent_id: str, tick: int, reason: str = ""
+    ) -> list[Invalidation]:
+        before = sorted(self.exposed(viewer))
+        if agent_id not in before:
+            return []
+        changes = plan_reinstatement(self, viewer, agent_id)
+        correction_id = self._new_correction(
+            type="reinstatement",
+            issued_by="engine",
+            target=agent_id,
+            tick=tick,
+            reason=reason,
+            observer=viewer,
+        )
+        self._write_changes(correction_id, changes, tick)
+        # refresh the cached count of routes that survive
+        self._rows(_RECOUNT, viewer=viewer, before=before, exposed=sorted(set(before) - {agent_id}))
         return sorted(changes.values(), key=lambda c: (c.path_len, c.belief_id))
 
     def retract(

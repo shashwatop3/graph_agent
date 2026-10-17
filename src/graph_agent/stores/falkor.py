@@ -42,7 +42,7 @@ from ..core.model import (
     check_edge,
     visible,
 )
-from ..core.store import Change, Invalidation, Store
+from ..core.store import Change, Invalidation, Store, fold_exposed, plan_reinstatement
 
 # Longest DERIVED_FROM chain the downstream walk will follow. Real chains are a handful of hops.
 MAX_DEPTH = 32
@@ -92,12 +92,14 @@ class FalkorStore(Store):
         host: str | None = None,
         port: int | None = None,
         reset: bool = True,
+        keep: bool = False,
     ):
         self._db = FalkorDB(
             host=host or os.environ.get("FALKORDB_HOST", "127.0.0.1"),
             port=port or int(os.environ.get("FALKORDB_PORT", "16379")),
         )
         self.graph_name = graph_name or f"store_{uuid.uuid4().hex[:10]}"
+        self.keep = keep  # leave the graph in FalkorDB on close (a space that persists)
         if reset:
             self._drop()
         self._graph: Any = self._db.select_graph(self.graph_name)  # the client has no types
@@ -108,7 +110,12 @@ class FalkorStore(Store):
         self._run("CREATE INDEX FOR (a:Action) ON (a.owner)")
 
     def close(self) -> None:
-        self._drop()
+        if not self.keep:
+            self._drop()
+
+    def query(self, cypher: str, **params: Any) -> list[list[Any]]:
+        """Run a read-only Cypher query against this run's graph (the console shows these)."""
+        return [list(row) for row in self._graph.ro_query(cypher, params).result_set]
 
     def _drop(self) -> None:
         try:
@@ -318,12 +325,7 @@ class FalkorStore(Store):
 
     def expose(self, viewer: str, agent_id: str, tick: int, reason: str = "") -> list[Invalidation]:
         # Agents this viewer already treats as exposed, before this call.
-        rows = self._run(
-            "MATCH (c:Correction {type: 'exposure'}) "
-            "WHERE c.observer IS NULL OR c.observer = $viewer RETURN c.target",
-            viewer=viewer,
-        )
-        before = [row[0] for row in rows]
+        before = sorted(self.exposed(viewer))
         exposed = sorted({*before, agent_id})
 
         correction_id = self._new_correction(
@@ -362,6 +364,43 @@ class FalkorStore(Store):
         }
         self._suspect_dependents(viewer, changes)
         self._write_changes(correction_id, changes, tick)
+        return sorted(changes.values(), key=lambda c: (c.path_len, c.belief_id))
+
+    def exposed(self, viewer: str) -> set[str]:
+        rows = self._run(
+            "MATCH (c:Correction) WHERE c.type IN ['exposure', 'reinstatement'] "
+            "AND (c.observer IS NULL OR c.observer = $viewer) RETURN c.id, c.type, c.target",
+            viewer=viewer,
+        )
+        return fold_exposed((row[0], row[1], row[2]) for row in rows)
+
+    def reinstate(
+        self, viewer: str, agent_id: str, tick: int, reason: str = ""
+    ) -> list[Invalidation]:
+        before = sorted(self.exposed(viewer))
+        if agent_id not in before:
+            return []
+        changes = plan_reinstatement(self, viewer, agent_id)
+        correction_id = self._new_correction(
+            type="reinstatement",
+            issued_by="engine",
+            target=agent_id,
+            tick=tick,
+            reason=reason,
+            observer=viewer,
+        )
+        self._write_changes(correction_id, changes, tick)
+        self._run(  # refresh the cached count of routes that survive
+            "MATCH (b:Belief {owner: $viewer}) WHERE b.status IN ['active', 'suspect'] "
+            "MATCH (o:Observation)-[:SUPPORTS]->(b) "
+            "OPTIONAL MATCH (o)-[:RELAYED_VIA]->(a:Agent) "
+            "WITH b, o, collect(a.id) AS route "
+            "WITH b, sum(CASE WHEN size([x IN route WHERE x IN $exposed]) = 0 THEN 1 ELSE 0 END) "
+            "  AS alive "
+            "SET b.support_routes = alive",
+            viewer=viewer,
+            exposed=sorted(set(before) - {agent_id}),
+        )
         return sorted(changes.values(), key=lambda c: (c.path_len, c.belief_id))
 
     def retract(

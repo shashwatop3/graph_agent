@@ -1,25 +1,13 @@
 """A detailed run log, one JSON object per line, for working out afterwards what went wrong.
 
 Every event has a time `t` (seconds since the log was opened), a `kind`, and whatever the run was
-bound to at that moment (`day`, `agent`). The events, roughly in the order they happen:
-
-    game_start     the scenario, the system, the model
-    day_start      a day begins; the scripted lies go out
-    turn_start     what one agent reads (the full compiled context) before it acts
-    model_call     one request to the model: text, tool calls, tokens, seconds, cached or not
-    tool_result    one tool call and exactly what the tool answered
-    action         what the game did with a water or link action
-    message        a message delivered (or held until the day's turns are over)
-    imposter_relay an imposter passing a message on
-    turn_end       steps, tokens, whether the turn ran out of steps
-    day_end        what the engine reported (fires, burnt out, watered), who was newly distrusted
-    exposure       one agent stopped trusting another, and which beliefs that changed
-    probe          a probe question and the answer
-    beliefs        at the end, every arrival belief an agent holds, next to the truth
-    score          the final score row
+bound to at that moment (`day`, `agent`). The harness itself emits `model_call` (one request to the
+model: text, tool calls, tokens, seconds, cached or not), `tool_result` (one tool call and exactly
+what the tool answered), `turn_start` (what one agent reads before it acts) and `turn_end`; a pack
+adds its own with `Trace.emit` (see the pack that writes them).
 
 `NO_TRACE` is a trace that records nothing, so callers that do not want a log pass nothing.
-Read a log with `benchmarks/inspect_log.py`.
+Read a log with `benchmarks/ringfire/inspect_log.py`.
 """
 
 import json
