@@ -18,6 +18,7 @@ class Predicate(BaseModel):
     # numeric values further apart than this describe separate events (a field that burns again
     # weeks later), so they do not conflict either; None = any two different values conflict
     separate_beyond: float | None = None
+    integer: bool = False  # values are whole numbers (a day, a count): anything else is refused
 
 
 _LIVE = ("active", "suspect")

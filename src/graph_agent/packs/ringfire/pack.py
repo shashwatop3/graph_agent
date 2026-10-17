@@ -827,6 +827,7 @@ class RingFirePack:
             for b in store.beliefs(viewer, predicate=ringfire.ARRIVAL)
             if b.status in ("active", "suspect")
         ]
+        live = [b for b in live if isinstance(b.value, int)]
         live.sort(key=lambda b: (-int(b.value), b.subject))
         belief_lines: list[str] = []
         for b in live[:14]:

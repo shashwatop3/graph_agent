@@ -414,3 +414,14 @@ def test_network_points_count_trusted_online_links_each_night():
     pack = session.runtime.pack
     honest = [a for a in range(8) if a not in pack.game.net.imposters]
     assert all(pack.network_points[a] >= 2 for a in honest)  # two neighbours, trusted, online
+
+
+def test_an_arrival_day_must_be_a_whole_number():
+    from graph_agent.core.tools import Toolbox
+
+    rt = played(0, seed=17)  # the fire starts at F4, so A4 has seen it
+    seen = [b for b in rt.store.beliefs("A4") if b.origin == "observed"]
+    box = Toolbox(rt.store, rt.ids, "A4", rt.pack.predicates)
+    with pytest.raises(ValueError, match="whole number"):
+        box.assert_belief("F5", "fire.arrival_day", "6 (unconfirmed)", [seen[0].id])
+    assert box.assert_belief("F5", "fire.arrival_day", "6", [seen[0].id]).startswith("recorded")

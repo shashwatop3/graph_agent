@@ -184,6 +184,11 @@ class Toolbox:
                 raise ValueError(f"{source_id} is no longer sound, so nothing can rest on it")
         if not 0 <= confidence <= 1:
             raise ValueError("confidence must be between 0 and 1")
+        if self.predicates[predicate].integer:
+            if isinstance(value, str) and value.strip().lstrip("-").isdigit():
+                value = int(value.strip())
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ValueError(f"{predicate} takes a whole number, such as 6; got {value!r}")
 
         belief = Belief(
             id=self.ids.next("B"),

@@ -43,7 +43,9 @@ def predicates(episode: int | None = None) -> dict[str, Predicate]:
     regrows can burn several times, but never twice within `episode` days (it burns, burns out and
     regrows first), so two days further apart than that are two fires, not a contradiction.
     """
-    return {ARRIVAL: Predicate(name=ARRIVAL, single_valued=True, separate_beyond=episode)}
+    return {
+        ARRIVAL: Predicate(name=ARRIVAL, single_valued=True, separate_beyond=episode, integer=True)
+    }
 
 
 PREDICATES = predicates()  # the single-fire game
