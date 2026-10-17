@@ -408,6 +408,10 @@ class AgentNode(Node):
 
     def wants_turn(self, tick: int) -> bool:
         pending = self.rt.pending.get(self.id, set())
+        # the pack can insist (something it owns needs a decision today)
+        needs_turn: Callable[[str, int], bool] | None = getattr(self.rt.pack, "needs_turn", None)
+        if needs_turn is not None and needs_turn(self.id, tick):
+            return True
         triggers = self.spec.triggers or [Trigger(on=kind) for kind in self.default_triggers]
         for trigger in triggers:
             if trigger.on == "tick":

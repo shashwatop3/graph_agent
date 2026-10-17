@@ -43,7 +43,10 @@ class ToolSpec:
 
 
 class ToolProvider(Protocol):
-    """Anything that offers tools: an environment, a simulated service, an MCP client."""
+    """Anything that offers tools: an environment, a simulated service, an MCP client.
+
+    A provider may also define `tools_for_node(node_id) -> list[ToolSpec]`: the tools as one node
+    gets them, for a tool whose answer depends on who asks (the runtime uses it when present)."""
 
     def list_tools(self) -> list[ToolSpec]: ...
 

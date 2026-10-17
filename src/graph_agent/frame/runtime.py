@@ -364,12 +364,14 @@ class Runtime:
 
     def tools_for(self, spec: NodeSpec) -> list[ToolSpec]:
         """The node's own tools: every provided tool its spec allows."""
-        return [
-            tool
-            for provider in self.providers
-            for tool in provider.list_tools()
-            if allowed(tool.name, spec.tools)
-        ]
+        found: list[ToolSpec] = []
+        for provider in self.providers:
+            for_node: Callable[[str], list[ToolSpec]] | None = getattr(
+                provider, "tools_for_node", None
+            )
+            tools = for_node(spec.id) if for_node is not None else provider.list_tools()
+            found += [tool for tool in tools if allowed(tool.name, spec.tools)]
+        return found
 
     def believe(
         self,
@@ -451,6 +453,7 @@ class Runtime:
                 viewer=viewer,
                 agent=agent,
                 reason=reason,
+                routes=[list(r) for r in known],
                 changes=[c.model_dump() for c in changes],
             )
             self._changed(viewer, changes, reason, tick)
