@@ -26,7 +26,9 @@ LINEAR_RULES: RulesSpec = {
 
 
 LINEAR_START = 3.0
-LINEAR_DAYS = 12
+LINEAR_DAYS = 30
+LINEAR_REGROW = 2  # days a lost field takes to grow back
+LINEAR_RANDOM_FIRES = 0.15  # chance each day that a new fire starts somewhere
 
 
 class RingFireConsole:
@@ -63,6 +65,8 @@ class RingFireConsole:
             _choose_liars(scenario, [int(a) for a in str(options["liars"]).split(",")], knobs)
         if options.get("fire", "linear") == "linear":
             rules: RulesSpec = {**LINEAR_RULES}
+            regrow = options.get("regrow", LINEAR_REGROW)
+            rules["regrow_days"] = None if regrow in (None, "none", 0) else int(regrow)
             if "cap" in options:
                 rules["max_intensity"] = float(options["cap"])
             if "lost_after" in options:
@@ -78,10 +82,9 @@ class RingFireConsole:
                 "initial_intensity": float(options.get("start", LINEAR_START)),
                 # fire put out can come round the ring again, so the game has a fixed length
                 "horizon": int(options.get("days", LINEAR_DAYS)),
+                "random_ignition_chance": float(options.get("random_fires", LINEAR_RANDOM_FIRES)),
             }
-            if options.get("keep_lying", False):
-                _keep_lying(scenario, int(options.get("days", LINEAR_DAYS)))
-        return team_for(
+        team = team_for(
             scenario,
             quorum=None if quorum is None else int(quorum),
             wake=bool(options.get("wake", False)),
@@ -90,6 +93,9 @@ class RingFireConsole:
             repair=bool(options.get("repair", True)),
             trace_provenance=bool(options.get("trace_provenance", True)),
         )
+        if options.get("keep_lying", False):
+            team.settings.extra["keep_lying"] = True  # false alarms all game: see Imposters
+        return team
 
     def catalogue(self) -> PackCatalogue:
         nodes = [
@@ -121,22 +127,6 @@ class RingFireConsole:
 
 
 RINGFIRE = RingFireConsole()
-
-
-def _keep_lying(scenario: Scenario, days: int) -> None:
-    """Each false-alarm imposter lies again every other day, to each ring neighbour, about that
-    neighbour's own field: "fire reaches your field tomorrow". Believed, it costs a watering."""
-    n = scenario["world"].get("n_agents", 8)
-    per = scenario["world"].get("fields_per_agent", 1)
-    liars = [i["agent"] for i in scenario.get("imposters", []) if i["behaviour"] == "false_alarm"]
-    sends = scenario.setdefault("sends", [])
-    for day in range(1, days - 1, 2):
-        for liar in liars:
-            for neighbour in ((liar - 1) % n, (liar + 1) % n):
-                if neighbour in liars:
-                    continue
-                claim: ClaimSpec = {"field_id": neighbour * per, "day": day + 1}
-                sends.append({"day": day, "sender": liar, "receiver": neighbour, "claim": claim})
 
 
 def _choose_liars(scenario: Scenario, liars: list[int], knobs: Knobs) -> None:

@@ -215,13 +215,16 @@ def test_an_agent_must_decide_about_water_before_it_sends():
         rt.transport.send("A0", "A1", belief, 0)
 
 
-def test_imposters_that_keep_lying_lie_about_their_neighbours_own_fields():
-    team = PACK.team("ringfire", {"seed": 1, "keep_lying": True})
-    sends = team.settings.extra["scenario"]["sends"]
-    later = [s for s in sends if s["day"] > 1]
-    assert later
-    assert all(s["claim"]["field_id"] == s["receiver"] for s in later)
-    assert all(s["claim"]["day"] == s["day"] + 1 for s in later)
+def test_imposters_that_keep_lying_tell_neighbours_a_false_alarm_about_their_own_field():
+    team = PACK.team("ringfire", {"seed": 17, "liars": "5,7", "keep_lying": True, "extra_links": 0})
+    session = PACK.start(team, PACK.stand_in(team), MemoryStore(), EventLog(), {})
+    session.runtime.run()
+    game = session.runtime.pack.game
+    lies = [m for m in game.net.log if m.sender in (5, 7) and m.day > 1 and m.route == (m.sender,)]
+    assert lies
+    for m in lies:
+        assert m.claim.field_id == m.receiver and m.claim.day == m.day + 1
+        assert m.claim.day not in game.sim.fields[m.claim.field_id].ignitions  # it was false
 
 
 def test_a_burning_field_wakes_its_keeper_in_wake_mode():

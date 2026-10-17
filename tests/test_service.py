@@ -98,7 +98,7 @@ def test_outward_actions_wait_for_a_person(client):
 
 def test_a_ringfire_space(client):
     team = client.post(
-        "/api/templates/ringfire/ringfire", json={"n_agents": 6, "imposters": 1}
+        "/api/templates/ringfire/ringfire", json={"n_agents": 6, "imposters": 1, "days": 8}
     ).json()
     space = client.post("/api/spaces", json={"pack": "ringfire", "team": team}).json()
     summary = run_to_end(client, space["id"])

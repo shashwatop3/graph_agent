@@ -135,8 +135,10 @@ class FireSim:
     def finished(self) -> bool:
         horizon = self.world.config.horizon
         no_fire = not self._pending and not any(f.state is FieldState.BURNING for f in self.fields)
-        if horizon is not None:  # the linear fire can also end early: every fire is out
-            return self.day >= horizon or (self.rules.dynamics == "linear" and no_fire)
+        if horizon is not None:  # the linear fire can also end early: every fire is out, and
+            later = any(day >= self.day for day in self._random)  # no new fire is still to come
+            over = self.rules.dynamics == "linear" and no_fire and not later
+            return self.day >= horizon or over
         return no_fire
 
     def upcoming(self, day: int) -> tuple[Ignition, ...]:

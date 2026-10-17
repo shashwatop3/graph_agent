@@ -1073,10 +1073,31 @@ class Imposters:
     relayed: set[tuple[int, int, int]] = field(default_factory=set[tuple[int, int, int]])
     lied_about: set[tuple[int, int, int]] = field(default_factory=set[tuple[int, int, int]])
 
+    def _false_alarms(self, node: Node, me: int, tick: int, transport: "RingTransport") -> None:
+        """A false-alarm imposter that keeps lying: every other day it tells each agent it is
+        linked to that fire reaches that agent's own field tomorrow, when the engine knows it
+        will not. Believed, it costs a watering; caught, the liar is cut off."""
+        pack, game = self.pack, self.pack.game
+        for other in game.net.neighbours(me):
+            if other in game.net.imposters:
+                continue
+            for f in pack.fields.get(other, ())[:1]:
+                if not _false_alarm_target(pack, f, tick + 1):
+                    continue
+                sent = game.send(me, other, Claim(f, tick + 1))
+                if sent is not None:
+                    node.rt.post(transport.outgoing(sent))
+
     def turn(self, node: Node, tick: int) -> None:
         pack, game = self.pack, self.pack.game
         me = number(node.id)
         transport = RingTransport(pack)
+        if (
+            pack.runtime.settings.extra.get("keep_lying")
+            and game.net.imposters[me] is Behaviour.FALSE_ALARM
+            and tick % 2 == 1
+        ):
+            self._false_alarms(node, me, tick, transport)
         if game.net.imposters[me] is Behaviour.SABOTEUR:
             for receiver, claim in planned_lies(game, me, self.lied_about):
                 sent = game.send(me, receiver, claim)
@@ -1189,6 +1210,27 @@ class FrameView:
 
 
 AfterDay = Callable[[Game, Any, int], None]
+
+
+def _false_alarm_target(pack: "RingFirePack", field_number: int, day: int) -> bool:
+    """Would "fire reaches this field on `day`" be false? Not burning now, no burning field next
+    to it, nothing on its way to land that day, and no new fire planned there."""
+    sim = pack.game.sim
+    if sim.fields[field_number].state.value == "burning":
+        return False
+    landing_today = {a.field_id for a in sim.upcoming(day - 1)}
+    for edge in sim.world.edges:  # a field next to it that burns today may send fire tomorrow
+        if edge.dst == field_number and (
+            sim.fields[edge.src].state.value == "burning" or edge.src in landing_today
+        ):
+            return False
+    for arrival in sim.upcoming(day):
+        source = arrival.edge.src if arrival.edge is not None else None
+        if arrival.field_id == field_number and (
+            source is None or sim.fields[source].state.value == "burning"
+        ):
+            return False
+    return dict(sim.world.random_ignitions).get(day) != field_number
 
 
 @dataclass
