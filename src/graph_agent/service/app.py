@@ -31,7 +31,7 @@ import time
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
@@ -40,6 +40,7 @@ from ..frame.spec import TeamSpec
 from .auth import current_user, forget_google, guard
 from .auth import router as auth_router
 from .connections import router as connections_router
+from .privacy import page as privacy_page
 from .registry import forget_packs, pack_named, packs_for
 from .spaces import ROOT, Spaces
 from .users import COOKIE, User, data_dir, hosted, secret_key, secrets_of
@@ -392,6 +393,10 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
 
     app.include_router(connections_router())
     app.include_router(auth_router())
+
+    @app.get("/privacy")
+    def privacy() -> HTMLResponse:
+        return HTMLResponse(privacy_page())
 
     # ---- the console ----------------------------------------------------------------------------
 

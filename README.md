@@ -106,4 +106,55 @@ from, and `... apps.run check [team]` connects each app, lists its tools and che
 model is called). The page only writes files or starts servers for requests from itself on
 127.0.0.1.
 
+## Deploying it for other people
+
+The same console can be hosted for others. Each person signs in with Google, brings their own
+Anthropic key, and connects their own Gmail and Calendar (read-only) and apps. Setting
+`GRAPH_AGENT_PUBLIC_URL` switches this on; without it the console stays local, as above.
+
+- **Accounts:** `service/users.py` and `service/auth.py`. A session is a signed cookie. Each
+  person has a folder on the volume (`/data/users/<google id>`) holding their encrypted keys,
+  apps, teams and model cache. Their runs are theirs alone; others get 404.
+- **Gmail and Calendar:** one shared workspace-mcp runs beside the service, in its mode for
+  several people. Each request carries that person's own Google access token, made from the
+  refresh token kept when they pressed "Connect Gmail and Calendar".
+- **Safety:** people may add only the presets, or apps that are public `https` servers. Nobody
+  starts a command on the server, and a started server never sees the server's own secrets.
+  Each person keeps 3 runs and plays one at a time. "Delete my account" removes everything.
+
+**Where:** not Vercel. Runs live in memory on threads, the page follows them over a stream, and
+MCP servers are child processes. That needs one always-on container with a disk. `fly.toml` is for
+[Fly.io](https://fly.io) (Railway or Render work the same way, from the `Dockerfile`). Keep it to
+one machine: runs live in that machine's memory.
+
+**Google Cloud, once** (in the project of your OAuth client):
+
+1. APIs: enable the Gmail API and the Google Calendar API.
+2. Credentials: create an OAuth client of type **Web application**, with the authorized redirect
+   URI `https://<your app>.fly.dev/auth/callback`.
+3. OAuth consent screen (Branding / Audience / Data access): add the scopes `openid`, `email`,
+   `profile`, `gmail.readonly` and `calendar.readonly`, set the home page to your URL and the
+   privacy policy to `<your URL>/privacy`.
+4. While the app is in **Testing**, only the test users you add (at most 100) can connect, and
+   their Google sign-in lasts 7 days. Opening it to anyone needs Google's verification.
+   `gmail.readonly` is a *restricted* scope, which also needs a yearly security assessment by
+   a third party (CASA).
+
+**Fly.io:**
+
+```bash
+fly launch --no-deploy --copy-config      # pick an app name; then set it as `app` in fly.toml
+fly volumes create cascade_data --size 1
+fly secrets set GRAPH_AGENT_PUBLIC_URL=https://<your app>.fly.dev \
+    SECRET_KEY="$(openssl rand -base64 48)" \
+    GOOGLE_OAUTH_CLIENT_ID=... GOOGLE_OAUTH_CLIENT_SECRET=... \
+    GRAPH_AGENT_CONTACT=you@example.com
+fly deploy
+fly scale count 1
+```
+
+`SECRET_KEY` signs the sessions and encrypts everyone's keys. If it changes, everyone must sign
+in again and add their keys again. Recorded runs (`runs/`) are not in the image: that folder is
+your own model cache, and its apps entries hold your real mail.
+
 [workspace-mcp]: https://github.com/taylorwilsdon/google_workspace_mcp

@@ -376,3 +376,10 @@ def test_deleting_your_account_removes_everything_kept_for_you(hosted, monkeypat
     assert client.delete("/api/me").json() == {"deleted": "1@example.com"}
     assert revoked == ["r1"] and not (hosted / "users" / "1").exists()
     assert client.get("/api/spaces").status_code == 401  # signed out, and no one to sign in as
+
+
+def test_the_privacy_page_says_what_google_asks_it_to(monkeypatch):  # noqa: ANN001
+    monkeypatch.setenv("GRAPH_AGENT_CONTACT", "owner@example.com <b>")
+    text = TestClient(create_app()).get("/privacy").text
+    assert "Limited Use" in text and "read-only" in text and "your own" in text
+    assert "owner@example.com &lt;b&gt;" in text

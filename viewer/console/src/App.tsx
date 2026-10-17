@@ -81,6 +81,7 @@ function SignIn() {
             Signing in tells Cascade only your name and address. Gmail and Calendar are connected later, read-only, if you choose to.
           </p>
           <a className="btn primary big" href="/auth/login">Sign in with Google</a>
+          <a className="linkish" href="/privacy">What Cascade keeps, and where your data goes</a>
         </div>
       </section>
     </div>

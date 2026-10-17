@@ -1,0 +1,17 @@
+# Only code goes into the image. Never your secrets, your apps and teams, or runs/ (your model
+# cache: the apps pack's entries hold your real mail).
+.env
+connections.json
+my-teams/
+runs/
+data/
+docs
+.git/
+.venv/
+**/node_modules/
+**/dist/
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/
+benchmarks/
+tests/
