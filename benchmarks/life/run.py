@@ -7,9 +7,13 @@ Each run writes <out>/<case>-<extraction>.events.jsonl (every event: items, turn
 text and tool calls, messages, changes, held actions, exposures, the score), which the console
 replays, and <out>/<case>-<extraction>.trace.jsonl (every model call). Requests are cached under
 runs/cache/<model>-life, so a rerun is free. A summary table goes to <out>/summary.md.
+
+`--seeds 0 1 2 3` runs each case over several weeks: 0 is the fixed week, any other seed a week
+drawn by week.make_week (its files are named <case>-<extraction>-s<seed>).
 """
 
 import argparse
+import itertools
 import json
 import os
 import time
@@ -35,6 +39,7 @@ parser.add_argument("--url", default="http://127.0.0.1:18080/v1")
 parser.add_argument("--max-output-tokens", type=int, default=2000)
 parser.add_argument("--max-input-tokens", type=int, default=0, help="stop after this many")
 parser.add_argument("--out", default="runs/life")
+parser.add_argument("--seeds", type=int, nargs="+", default=[0], help="weeks; 0 is the fixed one")
 args = parser.parse_args()
 
 if args.provider == "anthropic":
@@ -65,29 +70,30 @@ out = Path(args.out)
 out.mkdir(parents=True, exist_ok=True)
 rows = []
 start = time.time()
-for case in args.cases:
-    for extraction in args.extraction:
-        name = f"{case}-{extraction}"
-        trace = Trace(out / f"{name}.trace.jsonl")
-        try:
-            run = run_life(case, TracedClient(client, trace), extraction=extraction, trace=trace)
-        finally:
-            trace.close()
-        with (out / f"{name}.events.jsonl").open("w") as f:
-            for e in run.runtime.log.events:
-                f.write(
-                    json.dumps(
-                        {"seq": e.seq, "tick": e.tick, "kind": e.kind, **e.data}, default=str
-                    )
-                    + "\n"
-                )
-        rows.append({"case": case, "extraction": extraction, **run.score, "checks": run.checks})
-        print(
-            f"{name}: {run.score['checks_passed']}/{run.score['checks_total']} checks, "
-            f"{run.score['unsafe_proposals']} unsafe, {run.score['tokens_in']} tokens in"
+for case, extraction, seed in itertools.product(args.cases, args.extraction, args.seeds):
+    name = f"{case}-{extraction}" + (f"-s{seed}" if seed else "")
+    trace = Trace(out / f"{name}.trace.jsonl")
+    try:
+        run = run_life(
+            case, TracedClient(client, trace), extraction=extraction, trace=trace, seed=seed
         )
-        for check, ok in run.checks.items():
-            print(f"   {'PASS' if ok else 'FAIL'} {check}")
+    finally:
+        trace.close()
+    with (out / f"{name}.events.jsonl").open("w") as f:
+        for e in run.runtime.log.events:
+            f.write(
+                json.dumps({"seq": e.seq, "tick": e.tick, "kind": e.kind, **e.data}, default=str)
+                + "\n"
+            )
+    rows.append(
+        {"case": case, "extraction": extraction, "seed": seed, **run.score, "checks": run.checks}
+    )
+    print(
+        f"{name}: {run.score['checks_passed']}/{run.score['checks_total']} checks, "
+        f"{run.score['unsafe_proposals']} unsafe, {run.score['tokens_in']} tokens in"
+    )
+    for check, ok in run.checks.items():
+        print(f"   {'PASS' if ok else 'FAIL'} {check}")
 
 (out / "results.json").write_text(json.dumps(rows, indent=2))
 # runs made with this version render every prompt the same on a replay, so the console can
@@ -96,6 +102,7 @@ for case in args.cases:
 columns = [
     "case",
     "extraction",
+    "seed",
     "checks_passed",
     "checks_total",
     "unsafe_proposals",

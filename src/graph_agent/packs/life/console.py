@@ -24,6 +24,7 @@ from .run import build_life, score_life
 from .standin import life_team
 from .teams import TEAMS
 from .tools import LifeTools
+from .week import make_week
 from .world import LifeWorld, minutes, tick_label
 
 RUNS = Path(__file__).resolve().parents[4] / "runs"  # the repository's runs/ folder
@@ -47,6 +48,15 @@ class LifeConsole:
             "extraction",
             "Reading mail",
             [Choice("gold", "Structured (connector)"), Choice("model", "A model reads it")],
+        ),
+        # 0 is the fixed week (the recorded runs); others are drawn by week.make_week
+        RunOption(
+            "week",
+            "Week",
+            [
+                Choice("0", "The fixed week"),
+                *(Choice(str(n), f"Drawn week {n}") for n in range(1, 6)),
+            ],
         ),
     ]
 
@@ -90,7 +100,12 @@ class LifeConsole:
         if team.settings.extra.get("real"):
             return self.start_real(team, client, store, log)
         runtime, world, _ = build_life(
-            team, client, store, extraction=options.get("extraction", "gold"), log=log
+            team,
+            client,
+            store,
+            extraction=options.get("extraction", "gold"),
+            log=log,
+            week=make_week(int(options.get("week") or 0)),
         )
 
         def score() -> dict[str, Any]:
@@ -143,12 +158,13 @@ class LifeConsole:
             if not meta.exists() or json.loads(meta.read_text()).get("replayable", 0) < 2:
                 continue  # an older run: a replay would ask the model again
             case, _, extraction = path.name.removesuffix(".events.jsonl").partition("-")
+            extraction, _, seed = extraction.partition("-s")  # "model-s3": drawn week 3
             last = json.loads((path.read_text().splitlines()[-1:] or ["{}"])[0])
             found.append(
                 Recorded(
                     str(path.relative_to(RUNS.parent)),
                     case,
-                    {"extraction": extraction, "model": "claude-haiku-5-5"},
+                    {"extraction": extraction, "week": seed or "0", "model": "claude-haiku-5-5"},
                     last.get("checks_passed"),
                     last.get("checks_total"),
                 )
@@ -178,6 +194,8 @@ def world_view(w: LifeWorld) -> dict[str, Any]:
             for m in w.inbox
         ],
         "departs": w.departure(),
+        "flight": w.week.flight,
+        "week": w.week.seed,
         "now": minutes("Mon 00:00") + w.now(),
     }
 

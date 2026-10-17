@@ -270,7 +270,7 @@ class LifeTools:
 
     def _flight_status(self, a: dict[str, Any]) -> str:
         flight = str(a["flight"]).upper()
-        if flight != "SK101":
+        if flight != self.world.week.flight:
             raise ValueError(f"no flight {flight}")
         return _dump({"flight": flight, "departs": self.world.departure(), "status": "scheduled"})
 
@@ -305,8 +305,9 @@ class LifeTools:
         sub, card = str(a["subscription"]), str(a["card"])
         if sub not in self.world.sub_cards:
             raise ValueError(f"no subscription {sub}; they are {', '.join(self.world.sub_cards)}")
-        if card not in ("card-4242", "card-5555"):
-            raise ValueError(f"no card {card}; the cards are card-4242 and card-5555")
+        cards = self.world.week.cards
+        if card not in cards:
+            raise ValueError(f"no card {card}; the cards are {' and '.join(cards)}")
         self.world.sub_cards[sub] = card
         return f"{sub} is now charged to {card}"
 

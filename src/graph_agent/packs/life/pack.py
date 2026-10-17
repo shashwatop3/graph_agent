@@ -20,7 +20,7 @@ from graph_agent.frame.runtime import Item, Runtime
 from graph_agent.frame.spec import NodeSpec
 from graph_agent.harness.llm import ModelClient
 
-from .world import BANK, CALENDAR, ENTITIES, LifeWorld, Mail, tick_label
+from .world import BANK, CALENDAR, LifeWorld, Mail, tick_label
 
 FACTS = {
     "flight.departs": "{subject} departs {value}",
@@ -100,6 +100,7 @@ class LifePack(BasePack):
             system_prompt=SYSTEM_PROMPT,
         )
         self.world = world
+        self.entities = world.week.entities()
         self.extraction = extraction  # "gold" or "model"
         self.gold: dict[str, list[tuple[str, str, Any]]] = {}
         self.extracted: dict[str, list[tuple[str, str, Any]]] = {}
@@ -110,7 +111,7 @@ class LifePack(BasePack):
 
     def setup(self, rt: Runtime) -> None:
         self.rt = rt
-        for entity_id, (type_, name, props) in ENTITIES.items():
+        for entity_id, (type_, name, props) in self.entities.items():
             rt.ensure_entity(entity_id, type_, name=name, **props)
         for feed in ("mail", "sent", "calendar", "bank"):
             rt.feeds[feed] = self._feed(feed)
@@ -148,7 +149,7 @@ class LifePack(BasePack):
         if client is None:
             return item
         entities = "\n".join(
-            f"- {eid} ({type_}): {name}" for eid, (type_, name, _) in ENTITIES.items()
+            f"- {eid} ({type_}): {name}" for eid, (type_, name, _) in self.entities.items()
         )
         predicates = "\n".join(f"- {name}: {line}" for name, line in FACTS.items())
         text = (
@@ -186,13 +187,13 @@ class LifePack(BasePack):
         fields = cast(dict[str, object], data)
         about_raw, claims_raw = fields.get("about"), fields.get("claims")
         listed = cast(list[object], about_raw) if isinstance(about_raw, list) else []
-        about = [str(a) for a in listed if str(a) in ENTITIES]
+        about = [str(a) for a in listed if str(a) in self.entities]
         claims: list[tuple[str, str, Any]] = []
         for claim in cast(list[object], claims_raw) if isinstance(claims_raw, list) else []:
             parts = cast(list[Any], claim) if isinstance(claim, list) else []
             if len(parts) == 3:
                 subject, predicate, value = str(parts[0]), str(parts[1]), parts[2]
-                if predicate in FACTS and subject in ENTITIES:
+                if predicate in FACTS and subject in self.entities:
                     claims.append((subject, predicate, normalise(predicate, value)))
         return about, claims
 
@@ -254,7 +255,7 @@ class LifePack(BasePack):
         rt = self.runtime
         lines = [f"You are {node.id}: {node.role or node.type}."]
         if node.goals:
-            lines.append(node.goals)
+            lines.append(self.week_words(node.goals))
         owned = rt.owned_entities(node.id)
         if owned:
             names: list[str] = []
@@ -268,6 +269,12 @@ class LifePack(BasePack):
             + "."
         )
         return "\n".join(lines)
+
+    def week_words(self, text: str) -> str:
+        """A team file's goals name the week's things by placeholder ({flight}, {new_card}), so one
+        team works for every week."""
+        week = self.world.week
+        return text.replace("{flight}", week.flight).replace("{new_card}", f"card-{week.new_card}")
 
     def describe_refutation(self, belief: Belief, evidence: Belief) -> str:
         return f"said {self.render(belief)}; checked: {self.render(evidence)}"

@@ -126,12 +126,12 @@ def travel(context: str) -> Script:
     seen = beliefs(context)
     for b in find(seen, "booking.payment_due"):
         if b.told and float(b.value) > 0:
-            yield call("booking_check", ref="ABC123")
+            yield call("booking_check", ref=b.subject.removeprefix("booking-"))
             break
     for b in seen:
         if b.predicate.startswith("plan.") and b.status == "suspect":
             yield call("retract", belief_id=b.id, reason="what it rested on changed")
-    flights = find(seen, "flight.departs", "SK101", "active")
+    flights = find(seen, "flight.departs", status="active")
     if not flights:
         return
     flight = flights[-1]
@@ -215,6 +215,7 @@ def money(context: str) -> Script:
         if b.told and b.value != "ok":
             yield call("account_status")
     expiring = {b.subject: b for b in find(seen, "card.expires", status="active")}
+    active = [b.subject for b in find(seen, "card.status", status="active") if b.value == "active"]
     planned = {b.subject for b in find(seen, "plan.subscription_card", status="active")}
     if planned:
         # look again at the bank's record: once actions has moved a card, this reads the team's
@@ -222,12 +223,12 @@ def money(context: str) -> Script:
         yield call("subscriptions_list")
         return
     for sub in find(seen, "subscription.card", status="active"):
-        if sub.value in expiring and sub.subject not in planned:
+        if sub.value in expiring and sub.subject not in planned and active:
             result = yield call(
                 "assert_belief",
                 subject=sub.subject,
                 predicate="plan.subscription_card",
-                value="card-5555",
+                value=active[0],
                 depends_on=[sub.id, expiring[sub.value].id],
             )
             yield call("send", to="actions", belief_id=recorded(result))
