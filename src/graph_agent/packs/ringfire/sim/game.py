@@ -66,7 +66,18 @@ class Game:
         """Who is shown that fire reached `field_id`: see the class docstring."""
         if not self.private_evidence:
             return tuple(range(self.sim.world.config.n_agents))
-        told = {m.receiver for m in self.net.log if m.claim.field_id == field_id and m.day <= day}
+        if self.sim.rules.dynamics == "linear":
+            # Being told about a field lets you check that claim, not watch the field from then
+            # on: you are shown the fire on the day the claim was about, and no other.
+            told = {
+                m.receiver
+                for m in self.net.log
+                if m.claim.field_id == field_id and m.claim.day == day and m.day <= day
+            }
+        else:
+            told = {
+                m.receiver for m in self.net.log if m.claim.field_id == field_id and m.day <= day
+            }
         return tuple(sorted({self._owner(field_id)} | told))
 
     def step(self, agents_water_today: Collection[int] = frozenset()) -> DayResult:

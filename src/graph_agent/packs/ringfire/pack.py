@@ -831,7 +831,11 @@ class RingFirePack:
         belief_lines: list[str] = []
         for b in live[:14]:
             if b.origin == "observed":
-                source = "seen by you"
+                source = (
+                    "seen by you"
+                    if int(b.subject[1:]) in self.fields.get(n, ())
+                    else "checked (you were told about it)"
+                )
             elif b.origin == "derived":
                 source = "your own conclusion"
             else:
@@ -941,7 +945,7 @@ class RingFirePack:
             if o.kind == "evidence":
                 f, d = int(payload["field_id"]), int(payload["day"])
                 strength = 0.0 if payload.get("put_out") else payload.get("strength")
-                source = "seen by you"
+                source = "seen by you" if f in self.fields.get(n, ()) else "checked by you"
             elif o.kind == "message":
                 route = [f"A{a}" for a in payload.get("route", [])]
                 claim = payload.get("claim", {})

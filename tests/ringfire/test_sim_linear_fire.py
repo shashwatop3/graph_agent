@@ -161,3 +161,18 @@ def test_when_every_fire_is_out_a_new_one_starts_the_next_day():
     assert len(report.ignited) == 1 and report.ignited[0].edge is None
     assert report.ignited[0].intensity == world.config.initial_intensity
     assert not sim.finished
+
+
+def test_being_told_about_a_field_lets_you_check_that_day_only():
+    from graph_agent.packs.ringfire.sim.comms import Claim
+    from graph_agent.packs.ringfire.sim.game import Game
+
+    game = Game(
+        hand_world(chain([1, 1]), fires=((0, 3.0),), n_agents=3), LINEAR, private_evidence=True
+    )
+    game.net.add_link(2, 0)
+    game.send(0, 2, Claim(0, 0))  # A2 is told about F0 on day 0
+    day0 = game.step()
+    day1 = game.step()
+    assert 2 in next(e.audience for e in day0.evidence if e.field_id == 0)
+    assert 2 not in next(e.audience for e in day1.evidence if e.field_id == 0)
