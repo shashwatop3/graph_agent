@@ -1565,16 +1565,11 @@ class RingTools:
             linked = "linked" if pack.game.net.linked(me, other) else "not linked"
             trust = "you no longer trust it" if f"A{other}" in distrusted else "trusted"
             right, wrong = record.get(f"A{other}", (0, 0))
-            talks = len(pack.game.net.neighbours(other))
-            full = (
-                f" · talks to {talks} of {pack.max_links} (full)"
-                if (pack.max_links is not None and talks >= pack.max_links)
-                else ""
-            )
+            # how many links another agent has is its own business: a full agent refuses a link
             lines.append(
                 f"A{other}: keeps {keeps} · {steps} step(s) round the ring · {linked} · {trust} · "
                 f"{heard.get(other, 0)} claim(s) sent to you · claims that started with it: "
-                f"{right} confirmed, {wrong} false{full}"
+                f"{right} confirmed, {wrong} false"
             )
         return "\n".join([*lines, note] if note else lines)
 
