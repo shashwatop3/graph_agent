@@ -12,12 +12,20 @@ dependencies = [
     "pydantic>=2.14.1",
 ]
 
+[project.optional-dependencies]
+service = [
+    "fastapi>=0.143.3",
+    "mcp>=2.3.0",
+    "uvicorn>=0.54.0",
+]
+
 [build-system]
 requires = ["uv_build>=0.12.7,<0.13.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "pyright>=1.1.414",
     "pytest>=9.1.1",
     "ruff>=0.17.0",
@@ -31,6 +39,8 @@ markers = [
 
 [tool.ruff]
 line-length = 100
+# throwaway design drafts, not part of the package
+extend-exclude = ["src/graph_agent/packs/ringfire/viewer/drafts"]
 src = ["src", "tests"]
 
 [tool.ruff.lint]
@@ -38,6 +48,7 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pyright]
 include = ["src"]
+exclude = ["src/graph_agent/packs/ringfire/viewer/drafts", "**/node_modules"]
 # Strict: no untyped parameters, no Unknown types. falkordb has no type information, so the
 # FalkorDB store keeps that boundary explicit (see `DbNode` and `_graph`).
 typeCheckingMode = "strict"
