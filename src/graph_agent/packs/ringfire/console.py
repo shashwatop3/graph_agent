@@ -30,6 +30,7 @@ LINEAR_START = 3.0
 LINEAR_DAYS = 30
 LINEAR_REGROW = 2  # days a lost field takes to grow back
 LINEAR_RANDOM_FIRES = 0.15  # chance each day that a new fire starts somewhere
+LINEAR_OUTAGES = 0.15  # chance each day that some agent goes offline for 2 days
 
 
 class RingFireConsole:
@@ -96,6 +97,8 @@ class RingFireConsole:
         )
         if options.get("keep_lying", False):
             team.settings.extra["keep_lying"] = True  # false alarms all game: see Imposters
+        if options.get("fire", "linear") == "linear":
+            team.settings.extra["outages"] = float(options.get("outages", LINEAR_OUTAGES))
         return team
 
     def catalogue(self) -> PackCatalogue:

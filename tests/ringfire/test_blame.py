@@ -381,3 +381,36 @@ def test_the_context_says_whose_reports_could_not_be_believed_and_why():
     context = rt.pack.linear_context(6, rt.tick)
     assert "fire from its field reaches yours in" in context
     assert "## Fire outlook (the latest you know of each fire" in context
+
+
+# ---- outages and network points ---------------------------------------------------------------
+
+
+def test_an_offline_agent_takes_no_turn_and_cannot_be_messaged():
+    _, rt = started(extra_links=0)
+    rt.pack.offline[6] = 3  # A6 is offline until day 3
+    a6 = next(n for n in rt.nodes.values() if n.id == "A6")
+    assert not a6.wants_turn(0)
+    belief = rt.store.beliefs("A5")[0] if rt.store.beliefs("A5") else None
+    rt.pack.decided.add(5)
+    if belief is not None:
+        with pytest.raises(ValueError, match="A6 is offline until day 3"):
+            rt.transport.send("A5", "A6", belief, 0)
+
+
+def test_outages_happen_in_a_long_game_and_last_two_days():
+    team = PACK.team("ringfire", {"seed": 17, "outages": 0.5})
+    session = PACK.start(team, PACK.stand_in(team), MemoryStore(), EventLog(), {})
+    session.runtime.run()
+    outages = [e for e in session.runtime.log.events if e.kind == "offline"]
+    assert outages
+    assert all(e.data["until"] == e.tick + 2 for e in outages)
+
+
+def test_network_points_count_trusted_online_links_each_night():
+    team = PACK.team("ringfire", {"seed": 17, "outages": 0.0, "days": 3})
+    session = PACK.start(team, PACK.stand_in(team), MemoryStore(), EventLog(), {})
+    session.runtime.run()
+    pack = session.runtime.pack
+    honest = [a for a in range(8) if a not in pack.game.net.imposters]
+    assert all(pack.network_points[a] >= 2 for a in honest)  # two neighbours, trusted, online

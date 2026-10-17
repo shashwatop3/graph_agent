@@ -17,6 +17,7 @@ share a model cache.
 """
 
 import heapq
+import random
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -208,6 +209,8 @@ class RingFirePack:
     fire_strength: dict[tuple[int, int], float] = field(
         default_factory=dict[tuple[int, int], float]
     )
+    offline: dict[int, int] = field(default_factory=dict[int, int])  # agent -> day it is back
+    network_points: dict[int, int] = field(default_factory=dict[int, int])  # agent -> points
     edges: list[tuple[int, int, int]] = field(default_factory=list[tuple[int, int, int]])
     map_lines: list[str] = field(default_factory=list[str])
     days: list[DayResult] = field(default_factory=list[DayResult])
@@ -237,6 +240,45 @@ class RingFirePack:
     @property
     def linear(self) -> bool:
         return self.game.sim.rules.dynamics == "linear"
+
+    def held_back(self, node_id: str, tick: int) -> bool:
+        """An agent that is offline today takes no turn."""
+        return node_id.startswith("A") and self.is_offline(number(node_id), tick)
+
+    def is_offline(self, n: int, day: int) -> bool:
+        return self.offline.get(n, -1) > day
+
+    def take_offline(self, tick: int) -> None:
+        """Outages (linear game, `settings.extra["outages"]` is the chance a day): sometimes an
+        agent goes offline for 2 days. It cannot water, send or receive, so the agents that only
+        hear the world through it hear nothing. Drawn from the world's seed, so a game replays."""
+        chance = float(self.runtime.settings.extra.get("outages", 0.0))
+        if not self.linear or not chance:
+            return
+        rng = random.Random(self.game.sim.world.seed * 104729 + tick)
+        if rng.random() >= chance:
+            return
+        up = [a for a in range(self.n_agents) if not self.is_offline(a, tick)]
+        if not up:
+            return
+        agent = rng.choice(up)
+        self.offline[agent] = tick + 2
+        self.runtime.log.emit(tick, "offline", agent=f"A{agent}", until=tick + 2)
+
+    def score_network(self, tick: int) -> None:
+        """Each night, a point for every trusted agent an honest agent is linked to and that is
+        online: what keeps news reaching it when another link fails."""
+        if not self.linear:
+            return
+        for n in range(self.n_agents):
+            if n in self.game.net.imposters:
+                continue
+            distrusted = self.runtime.distrusted(f"A{n}")
+            self.network_points[n] = self.network_points.get(n, 0) + sum(
+                1
+                for other in self.game.net.neighbours(n)
+                if f"A{other}" not in distrusted and not self.is_offline(other, tick)
+            )
 
     def needs_turn(self, node_id: str, tick: int) -> bool:
         """With the linear fire, an agent whose field is burning must take its turn (to water or
@@ -283,6 +325,7 @@ class RingFirePack:
                 for f, strength in d.report.strength
                 if self.game.sim.fields[f].owner not in self.game.net.imposters
             ),
+            "network_points": sum(self.network_points.values()),
             "restored": len(runtime.restored),
             "exposures": len(runtime.exposures),
             "turns": len(runtime.turns),
@@ -691,6 +734,19 @@ class RingFirePack:
         left = f" of {horizon} (days 0 to {horizon - 1}); {horizon - day} left" if horizon else ""
         sections.append(("Today", [f"Day {day}{left}."]))
         sections.append(("Your fields this morning", self.fields_now(n).splitlines()[1:]))
+        mine = set(self.fields.get(n, ()))
+        damage = sum(st for d in self.days for f, st in d.report.strength if f in mine)
+        on_fire = sum(1 for d in self.days if n in d.report.water_on_fire)
+        wasted = sum(1 for d in self.days if n in d.report.water_wasted)
+        sections.append(
+            (
+                "Your score so far",
+                [
+                    f"Damage to your fields: {damage:g}. Water on fire: {on_fire}. "
+                    f"Water wasted: {wasted}. Network points: {self.network_points.get(n, 0)}."
+                ],
+            )
+        )
 
         cap = self.max_links
         links = game.net.neighbours(n)
@@ -703,8 +759,10 @@ class RingFirePack:
                 else "trusted"
             )
             keeps = ", ".join(f"F{f}" for f in self.fields.get(other, ()))
+            if self.is_offline(other, day):
+                state += f"; offline until day {self.offline[other]}"
             link_lines.append(f"- {agent} (keeps {keeps}; {self._upstream(other, n)}): {state}")
-        trusted = [o for o in links if f"A{o}" not in distrusted]
+        trusted = [o for o in links if f"A{o}" not in distrusted and not self.is_offline(o, day)]
         link_lines.append(
             f"{len(links)} of {cap} links used. "
             + (
@@ -813,6 +871,8 @@ class RingFirePack:
             right, wrong = record.get(agent, (0, 0))
             steps = min((other - n) % self.n_agents, (n - other) % self.n_agents)
             mark = "linked" if other in links else "not linked"
+            if self.is_offline(other, day):
+                mark += f", offline until day {self.offline[other]}"
             trust = "not trusted" if agent in distrusted else "trusted"
             lost = unbelieved.get(agent, (0, set[str]()))
             missed = (
@@ -1031,6 +1091,11 @@ class RingTransport:
         if belief.predicate != ringfire.ARRIVAL:
             raise ValueError("only beliefs about when fire arrives can be sent")
         s, r = number(sender), number(receiver)
+        today = self.pack.game.day
+        for who, side in ((s, "you are"), (r, f"{receiver} is")):
+            if self.pack.is_offline(who, today):
+                back = self.pack.offline[who]
+                raise ValueError(f"{side} offline until day {back}: no messages until then")
         node = self.pack.runtime.nodes.get(sender)
         if self.pack.linear and node is not None and node.kind == "model":
             if s not in self.pack.decided:
@@ -1154,10 +1219,13 @@ class WorldNode(Node):
         pack.water_today.clear()
         pack.decided.clear()
         pack.trace.bind(day=tick)
+        pack.take_offline(tick)
         pack.trace.emit("day_start", scripted_sends=len(self.scripted.get(tick, [])))
         for s in self.scripted.get(tick, []):  # the imposters' scripted lies, delivered at once
             if not pack.game.net.linked(s["sender"], s["receiver"]):
                 continue  # the receiver has cut the link: the lie cannot reach it
+            if pack.is_offline(s["sender"], tick) or pack.is_offline(s["receiver"], tick):
+                continue
             message = pack.game.send(s["sender"], s["receiver"], Claim(**s["claim"]))
             if message is not None:
                 self.rt.post(RingTransport(pack).outgoing(message))
@@ -1212,6 +1280,7 @@ class WorldNode(Node):
                         continue
                     pack.show(n, evidence.field_id, evidence.day, evidence.put_out)
         elif stage == "report" and self.result is not None:
+            pack.score_network(tick)
             report = self.result.report
             pack.trace.emit(
                 "day_end",
@@ -1268,7 +1337,7 @@ class Imposters:
         will not. Believed, it costs a watering; caught, the liar is cut off."""
         pack, game = self.pack, self.pack.game
         for other in game.net.neighbours(me):
-            if other in game.net.imposters:
+            if other in game.net.imposters or pack.is_offline(other, tick):
                 continue
             for f in pack.fields.get(other, ())[:1]:
                 if not _false_alarm_target(pack, f, tick + 1):
@@ -1281,6 +1350,8 @@ class Imposters:
         pack, game = self.pack, self.pack.game
         me = number(node.id)
         transport = RingTransport(pack)
+        if pack.is_offline(me, tick):
+            return
         if (
             pack.runtime.settings.extra.get("keep_lying")
             and game.net.imposters[me] is Behaviour.FALSE_ALARM

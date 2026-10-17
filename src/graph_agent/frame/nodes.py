@@ -410,6 +410,9 @@ class AgentNode(Node):
     def wants_turn(self, tick: int) -> bool:
         pending = self.rt.pending.get(self.id, set())
         # the pack can insist (something it owns needs a decision today)
+        held_back: Callable[[str, int], bool] | None = getattr(self.rt.pack, "held_back", None)
+        if held_back is not None and held_back(self.id, tick):
+            return False  # the pack keeps it out of this tick (it is offline, say)
         needs_turn: Callable[[str, int], bool] | None = getattr(self.rt.pack, "needs_turn", None)
         if needs_turn is not None and needs_turn(self.id, tick):
             return True
