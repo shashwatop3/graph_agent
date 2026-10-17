@@ -107,6 +107,8 @@ def problems(
             found.append(f"agent {agent.name!r}: that name is taken; pick another")
         if names.count(agent.name) > 1:
             found.append(f"two agents are named {agent.name!r}")
+        if not agent.job.strip():
+            found.append(f"agent {agent.name}: say what its job is, in a sentence or two")
         for kind in agent.looks_after:
             if kind not in kinds:
                 found.append(

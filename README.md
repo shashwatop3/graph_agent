@@ -95,13 +95,14 @@ Open the console's **My apps** page. In three steps:
    `.env`. Saved to `connections.json` (git-ignored).
 2. **Your agents.** Each one is a name, its job in your words, the kinds of thing it looks after
    (events, promises, bills, your own kinds) and the app tools it may use. Tick "carries out" for
-   an agent that acts on the team's plans: it reads no mail. Problems are named as you type. Saved
-   to `agents.json` (git-ignored); the streams, router, checker, links and safety settings are
-   made from it (`packs/apps/setup.py`).
+   an agent that acts on the team's plans: it reads no mail. Problems are named as you type. You
+   can keep several teams on the same apps: **+ New team** on top starts one (blank, or from the
+   example), and each is saved to `my-teams/<team>.json` (git-ignored); the streams, router,
+   checker, links and safety settings are made from it (`packs/apps/setup.py`).
 3. **Run it** with a real model, outward actions on "Record only" to start.
 
 Without the page: `uv run python -m graph_agent.packs.apps.run example` writes both files to start
-from, and `... apps.run check` connects each app, lists its tools and checks the agents (free: no
+from, and `... apps.run check [team]` connects each app, lists its tools and checks the teams (free: no
 model is called). The page only writes files or starts servers for requests from itself on
 127.0.0.1.
 

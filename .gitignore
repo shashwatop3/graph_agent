@@ -19,5 +19,5 @@ docs
 # your own connections (frame/connections.py): names secrets, but never holds them
 connections.json
 
-# your own agents (packs/apps/setup.py)
-agents.json
+# your own teams of agents (packs/apps/setup.py), one file each
+my-teams/

@@ -219,4 +219,13 @@ export interface AppsSetup {
   polls?: number;
 }
 
-export interface SetupView { setup: AppsSetup; saved: boolean; kinds: Record<string, string[]>; problems: string[] }
+/** One of your teams (`team`: its id, its file's name; null: the example, not saved), and the list
+ * of all of them. */
+export interface SetupView {
+  teams: { id: string; name: string }[];
+  team: string | null;
+  setup: AppsSetup;
+  saved: boolean;
+  kinds: Record<string, string[]>;
+  problems: string[];
+}

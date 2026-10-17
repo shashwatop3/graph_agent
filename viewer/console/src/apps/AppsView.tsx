@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type RunOptions } from "../api";
 import { c } from "../css";
-import type { AgentSetup, AppsSetup, ConnectionEntry, ConnectionInfo, ConnectionTest, Preset, TeamSpec } from "../types";
+import type { AgentSetup, AppsSetup, ConnectionEntry, ConnectionInfo, ConnectionTest, Preset, SetupView, TeamSpec } from "../types";
 
 interface Props {
   onRun: (pack: string, team: TeamSpec, name: string, options: RunOptions) => Promise<void>;
@@ -11,7 +11,8 @@ const nameOf = (e: ConnectionEntry) => String(e.name ?? e.preset ?? "");
 
 /** Your own agents on your own apps, in two steps: connect your apps (each an MCP server; the
  * secrets stay in .env), then say in a few lines what each agent is for and which apps it may use.
- * The team, its links and its safety settings are made from that (packs/apps/setup.py). */
+ * The team, its links and its safety settings are made from that (packs/apps/setup.py). You can
+ * keep several teams on the same apps (one file each in my-teams/); the bar on top picks one. */
 export function AppsView({ onRun }: Props) {
   // ---- your apps ----
   const [presets, setPresets] = useState<Preset[]>([]);
@@ -21,7 +22,11 @@ export function AppsView({ onRun }: Props) {
   const [testing, setTesting] = useState<string | null>(null);
   const [appsChanged, setAppsChanged] = useState(false);
   const [appsProblem, setAppsProblem] = useState("");
-  // ---- your agents ----
+  // ---- your teams, and the one open ----
+  const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
+  const [teamId, setTeamId] = useState<string | null>(null); // null: not saved yet
+  const [leaving, setLeaving] = useState<(() => void) | null>(null); // asked to discard changes
+  // ---- its agents ----
   const [setup, setSetup] = useState<AppsSetup | null>(null);
   const [kinds, setKinds] = useState<Record<string, string[]>>({});
   const [problems, setProblems] = useState<string[]>([]);
@@ -36,9 +41,52 @@ export function AppsView({ onRun }: Props) {
   useEffect(() => {
     api.connections().then((r) => { setPresets(r.presets); setEntries(r.entries); setInfos(r.connections); })
       .catch((e: Error) => setAppsProblem(e.message));
-    api.setup("apps").then((v) => { setSetup(v.setup); setKinds(v.kinds); setProblems(v.problems); setSaved(v.saved); })
-      .catch((e: Error) => setProblems([e.message]));
+    open(undefined);
   }, []);
+
+  function show(v: SetupView) {
+    setTeams(v.teams);
+    setTeamId(v.team);
+    setSetup(v.setup);
+    setKinds(v.kinds);
+    setProblems(v.problems);
+    setSaved(v.saved);
+    setAgentsChanged(false);
+  }
+
+  /** Open a team (undefined: your first, or the example when you have none). */
+  function open(team: string | undefined) {
+    api.setup("apps", team).then(show).catch((e: Error) => setProblems([e.message]));
+  }
+
+  /** Do `then`, but first ask to discard unsaved changes to the open team, if there are any. */
+  function leave(then: () => void) {
+    if (agentsChanged) setLeaving(() => then);
+    else then();
+  }
+
+  function newTeam(fromExample: boolean) {
+    leave(() => {
+      api.setup("apps", "example").then((v) => {
+        show(v);
+        setTeamId(null);
+        setSaved(false);
+        const blank: AppsSetup = { name: "New team", agents: [{ name: "inbox", job: "", looks_after: [], apps: [] }] };
+        if (fromExample) changeSetup({ ...v.setup, name: "My assistant" });
+        else changeSetup(blank);
+      }).catch((e: Error) => setProblems([e.message]));
+    });
+  }
+
+  async function deleteTeam() {
+    if (!teamId) return;
+    try {
+      await api.deleteSetup("apps", teamId);
+      open(undefined);
+    } catch (e) {
+      setProblems([(e as Error).message]);
+    }
+  }
 
   // the agents are checked as you type (nothing is saved until you press Save)
   useEffect(() => {
@@ -94,17 +142,20 @@ export function AppsView({ onRun }: Props) {
     changeSetup({ ...setup, agents: [...setup.agents, { name: `agent-${n}`, job: "", looks_after: [], apps: [] }] });
   }
 
-  async function saveAgents(): Promise<boolean> {
-    if (!setup) return false;
+  /** Save the open team; its id when it has no problems left, else null. */
+  async function saveAgents(): Promise<string | null> {
+    if (!setup) return null;
     try {
-      const r = await api.saveSetup("apps", setup);
+      const r = await api.saveSetup("apps", setup, teamId);
       setProblems(r.problems);
+      setTeamId(r.team);
       setSaved(true);
       setAgentsChanged(false);
-      return r.problems.length === 0;
+      api.setup("apps", r.team).then((v) => setTeams(v.teams)).catch(() => undefined);
+      return r.problems.length === 0 ? r.team : null;
     } catch (e) {
       setProblems([(e as Error).message]);
-      return false;
+      return null;
     }
   }
 
@@ -113,9 +164,10 @@ export function AppsView({ onRun }: Props) {
     setRunProblem("");
     try {
       if (appsChanged) await saveApps();
-      if (!(await saveAgents())) { setRunProblem("fix what the agents panel lists first"); return; }
-      const team = await api.template("apps", "mine");
-      await onRun("apps", team, "mine", { model, store: "memory", options: { approvals } });
+      const id = await saveAgents();
+      if (!id) { setRunProblem("fix what the agents panel lists first"); return; }
+      const team = await api.template("apps", id);
+      await onRun("apps", team, id, { model, store: "memory", options: { approvals } });
     } catch (e) {
       setRunProblem((e as Error).message);
     } finally {
@@ -133,6 +185,36 @@ export function AppsView({ onRun }: Props) {
 
   return (
     <div className="apps">
+      <section className="panel teams-bar">
+        <div className="ph">
+          <div><div className="eyebrow">Your teams · {teams.length} saved · they share the apps below</div><h2>Team</h2></div>
+        </div>
+        <div className="pb">
+          <div className="team-list">
+            {teams.map((t) => (
+              <button key={t.id} className={`tpl ${teamId === t.id ? "on" : ""}`} onClick={() => teamId !== t.id && leave(() => open(t.id))}>
+                <b>{t.name}</b><small>my-teams/{t.id}.json</small>
+              </button>
+            ))}
+            {teamId === null && setup && (
+              <button className="tpl on" disabled><b>{setup.name || "New team"}</b><small>not saved yet</small></button>
+            )}
+          </div>
+          <div className="row-btns">
+            <button className="btn" onClick={() => newTeam(false)}>+ New team</button>
+            <button className="btn" onClick={() => newTeam(true)}>+ New from the example</button>
+            {teamId && <button className="btn danger" onClick={() => void deleteTeam()}>Delete this team</button>}
+          </div>
+          {leaving && (
+            <p className="note">
+              Unsaved changes to {setup?.name}.{" "}
+              <button className="linkish" onClick={() => { const then = leaving; setLeaving(null); then(); }}>Discard them</button>{" · "}
+              <button className="linkish" onClick={() => setLeaving(null)}>Keep editing</button>
+            </p>
+          )}
+        </div>
+      </section>
+
       <section className="panel">
         <div className="ph">
           <div><div className="eyebrow">Step 1 · {entries.length} connected · {ready} ready</div><h2>Your apps</h2></div>
@@ -164,7 +246,7 @@ export function AppsView({ onRun }: Props) {
 
       <section className="panel">
         <div className="ph">
-          <div><div className="eyebrow">Step 2 · {setup?.agents.length ?? 0} agents · {saved ? "agents.json" : "the example, not saved yet"}</div><h2>Your agents</h2></div>
+          <div><div className="eyebrow">Step 2 · {setup?.agents.length ?? 0} agents · {saved && teamId ? `my-teams/${teamId}.json` : "not saved yet"}</div><h2>Your agents</h2></div>
           <button className="btn" disabled={!agentsChanged && saved} onClick={() => void saveAgents()}>{agentsChanged || !saved ? "Save agents" : "Saved"}</button>
         </div>
         <div className="pb insp">

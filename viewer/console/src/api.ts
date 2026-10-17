@@ -53,11 +53,18 @@ export const api = {
   saveConnections: (entries: ConnectionEntry[]) =>
     call<{ connections: ConnectionInfo[] }>("/api/connections", { method: "PUT", body: JSON.stringify({ connections: entries }) }),
   testConnection: (entry: ConnectionEntry) => post<ConnectionTest>("/api/connections/test", entry),
-  setup: (pack: string) => call<SetupView>(`/api/packs/${pack}/setup`),
-  saveSetup: (pack: string, setup: AppsSetup) =>
-    call<{ problems: string[] }>(`/api/packs/${pack}/setup`, { method: "PUT", body: JSON.stringify(setup) }),
+  setup: (pack: string, team?: string | null) => call<SetupView>(`/api/packs/${pack}/setup${teamQuery(team)}`),
+  // no team: saved as a new one (the answer names it)
+  saveSetup: (pack: string, setup: AppsSetup, team?: string | null) =>
+    call<{ problems: string[]; team: string }>(`/api/packs/${pack}/setup${teamQuery(team)}`, { method: "PUT", body: JSON.stringify(setup) }),
+  deleteSetup: (pack: string, team: string) =>
+    call<{ deleted: string }>(`/api/packs/${pack}/setup${teamQuery(team)}`, { method: "DELETE" }),
   checkSetup: (pack: string, setup: AppsSetup) => post<{ problems: string[] }>(`/api/packs/${pack}/setup/check`, setup),
 };
+
+function teamQuery(team?: string | null): string {
+  return team ? `?team=${encodeURIComponent(team)}` : "";
+}
 
 /** Follow a space's event log live. Returns a function that stops listening. */
 export function follow(id: string, since: number, onEvent: (event: RunEvent) => void): () => void {

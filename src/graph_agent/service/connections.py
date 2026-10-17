@@ -3,8 +3,9 @@
     GET  /api/connections              the presets, and your connections with what each still needs
     PUT  /api/connections              save them (connections.json)   {connections: [...]}
     POST /api/connections/test         start one, list its tools, read each feed once
-    GET  /api/packs/{pack}/setup       a pack's setup form (the agents file), with its problems
-    PUT  /api/packs/{pack}/setup       save it;  POST .../setup/check  only check it
+    GET  /api/packs/{pack}/setup?team=  a pack's setup form (one of your teams), with its problems
+    PUT  /api/packs/{pack}/setup?team=  save it (no team: as a new one);  POST .../setup/check
+    DELETE /api/packs/{pack}/setup?team=  delete that team
 
 Secrets never pass through here: a connection names them ("$TODOIST_API_KEY") and you put the
 values in .env. What writes a file or starts a server's command is refused unless the request
@@ -142,15 +143,29 @@ def router() -> APIRouter:
     # ---- a pack's setup form --------------------------------------------------------------------
 
     @api.get("/api/packs/{pack}/setup")
-    def setup(pack: str) -> dict[str, Any]:
-        return setup_pack(pack).setup_view()
+    def setup(pack: str, team: str | None = None) -> dict[str, Any]:
+        try:
+            return setup_pack(pack).setup_view(team)
+        except ValueError as error:
+            raise HTTPException(404, str(error)) from error
 
     @api.put("/api/packs/{pack}/setup", dependencies=[Depends(local_only)])
-    def save_setup(pack: str, data: dict[str, Any]) -> dict[str, Any]:
-        return {"problems": setup_pack(pack).save_setup(data, write=True)}
+    def save_setup(pack: str, data: dict[str, Any], team: str | None = None) -> dict[str, Any]:
+        try:
+            return setup_pack(pack).save_setup(data, write=True, team=team)
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
 
     @api.post("/api/packs/{pack}/setup/check")
     def check_setup(pack: str, data: dict[str, Any]) -> dict[str, Any]:
-        return {"problems": setup_pack(pack).save_setup(data, write=False)}
+        return setup_pack(pack).save_setup(data, write=False)
+
+    @api.delete("/api/packs/{pack}/setup", dependencies=[Depends(local_only)])
+    def delete_setup(pack: str, team: str) -> dict[str, Any]:
+        try:
+            setup_pack(pack).delete_setup(team)
+        except ValueError as error:
+            raise HTTPException(404, str(error)) from error
+        return {"deleted": team}
 
     return api

@@ -288,8 +288,11 @@ def test_check_says_what_is_missing_without_starting_anything(tmp_path, monkeypa
     for name in ("TODOIST_API_KEY", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"):
         monkeypatch.delenv(name, raising=False)
     (tmp_path / "connections.json").write_text(json.dumps({"connections": [{"preset": "todoist"}]}))
-    (tmp_path / "agents.json").write_text(json.dumps({"agents": [{"name": "Tasks", "job": "x"}]}))
-    assert apps_run.check(tmp_path / "agents.json", tmp_path / "connections.json") == 1
+    monkeypatch.setattr(apps_run, "TEAMS", tmp_path / "my-teams")
+    (tmp_path / "my-teams").mkdir()
+    bad = {"agents": [{"name": "Tasks", "job": "x"}]}
+    (tmp_path / "my-teams" / "uni.json").write_text(json.dumps(bad))
+    assert apps_run.check(None, tmp_path / "connections.json") == 1  # every team in the folder
     out = capsys.readouterr().out
     assert "not ready: set TODOIST_API_KEY in .env" in out
-    assert "agent 'Tasks': use a short lowercase name" in out
+    assert "team uni:" in out and "agent 'Tasks': use a short lowercase name" in out

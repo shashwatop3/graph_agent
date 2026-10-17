@@ -1,16 +1,18 @@
 """Your agents on your apps: check the setup, then run it.
 
-    uv run python -m graph_agent.packs.apps.run check     # free: connects, lists, validates
-    uv run python -m graph_agent.packs.apps.run example   # writes an agents.json to start from
+    uv run python -m graph_agent.packs.apps.run check [team]   # free: connects, lists, validates
+    uv run python -m graph_agent.packs.apps.run example        # writes files to start from
 
-Two files at the repository's root, both kept out of git:
+At the repository's root, kept out of git:
 
-    connections.json   your apps (frame/connections.py); secrets stay in .env
-    agents.json        your agents (setup.py)
+    connections.json      your apps (frame/connections.py), shared by all your teams; secrets
+                          stay in .env
+    my-teams/<team>.json  your teams, one file each: their agents (setup.py)
 
 `check` starts each connection, lists the tools it offers (and which are gated), and says what is
-wrong with the agents file, if anything, in words you can act on. It calls no model. Runs go
-through the console (or `build_apps`), with outward actions only recorded until you say otherwise.
+wrong with each team (or the one named), if anything, in words you can act on. It calls no model.
+Runs go through the console (or `build_apps`), with outward actions only recorded until you say
+otherwise.
 """
 
 import json
@@ -33,7 +35,7 @@ from .setup import THINGS, Setup, problems
 
 ROOT = Path(__file__).resolve().parents[4]
 CONNECTIONS = ROOT / "connections.json"
-AGENTS = ROOT / "agents.json"
+TEAMS = ROOT / "my-teams"
 
 EXAMPLE_CONNECTIONS = {"connections": [{"preset": "google"}, {"preset": "todoist"}]}
 EXAMPLE_AGENTS = {
@@ -78,7 +80,7 @@ EXAMPLE_AGENTS = {
 }
 
 
-def load_setup(path: str | Path = AGENTS) -> Setup:
+def load_setup(path: str | Path) -> Setup:
     return Setup.model_validate_json(Path(path).read_text())
 
 
@@ -104,8 +106,9 @@ def build_apps(
     return runtime, pack
 
 
-def check(setup_path: Path = AGENTS, connections_path: Path = CONNECTIONS) -> int:
-    """Print what each connection offers and what is wrong; 0 when everything is ready."""
+def check(setups: Sequence[Path] | None = None, connections_path: Path = CONNECTIONS) -> int:
+    """Print what each connection offers and what is wrong with each team (`setups`: these team
+    files; None: every one in my-teams); 0 when everything is ready."""
     load_env(ROOT / ".env")
     if not connections_path.exists():
         print(f"no {connections_path.name} yet: run `... apps.run example` to start from one")
@@ -134,19 +137,24 @@ def check(setup_path: Path = AGENTS, connections_path: Path = CONNECTIONS) -> in
             print("  feeds: " + (", ".join(f.name for f in connection.feeds) or "none"))
         finally:
             opened.close()
-    if not setup_path.exists():
-        print(f"\nno {setup_path.name} yet: run `... apps.run example` to start from one")
+    files = sorted(TEAMS.glob("*.json")) if setups is None else list(setups)
+    if not files or not all(f.exists() for f in files):
+        print("\nno such team yet: make one on the console's My apps page, or run `... example`")
         return 1
-    wrong = problems(load_setup(setup_path), connections, tools if ready else ())
-    print("\nagents: " + ("ready" if not wrong else ""))
-    for line in wrong:
-        print(f"  - {line}")
-    return 0 if ready and not wrong else 1
+    for file in files:
+        wrong = problems(load_setup(file), connections, tools if ready else ())
+        print(f"\nteam {file.stem}: " + ("ready" if not wrong else ""))
+        for line in wrong:
+            print(f"  - {line}")
+        ready = ready and not wrong
+    return 0 if ready else 1
 
 
 def example() -> None:
     """Write starting files, never over ones that exist."""
-    for path, data in ((CONNECTIONS, EXAMPLE_CONNECTIONS), (AGENTS, EXAMPLE_AGENTS)):
+    TEAMS.mkdir(exist_ok=True)
+    team = TEAMS / "my-assistant.json"
+    for path, data in ((CONNECTIONS, EXAMPLE_CONNECTIONS), (team, EXAMPLE_AGENTS)):
         if path.exists():
             print(f"{path.name} exists: left as it is")
         else:
@@ -157,7 +165,7 @@ def example() -> None:
 if __name__ == "__main__":
     command = sys.argv[1] if len(sys.argv) > 1 else ""
     if command == "check":
-        sys.exit(check())
+        sys.exit(check([TEAMS / f"{sys.argv[2]}.json"] if len(sys.argv) > 2 else None))
     elif command == "example":
         example()
     else:

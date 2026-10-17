@@ -24,7 +24,7 @@ LOCAL = "http://127.0.0.1:8765"
 def files(tmp_path, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN001, ANN201
     monkeypatch.setattr(api, "CONNECTIONS", tmp_path / "connections.json")
     monkeypatch.setattr(api, "ROOT", tmp_path)  # no .env
-    monkeypatch.setattr(APPS, "agents_file", tmp_path / "agents.json")
+    monkeypatch.setattr(APPS, "teams_dir", tmp_path / "my-teams")
     monkeypatch.setattr(APPS, "connections_file", tmp_path / "connections.json")
     monkeypatch.delenv("TODOIST_API_KEY", raising=False)
     return tmp_path
@@ -89,21 +89,49 @@ def test_testing_a_connection_lists_its_tools_and_reads_its_feeds(
 
 def test_the_agents_form_round_trip(client: TestClient, files):  # noqa: ANN001
     view = client.get("/api/packs/apps/setup").json()
-    assert not view["saved"] and [a["name"] for a in view["setup"]["agents"]][0] == "inbox"
+    assert view["teams"] == [] and view["team"] is None and not view["saved"]
+    assert [a["name"] for a in view["setup"]["agents"]][0] == "inbox"  # the example
     assert "Promise" in view["kinds"]
     bad = {"agents": [{"name": "Tasks", "job": "x"}]}
     assert client.post("/api/packs/apps/setup/check", json=bad).json()["problems"] == [
         "agent 'Tasks': use a short lowercase name (letters, digits, -)"
     ]
-    assert not (files / "agents.json").exists()  # checking writes nothing
-    good = {"name": "Mine", "agents": [{"name": "inbox", "job": "Read my mail."}]}
-    assert client.put("/api/packs/apps/setup", json=good).json()["problems"] == []
-    assert json.loads((files / "agents.json").read_text())["name"] == "Mine"
-    names = {(t["pack"], t["name"]) for t in client.get("/api/templates").json()}
-    assert ("apps", "mine") in names and ("apps", "example") in names
+    assert not (files / "my-teams").exists()  # checking writes nothing
+    no_job = {"agents": [{"name": "inbox", "job": " "}]}
+    assert client.post("/api/packs/apps/setup/check", json=no_job).json()["problems"] == [
+        "agent inbox: say what its job is, in a sentence or two"
+    ]
     unparsable = client.post("/api/packs/apps/setup/check", json={"agents": [{"name": "x"}]})
     assert unparsable.json()["problems"] == ["agents.0.job: Field required"]
     assert client.get("/api/packs/life/setup").status_code == 404
+
+
+def test_new_teams_each_get_a_file_and_a_template(client: TestClient, files):  # noqa: ANN001
+    good = {"name": "Uni deadlines", "agents": [{"name": "inbox", "job": "Read my mail."}]}
+    first = client.put("/api/packs/apps/setup", json=good).json()
+    assert first == {"problems": [], "team": "uni-deadlines"}
+    again = client.put("/api/packs/apps/setup", json=good).json()  # a second team, same name
+    assert again["team"] == "uni-deadlines-2"
+    renamed = {**good, "name": "College"}  # saving a team again keeps its file
+    client.put("/api/packs/apps/setup?team=uni-deadlines", json=renamed)
+    assert json.loads((files / "my-teams" / "uni-deadlines.json").read_text())["name"] == "College"
+    view = client.get("/api/packs/apps/setup").json()
+    assert view["teams"] == [
+        {"id": "uni-deadlines", "name": "College"},
+        {"id": "uni-deadlines-2", "name": "Uni deadlines"},
+    ]
+    assert view["team"] == "uni-deadlines" and view["saved"]
+    example = client.get("/api/packs/apps/setup?team=example").json()  # to start a team from
+    assert example["team"] is None and example["setup"]["agents"][0]["name"] == "inbox"
+    names = {(t["pack"], t["name"]) for t in client.get("/api/templates").json()}
+    assert {("apps", "uni-deadlines"), ("apps", "example")} <= names
+    blank = client.put("/api/packs/apps/setup", json={"name": "Empty", "agents": []}).json()
+    assert blank == {"problems": ["add at least one agent"], "team": "empty"}
+    assert client.delete("/api/packs/apps/setup?team=empty").json() == {"deleted": "empty"}
+    assert client.get("/api/packs/apps/setup?team=empty").status_code == 404
+    assert client.get("/api/packs/apps/setup?team=../x").status_code == 404
+    other_site = TestClient(create_app(), base_url=LOCAL, headers={"origin": "https://x.example"})
+    assert other_site.delete("/api/packs/apps/setup?team=uni-deadlines").status_code == 403
 
 
 def test_your_agents_need_a_real_model(client: TestClient):
