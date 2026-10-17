@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type RunOptions } from "../api";
 import { c } from "../css";
-import type { AgentSetup, AppsSetup, ConnectionEntry, ConnectionInfo, ConnectionTest, Preset, SetupView, TeamSpec } from "../types";
+import type { AgentSetup, AppsSetup, ConnectionEntry, ConnectionInfo, ConnectionTest, Keys, Preset, SetupView, TeamSpec } from "../types";
 
 interface Props {
   onRun: (pack: string, team: TeamSpec, name: string, options: RunOptions) => Promise<void>;
@@ -17,7 +17,7 @@ const nameOf = (e: ConnectionEntry) => String(e.name ?? e.preset ?? "");
 export function AppsView({ onRun, hosted }: Props) {
   const where = hosted ? "under Your keys" : "in .env";
   // ---- your keys (hosted) ----
-  const [keys, setKeys] = useState<{ saved: string[]; wanted: string[] } | null>(null);
+  const [keys, setKeys] = useState<Keys | null>(null);
   // ---- your apps ----
   const [presets, setPresets] = useState<Preset[]>([]);
   const [entries, setEntries] = useState<ConnectionEntry[]>([]);
@@ -49,9 +49,10 @@ export function AppsView({ onRun, hosted }: Props) {
     if (hosted) api.keys().then(setKeys).catch((e: Error) => setAppsProblem(e.message));
   }, [hosted]);
 
-  /** After a key is saved or removed: the keys, and what each app still needs. */
-  function keysChanged(saved: string[]) {
-    setKeys((k) => (k ? { ...k, saved } : k));
+  /** After a key is saved or removed (or Google disconnected): the keys, and what each app
+   * still needs. */
+  function keysChanged(change: Partial<Keys>) {
+    setKeys((k) => (k ? { ...k, ...change } : k));
     api.connections().then((r) => setInfos(r.connections)).catch(() => undefined);
   }
 
@@ -325,7 +326,7 @@ export function AppsView({ onRun, hosted }: Props) {
 
 /** The secrets your apps and a real model need, kept encrypted on the server. A value is sent
  * once, when you save it, and never shown again: a saved key can only be replaced or removed. */
-function KeysPanel({ keys, onChange }: { keys: { saved: string[]; wanted: string[] }; onChange: (saved: string[]) => void }) {
+function KeysPanel({ keys, onChange }: { keys: Keys; onChange: (change: Partial<Keys>) => void }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [other, setOther] = useState("");
   const [extra, setExtra] = useState<string[]>([]); // names added here, not saved yet
@@ -337,13 +338,16 @@ function KeysPanel({ keys, onChange }: { keys: { saved: string[]; wanted: string
       const r = await api.saveKey(name, values[name] ?? "");
       setValues((v) => ({ ...v, [name]: "" }));
       setProblem("");
-      onChange(r.saved);
+      onChange({ saved: r.saved });
     } catch (e) {
       setProblem((e as Error).message);
     }
   }
   async function remove(name: string) {
-    try { onChange((await api.deleteKey(name)).saved); } catch (e) { setProblem((e as Error).message); }
+    try { onChange({ saved: (await api.deleteKey(name)).saved }); } catch (e) { setProblem((e as Error).message); }
+  }
+  async function disconnect() {
+    try { onChange(await api.disconnectGoogle()); } catch (e) { setProblem((e as Error).message); }
   }
 
   return (
@@ -351,6 +355,14 @@ function KeysPanel({ keys, onChange }: { keys: { saved: string[]; wanted: string
       <div className="ph"><div><div className="eyebrow">Kept encrypted · never shown again</div><h2>Your keys</h2></div></div>
       <div className="pb insp">
         <p className="note">Your Anthropic key pays for your own runs (from console.anthropic.com). An app's token, like Todoist's, comes from that app's settings. Only your runs use them.</p>
+        <div className="key-row">
+          <code>Google</code>
+          <span className="tag" style={c(keys.google ? "var(--ok)" : "var(--stale)")}>{keys.google ? "connected" : "not connected"}</span>
+          <span className="muted grow">Gmail and Calendar, read-only: Cascade can never send, delete or change anything there</span>
+          {keys.google
+            ? <button className="btn danger" onClick={() => void disconnect()}>Disconnect</button>
+            : <a className="btn primary" href="/auth/google">Connect Gmail and Calendar</a>}
+        </div>
         {names.map((name) => {
           const saved = keys.saved.includes(name);
           return (
@@ -388,7 +400,8 @@ function AppCard({ entry, info, test, testing, where, onTest, onChange, onRemove
   const exclude = (entry.exclude as string[] | undefined) ?? [];
   const outward = (entry.outward as Record<string, boolean> | undefined) ?? info?.outward ?? {};
   const plain = (tool: string) => tool.slice(name.length + 1); // the server's own name
-  const missing = info?.missing ?? [];
+  // the Google token is not a key you paste: it comes from connecting your account
+  const missing = (info?.missing ?? []).map((m) => (m === "GOOGLE_ACCESS_TOKEN" ? "your Google account connected" : m));
   return (
     <div className="conn">
       <div className="conn-h">

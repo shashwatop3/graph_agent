@@ -235,3 +235,11 @@ export interface Me {
   hosted: boolean;
   user: { email: string; name: string } | null;
 }
+
+/** Hosted: the names of your keys (never their values), those your apps want, and whether your
+ * Google account is connected for Gmail and Calendar. */
+export interface Keys {
+  saved: string[];
+  wanted: string[];
+  google: boolean;
+}

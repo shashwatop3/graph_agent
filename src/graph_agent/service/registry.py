@@ -9,7 +9,8 @@ from graph_agent.packs.life.console import LIFE, LifeConsole
 from graph_agent.packs.offsite.console import OFFSITE
 from graph_agent.packs.ringfire.console import RINGFIRE
 
-from .users import LOCAL, User, secrets_of
+from .auth import hosted_presets, keys_for
+from .users import LOCAL, User
 
 PACKS: dict[str, ConsolePack] = {
     pack.name: pack for pack in (LIFE, OFFSITE, RINGFIRE, HUALIEN, APPS)
@@ -24,7 +25,10 @@ def packs_for(user: User = LOCAL) -> dict[str, ConsolePack]:
         return PACKS
     if user.folder not in _yours:
         apps = AppsConsole(
-            user.folder / "my-teams", user.folder / "connections.json", lambda: secrets_of(user)
+            user.folder / "my-teams",
+            user.folder / "connections.json",
+            lambda: keys_for(user),
+            hosted_presets(),
         )
         _yours[user.folder] = {**PACKS, "life": LifeConsole(real=False), "apps": apps}
     return _yours[user.folder]

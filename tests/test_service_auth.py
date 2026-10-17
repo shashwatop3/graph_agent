@@ -163,7 +163,11 @@ def test_keys_are_kept_encrypted_per_person_and_never_sent_back(
     monkeypatch: pytest.MonkeyPatch,  # noqa: ANN001
 ):
     alice, bob = signed_in("1"), signed_in("2")
-    assert alice.get("/api/keys").json() == {"saved": [], "wanted": ["ANTHROPIC_API_KEY"]}
+    assert alice.get("/api/keys").json() == {
+        "saved": [],
+        "wanted": ["ANTHROPIC_API_KEY"],
+        "google": False,
+    }
     put = alice.put("/api/keys/TODOIST_API_KEY", json={"value": " todo-secret "})
     assert put.json() == {"saved": ["TODOIST_API_KEY"]}
     assert "todo-secret" not in (hosted / "users" / "1" / "secrets.json").read_text()
@@ -221,3 +225,91 @@ def test_a_hosted_run_spends_only_from_your_own_key(hosted, monkeypatch: pytest.
     body = {"pack": "life", "team": team, "model": "claude-haiku-5-5"}
     refused = client.post("/api/spaces", json=body)
     assert refused.status_code == 400 and "Your keys" in refused.json()["detail"]
+
+
+# ---- D4: Gmail and Calendar through one shared workspace-mcp -------------------------------------
+
+BOTH = " ".join(["openid", *auth.READ])
+
+
+def connect_google(client: TestClient, monkeypatch: pytest.MonkeyPatch, **answer: Any) -> Any:
+    """Go through "Connect Gmail and Calendar", Google answering with `answer` (tokens, who)."""
+    start = client.get("/auth/google", follow_redirects=False)
+    query = parse_qs(urlparse(start.headers["location"]).query)
+    tokens = {"access_token": "a1", "refresh_token": "r1", "scope": BOTH, "expires_in": 3600}
+    tokens.update(answer.get("tokens", {}))
+    who = {"sub": "1", "email": "1@example.com", "email_verified": True, **answer.get("who", {})}
+    monkeypatch.setattr(auth, "exchange", lambda code: tokens)
+    monkeypatch.setattr(auth, "userinfo", lambda token: who)
+    state = query["state"][0]
+    return client.get(f"/auth/callback?code=c&state={state}", follow_redirects=False)
+
+
+def test_connecting_gmail_asks_google_for_read_only_access(hosted, monkeypatch):  # noqa: ANN001
+    client = signed_in("1")
+    start = client.get("/auth/google", follow_redirects=False)
+    query = parse_qs(urlparse(start.headers["location"]).query)
+    assert set(query["scope"][0].split()) == {"openid", "email", "profile", *auth.READ}
+    assert query["access_type"] == ["offline"] and query["state"][0].startswith("google.")
+    assert page().get("/auth/google", follow_redirects=False).headers["location"] == "/"
+    assert connect_google(client, monkeypatch, who={"sub": "2"}).status_code == 400
+    narrow = {"scope": "openid " + auth.READ[0]}  # a box left unticked
+    assert connect_google(client, monkeypatch, tokens=narrow).status_code == 400
+    assert not client.get("/api/keys").json()["google"]
+    done = connect_google(client, monkeypatch)
+    assert done.status_code == 303 and done.headers["location"] == "/#apps"
+    keys = client.get("/api/keys").json()
+    assert keys["google"] and keys["saved"] == []  # the refresh token is not a key you see
+    assert "r1" not in (hosted / "users" / "1" / "secrets.json").read_text()
+    for name in ("GOOGLE_REFRESH_TOKEN", "GOOGLE_ACCESS_TOKEN"):
+        assert client.put(f"/api/keys/{name}", json={"value": "x"}).status_code == 400
+
+
+def test_the_google_preset_reaches_the_shared_server_with_your_token(hosted, monkeypatch):  # noqa: ANN001
+    from graph_agent.service.registry import pack_named
+
+    monkeypatch.setenv("WORKSPACE_MCP_URL", "http://127.0.0.1:8000/mcp")
+    client = signed_in("1")
+    assert client.put("/api/connections", json={"connections": [{"preset": "google"}]}).is_success
+    (google,) = client.get("/api/connections").json()["connections"]
+    assert google["missing"] == ["GOOGLE_ACCESS_TOKEN"]
+    asked = client.post("/api/connections/test", json={"preset": "google"}).json()
+    assert asked["error"] == "connect your Google account under Your keys"
+    connect_google(client, monkeypatch)
+    (google,) = client.get("/api/connections").json()["connections"]
+    assert google["missing"] == []
+    (connection,) = pack_named("apps", users.load_user("1")).connections()  # type: ignore[attr-defined, arg-type]
+    assert connection.command is None and connection.url == "http://127.0.0.1:8000/mcp"
+    assert connection.resolve(connection.headers["Authorization"]) == "Bearer a1"
+    assert connection.resolve(connection.bind["user_google_email"]) == "1@example.com"
+
+
+def test_an_access_token_is_made_again_before_it_runs_out(hosted, monkeypatch):  # noqa: ANN001
+    user = users.remember("1", "1@example.com", "")
+    users.save_secret(user, auth.REFRESH, "r1")
+    made: list[str] = []
+
+    def refresh(token: str) -> tuple[str, float] | None:
+        made.append(token)
+        return (f"a{len(made)}", auth.time.time() + 3600) if len(made) < 3 else None
+
+    monkeypatch.setattr(auth, "refresh_access", refresh)
+    auth._access.pop("1", None)  # pyright: ignore[reportPrivateUsage]
+    assert auth.keys_for(user)[auth.ACCESS] == "a1"
+    assert auth.keys_for(user)[auth.ACCESS] == "a1" and made == ["r1"]  # still fresh
+    auth._access["1"] = ("a1", auth.time.time() + 600)  # pyright: ignore[reportPrivateUsage]
+    assert auth.keys_for(user)[auth.ACCESS] == "a2"  # ten minutes left is too few for a run
+    auth._access["1"] = ("a2", 0)  # pyright: ignore[reportPrivateUsage]
+    assert auth.ACCESS not in auth.keys_for(user)  # Google refused: shows as not connected
+    assert auth.REFRESH not in auth.keys_for(user)  # never handed to an app
+
+
+def test_disconnecting_google_revokes_and_forgets_it(hosted, monkeypatch):  # noqa: ANN001
+    client = signed_in("1")
+    connect_google(client, monkeypatch)
+    revoked: list[str] = []
+    monkeypatch.setattr(
+        auth.httpx, "post", lambda url, data, timeout: revoked.append(data["token"])
+    )
+    assert client.post("/api/google/disconnect").json() == {"google": False}
+    assert revoked == ["r1"] and not client.get("/api/keys").json()["google"]

@@ -154,26 +154,32 @@ def load_env(path: str | Path) -> None:
                 os.environ.setdefault(key.strip(), value.strip())
 
 
-def from_entry(entry: dict[str, Any]) -> Connection:
-    """One entry of a connections file: a preset (with changes), or a connection in full."""
+def from_entry(
+    entry: dict[str, Any], presets: Mapping[str, dict[str, Any]] | None = None
+) -> Connection:
+    """One entry of a connections file: a preset (with changes), or a connection in full.
+    `presets`: these instead of presets.PRESETS (a hosted console's own)."""
     from .presets import PRESETS
 
+    presets = PRESETS if presets is None else presets
     entry = dict(entry)
     preset = entry.pop("preset", None)
     if preset is None:
         return Connection.model_validate(entry)
-    if preset not in PRESETS:
-        raise ValueError(f"no preset {preset!r}; the presets are {', '.join(sorted(PRESETS))}")
-    return Connection.model_validate({"name": preset, **PRESETS[preset], **entry})
+    if preset not in presets:
+        raise ValueError(f"no preset {preset!r}; the presets are {', '.join(sorted(presets))}")
+    return Connection.model_validate({"name": preset, **presets[preset], **entry})
 
 
-def load_connections(path: str | Path) -> list[Connection]:
+def load_connections(
+    path: str | Path, presets: Mapping[str, dict[str, Any]] | None = None
+) -> list[Connection]:
     """The person's connections (none if the file does not exist yet)."""
     file = Path(path)
     if not file.exists():
         return []
     data = json.loads(file.read_text())
-    connections = [from_entry(entry) for entry in data.get("connections", [])]
+    connections = [from_entry(entry, presets) for entry in data.get("connections", [])]
     names = [c.name for c in connections]
     twice = sorted({n for n in names if names.count(n) > 1})
     if twice:

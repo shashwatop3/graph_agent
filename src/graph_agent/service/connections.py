@@ -30,11 +30,11 @@ from pydantic import BaseModel, ValidationError
 from ..frame.connections import Connection, connect, from_entry, load_env, tool_table
 from ..frame.feeds import ConnectionFeed, NeedsSignIn
 from ..frame.presets import PRESETS
-from .auth import current_user
+from .auth import ACCESS, RESERVED, current_user, google_connected, hosted_presets, keys_for
 from .registry import pack_named
 from .spaces import ROOT
 from .users import LOCAL as LOCAL_USER
-from .users import User, delete_secret, hosted, save_secret, secret_names, secrets_of
+from .users import User, delete_secret, hosted, save_secret, secret_names
 
 CONNECTIONS = ROOT / "connections.json"  # the local person's; hosted, each has one in their folder
 LOCAL = {"127.0.0.1", "localhost", "::1"}
@@ -80,11 +80,15 @@ def read_entries(file: Path) -> list[dict[str, Any]]:
     return list(data.get("connections", []))
 
 
+def presets() -> dict[str, dict[str, Any]]:
+    return hosted_presets() if hosted() else PRESETS
+
+
 def parse(entries: list[dict[str, Any]], user: User = LOCAL_USER) -> list[Connection]:
     """The connections, refused (400) with the reason if one is not valid, or (hosted) not one a
     person may add; hosted, each one looks its secrets up in the person's own keys."""
     try:
-        found = [from_entry(e) for e in entries]
+        found = [from_entry(e, presets()) for e in entries]
     except (ValidationError, ValueError) as error:
         raise HTTPException(400, str(error)) from error
     names = [c.name for c in found]
@@ -93,7 +97,7 @@ def parse(entries: list[dict[str, Any]], user: User = LOCAL_USER) -> list[Connec
         raise HTTPException(400, f"connection names must be unique: {', '.join(twice)}")
     if not hosted():
         return found
-    keys = secrets_of(user)
+    keys = keys_for(user)
     found = [c.with_secrets(keys) for c in found]
     for entry, connection in zip(entries, found, strict=True):
         hosted_rules(entry, connection)
@@ -103,8 +107,7 @@ def parse(entries: list[dict[str, Any]], user: User = LOCAL_USER) -> list[Connec
 # hosted: what a person may change in a preset (not its command, args or env: those are ours), and
 # what an app of their own may say (a server on the internet: no command, args or env)
 PRESET_CHANGES = {"preset", "label", "include", "exclude", "outward"}
-REMOTE = {"name", "label", "about", "url", "headers", "bind", "include", "exclude", "outward"}
-REMOTE |= {"feeds", "timeout"}
+REMOTE = set("name label about url headers bind include exclude outward feeds timeout".split())
 
 
 def hosted_rules(entry: dict[str, Any], connection: Connection) -> None:
@@ -140,8 +143,11 @@ def public_https(name: str, url: str) -> None:
 
 def needs(missing: list[str]) -> str:
     """What to do about secrets not set, in the words of where they are kept."""
-    names = ", ".join(missing)
-    return f"add {names} under Your keys" if hosted() else f"set {names} in .env"
+    if not hosted():
+        return f"set {', '.join(missing)} in .env"
+    if ACCESS in missing:
+        return "connect your Google account under Your keys"
+    return f"add {', '.join(missing)} under Your keys"
 
 
 def setup_pack(name: str, user: User) -> Any:
@@ -165,7 +171,7 @@ def router() -> APIRouter:
         return {
             "presets": [
                 {"name": name, "label": p.get("label", name), "about": p.get("about", "")}
-                for name, p in PRESETS.items()
+                for name, p in presets().items()
             ],
             "entries": entries,
             "connections": [describe(c) for c in parse(entries, user)],
@@ -201,9 +207,10 @@ def router() -> APIRouter:
                     feeds.append({"name": feed.name, "items": len(items), "sample": subjects})
                 except NeedsSignIn as error:
                     link = re.search(r"https?://\S+", str(error))
-                    feeds.append(
-                        {"name": feed.name, "sign_in": link.group(0) if link else str(error)}
-                    )
+                    sign_in = link.group(0) if link else str(error)
+                    if hosted():  # the sign-in is ours there: connecting the Google account again
+                        sign_in = "/auth/google"
+                    feeds.append({"name": feed.name, "sign_in": sign_in})
                 except (ValueError, TimeoutError) as error:
                     feeds.append({"name": feed.name, "error": str(error)[:300]})
             return {"ok": True, "tools": tool_table(tools), "feeds": feeds}
@@ -256,24 +263,28 @@ def router() -> APIRouter:
         wanted = {"ANTHROPIC_API_KEY"}
         for connection in parse(read_entries(connections_file(user)), user):
             wanted |= set(connection.secrets())
-        wanted.discard("USER_GOOGLE_EMAIL")  # the address you signed in with
-        return {"saved": secret_names(user), "wanted": sorted(wanted)}
+        saved = [n for n in secret_names(user) if n not in RESERVED]
+        # the address you signed in with, and the Google token (connected, not pasted)
+        wanted -= RESERVED
+        return {"saved": saved, "wanted": sorted(wanted), "google": google_connected(user)}
 
     @api.put("/api/keys/{name}")
     def save_key(name: str, body: Key, user: User = You) -> dict[str, Any]:
         hosted_or_404()
-        if name == "USER_GOOGLE_EMAIL":
-            raise HTTPException(400, "that is the address you signed in with")
+        if name in RESERVED:
+            raise HTTPException(400, f"{name} comes from signing in with Google, not from here")
         try:
             save_secret(user, name, body.value)
         except ValueError as error:
             raise HTTPException(400, str(error)) from error
-        return {"saved": secret_names(user)}
+        return {"saved": [n for n in secret_names(user) if n not in RESERVED]}
 
     @api.delete("/api/keys/{name}")
     def delete_key(name: str, user: User = You) -> dict[str, Any]:
         hosted_or_404()
+        if name in RESERVED:
+            raise HTTPException(400, f"{name} comes from signing in with Google, not from here")
         delete_secret(user, name)
-        return {"saved": secret_names(user)}
+        return {"saved": [n for n in secret_names(user) if n not in RESERVED]}
 
     return api

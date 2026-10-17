@@ -72,3 +72,20 @@ PRESETS: dict[str, dict[str, Any]] = {
         "outward": {name: True for name in TODOIST_WRITE},
     },
 }
+
+
+def shared_google(url: str) -> dict[str, Any]:
+    """The google preset for a console several people use: one workspace-mcp already running at
+    `url` (streamable HTTP, with MCP_ENABLE_OAUTH21, EXTERNAL_OAUTH21_PROVIDER and
+    WORKSPACE_MCP_STATELESS_MODE), which each request signs in to with the person's own Google
+    access token. It keeps no one's tokens and starts no process per person."""
+    google = {k: v for k, v in PRESETS["google"].items() if k not in ("command", "args", "env")}
+    return {
+        **google,
+        "about": (
+            "Your Gmail and Calendar, read-only: connect your Google account under Your keys "
+            "(Cascade asks Google only for read-only access)."
+        ),
+        "url": url,
+        "headers": {"Authorization": "Bearer $GOOGLE_ACCESS_TOKEN"},
+    }

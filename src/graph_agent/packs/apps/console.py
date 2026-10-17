@@ -54,12 +54,15 @@ class AppsConsole:
         teams_dir: Path = TEAMS,
         connections_file: Path = CONNECTIONS,
         secrets: Callable[[], Mapping[str, str]] | None = None,
+        presets: Mapping[str, dict[str, Any]] | None = None,
     ) -> None:
         # the repository's files and .env by default; a hosted console gives each person their
-        # own files, and their own keys (read again each time: they may have just added one)
+        # own files, their own keys (read again each time: they may have just added one) and its
+        # own presets (Google through one shared server)
         self.teams_dir = teams_dir
         self.connections_file = connections_file
         self.secrets = secrets
+        self.presets = presets
 
     def connections(self) -> list[Connection]:
         """Yours, from connections.json (their secrets from .env, or your own keys)."""
@@ -67,7 +70,8 @@ class AppsConsole:
             load_env(ROOT / ".env")
             return load_connections(self.connections_file)
         keys = self.secrets()
-        return [c.with_secrets(keys) for c in load_connections(self.connections_file)]
+        found = load_connections(self.connections_file, self.presets)
+        return [c.with_secrets(keys) for c in found]
 
     # ---- your teams ---------------------------------------------------------------------------
 

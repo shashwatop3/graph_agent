@@ -1,4 +1,4 @@
-import type { AppsSetup, Catalogue, ConnectionEntry, ConnectionInfo, ConnectionTest, Me, PackInfo, Preset, RecordedRun, RunEvent, SetupView, SpaceState, Summary, TeamSpec, Template, Why } from "./types";
+import type { AppsSetup, Catalogue, ConnectionEntry, ConnectionInfo, ConnectionTest, Keys, Me, PackInfo, Preset, RecordedRun, RunEvent, SetupView, SpaceState, Summary, TeamSpec, Template, Why } from "./types";
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -62,7 +62,8 @@ export const api = {
   deleteSetup: (pack: string, team: string) =>
     call<{ deleted: string }>(`/api/packs/${pack}/setup${teamQuery(team)}`, { method: "DELETE" }),
   // hosted: your own keys (names only come back, never a value)
-  keys: () => call<{ saved: string[]; wanted: string[] }>("/api/keys"),
+  keys: () => call<Keys>("/api/keys"),
+  disconnectGoogle: () => post<{ google: boolean }>("/api/google/disconnect"),
   saveKey: (name: string, value: string) =>
     call<{ saved: string[] }>(`/api/keys/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify({ value }) }),
   deleteKey: (name: string) => call<{ saved: string[] }>(`/api/keys/${encodeURIComponent(name)}`, { method: "DELETE" }),
