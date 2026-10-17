@@ -21,7 +21,7 @@ import asyncio
 import fnmatch
 import json
 import threading
-from collections.abc import Coroutine, Sequence
+from collections.abc import Coroutine, Mapping, Sequence
 from typing import Any, cast
 
 from ..harness.llm import Json
@@ -38,13 +38,17 @@ class MCPTools:
         bind: dict[str, Any] | None = None,
         include: Sequence[str] | None = None,
         exclude: Sequence[str] = (),
+        outward: Mapping[str, bool] | None = None,
     ):
         """`bind`: arguments filled in on every call and hidden from the model (a server that
         wants the account's email on each tool). `include` and `exclude`: tool names (patterns
-        such as "find-*") to offer; with neither, every tool the server lists."""
+        such as "find-*") to offer; with neither, every tool the server lists. `outward`: tool
+        name (or pattern) -> whether it is gated, overriding the server's read-only hint (a
+        person who knows a tool only reads, or wants one gated whatever the server says)."""
         from mcp import Client  # the optional extra, imported only when used
 
         self.prefix = prefix
+        self.outward = dict(outward or {})
         self.bind = dict(bind or {})
         self.timeout = timeout
         self._loop = asyncio.new_event_loop()
@@ -84,6 +88,10 @@ class MCPTools:
         annotations = getattr(tool, "annotations", None)
         read_only = bool(annotations is not None and getattr(annotations, "read_only_hint", False))
         name = str(tool.name)
+        for pattern, gated in self.outward.items():  # the person's word beats the server's
+            if fnmatch.fnmatchcase(name, pattern):
+                read_only = not gated
+                break
         schema: dict[str, Json] = dict(tool.input_schema or {"type": "object", "properties": {}})
         if self.bind:  # the model never sees (or has to supply) what is bound
             given = schema.get("properties")

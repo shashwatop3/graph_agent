@@ -15,3 +15,6 @@ docs
 
 # API keys live here, never in git
 .env
+
+# your own connections (frame/connections.py): names secrets, but never holds them
+connections.json
