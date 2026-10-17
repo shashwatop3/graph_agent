@@ -421,7 +421,7 @@ def test_an_arrival_day_must_be_a_whole_number():
 
     rt = played(0, seed=17)  # the fire starts at F4, so A4 has seen it
     seen = [b for b in rt.store.beliefs("A4") if b.origin == "observed"]
-    box = Toolbox(rt.store, rt.ids, "A4", rt.pack.predicates)
-    with pytest.raises(ValueError, match="whole number"):
-        box.assert_belief("F5", "fire.arrival_day", "6 (unconfirmed)", [seen[0].id])
+    box = Toolbox(rt.store, "A4", rt.pack.predicates, {}, rt.ids)
+    refused = box.assert_belief("F5", "fire.arrival_day", "6 (unconfirmed)", [seen[0].id])
+    assert "whole number" in refused
     assert box.assert_belief("F5", "fire.arrival_day", "6", [seen[0].id]).startswith("recorded")
