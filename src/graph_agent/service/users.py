@@ -6,12 +6,16 @@ https://cascade.fly.dev) switches to hosted: every API call needs a signed-in pe
 person has a folder of their own under GRAPH_AGENT_DATA:
 
     users/<google id>/user.json        their address and name
-    users/<google id>/...              their apps, teams and model cache (from stage D2 on)
+    users/<google id>/secrets.json     their keys (Anthropic, Todoist, ...), encrypted
+    users/<google id>/connections.json, my-teams/, runs/cache/   their apps, teams, model cache
 
 A session is a cookie holding the person's id, when it ends, and a signature made with
 SECRET_KEY, so it cannot be made or changed without that key. Nothing is kept server side for it.
+A person's keys are encrypted with another key made from SECRET_KEY (Fernet: AES with a MAC), and
+are only ever decrypted to run their own things; the API never sends a value back.
 """
 
+import base64
 import hashlib
 import hmac
 import json
@@ -21,6 +25,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
+
+from cryptography.fernet import Fernet, InvalidToken
 
 from .spaces import ROOT
 
@@ -127,3 +133,64 @@ def from_cookie(value: str | None, now: float | None = None) -> User | None:
     if not ends.isdigit() or int(ends) < (now or time.time()):
         return None
     return load_user(user_id)
+
+
+# ---- their keys ----------------------------------------------------------------------------------
+
+NAME = re.compile(r"[A-Z_][A-Z0-9_]{0,63}")  # as a connection names it: "$TODOIST_API_KEY"
+MAX_SECRETS = 30
+
+
+def _fernet() -> Fernet:
+    return Fernet(base64.urlsafe_b64encode(derived_key("secrets")))
+
+
+def _secrets_file(user: User) -> Path:
+    return user.folder / "secrets.json"
+
+
+def _stored(user: User) -> dict[str, str]:
+    file = _secrets_file(user)
+    return json.loads(file.read_text()) if file.exists() else {}
+
+
+def secret_names(user: User) -> list[str]:
+    return sorted(_stored(user))
+
+
+def save_secret(user: User, name: str, value: str) -> None:
+    if not NAME.fullmatch(name):
+        raise ValueError(f"{name!r}: a key's name is capitals, digits and _ (TODOIST_API_KEY)")
+    value = value.strip()
+    if not value or len(value) > 4096:
+        raise ValueError("give the key's value (at most 4096 characters)")
+    stored = _stored(user)
+    if name not in stored and len(stored) >= MAX_SECRETS:
+        raise ValueError(f"at most {MAX_SECRETS} keys")
+    stored[name] = _fernet().encrypt(value.encode()).decode()
+    _write(user, stored)
+
+
+def delete_secret(user: User, name: str) -> None:
+    stored = _stored(user)
+    if stored.pop(name, None) is not None:
+        _write(user, stored)
+
+
+def _write(user: User, stored: dict[str, str]) -> None:
+    file = _secrets_file(user)
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_text(json.dumps(stored, indent=2) + "\n")
+    file.chmod(0o600)
+
+
+def secrets_of(user: User) -> dict[str, str]:
+    """A person's keys, decrypted, plus USER_GOOGLE_EMAIL: the address they signed in with. A key
+    that no longer decrypts (SECRET_KEY was changed) is left out, so it shows as not set."""
+    found = {"USER_GOOGLE_EMAIL": user.email}
+    for name, token in _stored(user).items():
+        try:
+            found[name] = _fernet().decrypt(token.encode()).decode()
+        except InvalidToken:
+            continue
+    return found

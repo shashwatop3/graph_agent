@@ -63,7 +63,7 @@ export function App() {
       {view.kind === "build" && <BuildView onRun={run} />}
       {view.kind === "run" && <RunView spaceId={view.id} onBack={() => go({ kind: "build" })} />}
       {view.kind === "runs" && <Runs onOpen={(id) => go({ kind: "run", id })} />}
-      {view.kind === "apps" && <AppsView onRun={run} />}
+      {view.kind === "apps" && <AppsView onRun={run} hosted={me.hosted} />}
     </div>
   );
 }

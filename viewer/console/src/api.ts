@@ -61,6 +61,11 @@ export const api = {
     call<{ problems: string[]; team: string }>(`/api/packs/${pack}/setup${teamQuery(team)}`, { method: "PUT", body: JSON.stringify(setup) }),
   deleteSetup: (pack: string, team: string) =>
     call<{ deleted: string }>(`/api/packs/${pack}/setup${teamQuery(team)}`, { method: "DELETE" }),
+  // hosted: your own keys (names only come back, never a value)
+  keys: () => call<{ saved: string[]; wanted: string[] }>("/api/keys"),
+  saveKey: (name: string, value: string) =>
+    call<{ saved: string[] }>(`/api/keys/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify({ value }) }),
+  deleteKey: (name: string) => call<{ saved: string[] }>(`/api/keys/${encodeURIComponent(name)}`, { method: "DELETE" }),
   checkSetup: (pack: string, setup: AppsSetup) => post<{ problems: string[] }>(`/api/packs/${pack}/setup/check`, setup),
 };
 

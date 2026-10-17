@@ -263,7 +263,9 @@ dependencies = [
 
 [package.optional-dependencies]
 service = [
+    { name = "cryptography" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "mcp" },
     { name = "uvicorn" },
 ]
@@ -278,8 +280,10 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", marker = "extra == 'service'", specifier = ">=50.0.2" },
     { name = "falkordb", specifier = ">=1.7.1" },
     { name = "fastapi", marker = "extra == 'service'", specifier = ">=0.143.3" },
+    { name = "httpx", marker = "extra == 'service'", specifier = ">=0.28.1" },
     { name = "mcp", marker = "extra == 'service'", specifier = ">=2.3.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.6" },
     { name = "pydantic", specifier = ">=2.14.1" },

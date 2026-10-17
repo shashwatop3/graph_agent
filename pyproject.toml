@@ -14,7 +14,9 @@ dependencies = [
 
 [project.optional-dependencies]
 service = [
+    "cryptography>=50.0.2",  # hosted: each person's keys are kept encrypted
     "fastapi>=0.143.3",
+    "httpx>=0.28.1",  # hosted: signing in with Google
     "mcp>=2.3.0",
     "uvicorn>=0.54.0",
 ]

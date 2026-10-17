@@ -153,3 +153,71 @@ def test_only_recorded_runs_replay_from_the_shared_cache(hosted):  # noqa: ANN00
     client = signed_in()
     asked = client.post("/api/runs/replay", json={"pack": "apps", "name": "uni"})
     assert asked.status_code == 404
+
+
+# ---- D3: each person's own keys ------------------------------------------------------------------
+
+
+def test_keys_are_kept_encrypted_per_person_and_never_sent_back(
+    hosted,
+    monkeypatch: pytest.MonkeyPatch,  # noqa: ANN001
+):
+    alice, bob = signed_in("1"), signed_in("2")
+    assert alice.get("/api/keys").json() == {"saved": [], "wanted": ["ANTHROPIC_API_KEY"]}
+    put = alice.put("/api/keys/TODOIST_API_KEY", json={"value": " todo-secret "})
+    assert put.json() == {"saved": ["TODOIST_API_KEY"]}
+    assert "todo-secret" not in (hosted / "users" / "1" / "secrets.json").read_text()
+    assert "todo-secret" not in alice.get("/api/keys").text
+    assert bob.get("/api/keys").json()["saved"] == []
+    assert users.secrets_of(users.User("1", "", "", hosted / "users" / "1")) == {
+        "USER_GOOGLE_EMAIL": "",
+        "TODOIST_API_KEY": "todo-secret",
+    }
+    assert alice.put("/api/keys/bad name", json={"value": "x"}).status_code == 400
+    assert alice.put("/api/keys/USER_GOOGLE_EMAIL", json={"value": "x"}).status_code == 400
+    assert alice.delete("/api/keys/TODOIST_API_KEY").json() == {"saved": []}
+    monkeypatch.delenv("GRAPH_AGENT_PUBLIC_URL")
+    local = TestClient(create_app(), base_url="http://127.0.0.1:8765")
+    assert local.get("/api/keys").status_code == 404  # locally they are in .env
+
+
+def test_an_app_looks_its_secrets_up_in_your_keys(hosted, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN001
+    monkeypatch.setenv("TODOIST_API_KEY", "the-servers-own")  # not anyone else's to use
+    client = signed_in()
+    client.put("/api/connections", json={"connections": [{"preset": "todoist"}]})
+    (todoist,) = client.get("/api/connections").json()["connections"]
+    assert todoist["missing"] == ["TODOIST_API_KEY"]
+    asked = client.post("/api/connections/test", json={"preset": "todoist"}).json()
+    assert asked == {"ok": False, "error": "add TODOIST_API_KEY under Your keys"}
+    assert client.get("/api/keys").json()["wanted"] == ["ANTHROPIC_API_KEY", "TODOIST_API_KEY"]
+    client.put("/api/keys/TODOIST_API_KEY", json={"value": "mine"})
+    (todoist,) = client.get("/api/connections").json()["connections"]
+    assert todoist["missing"] == []
+
+
+def test_hosted_apps_are_presets_or_servers_on_the_internet(hosted):  # noqa: ANN001
+    client = signed_in()
+
+    def refused(entry: dict[str, Any]) -> str:
+        answer = client.put("/api/connections", json={"connections": [entry]})
+        assert answer.status_code == 400, entry
+        return answer.json()["detail"]
+
+    assert "not a command" in refused({"name": "x", "command": "rm", "args": ["-rf", "/"]})
+    assert "cannot change" in refused({"preset": "todoist", "command": "sh"})
+    assert "cannot change" in refused({"preset": "google", "env": {"X": "y"}})
+    assert "https://" in refused({"name": "x", "url": "http://1.1.1.1/mcp"})
+    for inside in ("https://127.0.0.1/mcp", "https://10.0.0.5/mcp", "https://169.254.169.254/"):
+        assert "public internet" in refused({"name": "x", "url": inside})
+    ok = {"connections": [{"name": "x", "url": "https://1.1.1.1/mcp"}, {"preset": "todoist"}]}
+    assert client.put("/api/connections", json=ok).status_code == 200
+
+
+def test_a_hosted_run_spends_only_from_your_own_key(hosted, monkeypatch: pytest.MonkeyPatch):  # noqa: ANN001
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "the-servers-own")
+    client = signed_in()
+    life = next(t for t in client.get("/api/templates").json() if t["pack"] == "life")
+    team = client.get(f"/api/templates/life/{life['name']}").json()
+    body = {"pack": "life", "team": team, "model": "claude-haiku-5-5"}
+    refused = client.post("/api/spaces", json=body)
+    assert refused.status_code == 400 and "Your keys" in refused.json()["detail"]

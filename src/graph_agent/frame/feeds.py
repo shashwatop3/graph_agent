@@ -60,10 +60,12 @@ def dated(value: Any, today: date) -> Any:
 class ConnectionFeed:
     """One feed of one connection: call it with the tick, get the new items."""
 
-    def __init__(self, tools: MCPTools, feed: Feed, today: date | None = None):
+    def __init__(
+        self, tools: MCPTools, feed: Feed, today: date | None = None, me: str | None = None
+    ):
         self.tools = tools
         self.feed = feed
-        self.me = resolve(feed.me).lower()
+        self.me = (resolve(feed.me) if me is None else me).lower()  # me: feed.me, resolved
         self.today = today  # None: the real date at each poll
         self.seen: set[str] = set()
         self.last = ""  # a page feed: the digest of the last result
@@ -149,7 +151,8 @@ def attach(
             for feed in connection.feeds:
                 if feed.name in rt.feeds:
                     raise ValueError(f"two feeds are named {feed.name!r}: rename one")
-                rt.feeds[feed.name] = ConnectionFeed(tools, feed, today)
+                me = connection.resolve(feed.me)
+                rt.feeds[feed.name] = ConnectionFeed(tools, feed, today, me)
     except BaseException:
         rt.close()  # what did open is not left running
         raise

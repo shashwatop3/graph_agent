@@ -16,6 +16,9 @@ Its tools reach the nodes named "<connection>_<tool>" (google_get_events), so a 
 allow one app's tools with "google_*". Whether a tool is gated: the server's read-only hint,
 unless `outward` says otherwise; a tool the server does not mark read-only is gated (unknown means
 gated). Secrets stay in the environment: the file, the team and the console only see their names.
+A connection can instead be given one person's own secrets (`with_secrets`, for a console that
+several people use): then their names are looked up there, and a server it starts gets those and
+the few system variables it needs to run, not this process's environment.
 
 A connection can also have feeds: tools polled every tick whose results come to the team as items
 (see feeds.py).
@@ -25,10 +28,11 @@ import json
 import os
 import re
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from .mcp import MCPTools
 
@@ -73,6 +77,7 @@ class Connection(Strict):
     outward: dict[str, bool] = Field(default_factory=dict[str, bool])  # tool pattern -> gated
     feeds: list[Feed] = Field(default_factory=list[Feed])
     timeout: float = 180.0
+    _secrets: Mapping[str, str] | None = PrivateAttr(default=None)  # None: the environment
 
     @model_validator(mode="after")
     def _check(self) -> "Connection":
@@ -91,13 +96,25 @@ class Connection(Strict):
         values += [feed.me for feed in self.feeds]
         return [names for value in values for names in _references(value)]
 
+    def with_secrets(self, secrets: Mapping[str, str]) -> "Connection":
+        """This connection, its "$NAMES" looked up in `secrets` instead of the environment."""
+        given = self.model_copy()
+        given._secrets = secrets
+        return given
+
+    def resolve(self, value: str) -> str:
+        """`value` with every "$NAME" replaced by its secret."""
+        return resolve(value, self._secrets)
+
     def secrets(self) -> list[str]:
         """The environment names its settings refer to ("$NAME", "${NAME}"; of "${A|B}", A)."""
         return sorted({names[0] for names in self._references()})
 
     def missing(self) -> list[str]:
         """The secrets not set in the environment (of "${A|B}", A, when neither is set)."""
-        return sorted({names[0] for names in self._references() if not _lookup(names)})
+        return sorted(
+            {names[0] for names in self._references() if not _lookup(names, self._secrets)}
+        )
 
 
 # "$NAME", "${NAME}", or "${A|B}": the first of A and B that is set (a .env may already use
@@ -109,13 +126,22 @@ def _references(value: str) -> list[list[str]]:
     return [(m.group(1) or m.group(2)).split("|") for m in _NAME.finditer(value)]
 
 
-def _lookup(names: list[str]) -> str:
-    return next((os.environ[n] for n in names if os.environ.get(n)), "")
+def _lookup(names: list[str], secrets: Mapping[str, str] | None = None) -> str:
+    found = os.environ if secrets is None else secrets
+    return next((found[n] for n in names if found.get(n)), "")
 
 
-def resolve(value: str) -> str:
-    """`value` with every "$NAME" replaced by its value in the environment."""
-    return _NAME.sub(lambda m: _lookup((m.group(1) or m.group(2)).split("|")), value)
+def resolve(value: str, secrets: Mapping[str, str] | None = None) -> str:
+    """`value` with every "$NAME" replaced by its value in `secrets` (None: the environment)."""
+    return _NAME.sub(lambda m: _lookup((m.group(1) or m.group(2)).split("|"), secrets), value)
+
+
+# what a started server needs from this process to run at all, when it is given someone's own
+# secrets instead of the environment (uvx and npx find themselves, their caches and a temp folder)
+SYSTEM = (
+    *("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR"),
+    *("XDG_CACHE_HOME", "UV_CACHE_DIR", "UV_TOOL_DIR", "NPM_CONFIG_CACHE"),
+)
 
 
 def load_env(path: str | Path) -> None:
@@ -161,15 +187,19 @@ def server_of(connection: Connection) -> Any:
         from mcp import StdioServerParameters
 
         command = sys.executable if connection.command == "python" else connection.command
-        env = {**os.environ, **{k: resolve(v) for k, v in connection.env.items()}}
+        own = {k: connection.resolve(v) for k, v in connection.env.items()}
+        if connection._secrets is None:  # pyright: ignore[reportPrivateUsage]
+            env = {**os.environ, **own}
+        else:  # someone's own secrets: not this process's environment
+            env = {**{k: os.environ[k] for k in SYSTEM if k in os.environ}, **own}
         return StdioServerParameters(command=command, args=list(connection.args), env=env)
-    url = resolve(connection.url or "")
+    url = connection.resolve(connection.url or "")
     if not connection.headers:
         return url
     from mcp.client.streamable_http import streamable_http_client
     from mcp.shared._httpx_utils import create_mcp_http_client  # pyright: ignore[reportPrivateUsage]
 
-    headers = {k: resolve(v) for k, v in connection.headers.items()}
+    headers = {k: connection.resolve(v) for k, v in connection.headers.items()}
     return streamable_http_client(url, http_client=create_mcp_http_client(headers=headers))
 
 
@@ -183,7 +213,7 @@ def connect(connection: Connection, server: Any = None) -> MCPTools:
         server if server is not None else server_of(connection),
         prefix=connection.prefix,
         timeout=connection.timeout,
-        bind={k: resolve(v) for k, v in connection.bind.items()},
+        bind={k: connection.resolve(v) for k, v in connection.bind.items()},
         include=connection.include,
         exclude=connection.exclude,
         outward=connection.outward,

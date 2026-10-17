@@ -341,3 +341,6 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; color:
 .signin .pb { display: grid; gap: 12px; justify-items: start; padding: 22px; }
 .signin h1 { font-size: 24px; }
 .signin a.btn { display: inline-flex; align-items: center; text-decoration: none; }
+.key-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.key-row code { font-family: var(--f-mono); font-size: 12px; min-width: 18ch; }
+.key-row input { flex: 1 1 180px; min-width: 0; }

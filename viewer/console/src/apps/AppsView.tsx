@@ -5,6 +5,7 @@ import type { AgentSetup, AppsSetup, ConnectionEntry, ConnectionInfo, Connection
 
 interface Props {
   onRun: (pack: string, team: TeamSpec, name: string, options: RunOptions) => Promise<void>;
+  hosted: boolean; // several people use this console: secrets are their own keys, not .env
 }
 
 const nameOf = (e: ConnectionEntry) => String(e.name ?? e.preset ?? "");
@@ -13,7 +14,10 @@ const nameOf = (e: ConnectionEntry) => String(e.name ?? e.preset ?? "");
  * secrets stay in .env), then say in a few lines what each agent is for and which apps it may use.
  * The team, its links and its safety settings are made from that (packs/apps/setup.py). You can
  * keep several teams on the same apps (one file each in my-teams/); the bar on top picks one. */
-export function AppsView({ onRun }: Props) {
+export function AppsView({ onRun, hosted }: Props) {
+  const where = hosted ? "under Your keys" : "in .env";
+  // ---- your keys (hosted) ----
+  const [keys, setKeys] = useState<{ saved: string[]; wanted: string[] } | null>(null);
   // ---- your apps ----
   const [presets, setPresets] = useState<Preset[]>([]);
   const [entries, setEntries] = useState<ConnectionEntry[]>([]);
@@ -42,7 +46,14 @@ export function AppsView({ onRun }: Props) {
     api.connections().then((r) => { setPresets(r.presets); setEntries(r.entries); setInfos(r.connections); })
       .catch((e: Error) => setAppsProblem(e.message));
     open(undefined);
-  }, []);
+    if (hosted) api.keys().then(setKeys).catch((e: Error) => setAppsProblem(e.message));
+  }, [hosted]);
+
+  /** After a key is saved or removed: the keys, and what each app still needs. */
+  function keysChanged(saved: string[]) {
+    setKeys((k) => (k ? { ...k, saved } : k));
+    api.connections().then((r) => setInfos(r.connections)).catch(() => undefined);
+  }
 
   function show(v: SetupView) {
     setTeams(v.teams);
@@ -110,6 +121,7 @@ export function AppsView({ onRun }: Props) {
       setInfos(r.connections);
       setAppsChanged(false);
       setAppsProblem("");
+      if (hosted) api.keys().then(setKeys).catch(() => undefined); // the apps may want new ones
     } catch (e) {
       setAppsProblem((e as Error).message);
     }
@@ -215,13 +227,17 @@ export function AppsView({ onRun }: Props) {
         </div>
       </section>
 
+      {keys && <KeysPanel keys={keys} onChange={keysChanged} />}
+
       <section className="panel">
         <div className="ph">
           <div><div className="eyebrow">Step 1 · {entries.length} connected · {ready} ready</div><h2>Your apps</h2></div>
           <button className="btn" disabled={!appsChanged} onClick={() => void saveApps()}>{appsChanged ? "Save apps" : "Saved"}</button>
         </div>
         <div className="pb">
-          <p className="note">Each app is an MCP server: it does the sign-in and the API calls. Secrets never go in here: an app names them (like <code>$TODOIST_API_KEY</code>) and you put the values in <code>.env</code> at the project's root.</p>
+          {hosted
+            ? <p className="note">Each app is an MCP server: it does the sign-in and the API calls. An app names the secrets it needs (like <code>$TODOIST_API_KEY</code>) and you add their values under Your keys, where they are kept encrypted and never shown again.</p>
+            : <p className="note">Each app is an MCP server: it does the sign-in and the API calls. Secrets never go in here: an app names them (like <code>$TODOIST_API_KEY</code>) and you put the values in <code>.env</code> at the project's root.</p>}
           {entries.length === 0 && <p className="none">No apps yet: add one below.</p>}
           {entries.map((entry) => {
             const name = nameOf(entry);
@@ -233,13 +249,14 @@ export function AppsView({ onRun }: Props) {
                 info={info}
                 test={tests[name]}
                 testing={testing === name}
+                where={where}
                 onTest={() => void test(entry)}
                 onChange={(patch) => changeEntry(name, patch)}
                 onRemove={() => changeEntries(entries.filter((e) => nameOf(e) !== name))}
               />
             );
           })}
-          <AddApp presets={presets} taken={entries.map(nameOf)} onAdd={(e) => changeEntries([...entries, e])} />
+          <AddApp presets={presets} taken={entries.map(nameOf)} hosted={hosted} onAdd={(e) => changeEntries([...entries, e])} />
           {appsProblem && <p className="err">{appsProblem}</p>}
         </div>
       </section>
@@ -295,7 +312,7 @@ export function AppsView({ onRun }: Props) {
               <option value="auto">Run at once</option>
             </select>
           </label>
-          <p className="note">A real model reads your mail, so a run spends from the key in <code>.env</code> (each request is cached, so a rerun is free). Nothing the apps mark as gated runs unless you chose so above; a mail is read as claims to check, never as instructions.</p>
+          <p className="note">A real model reads your mail, so a run spends from {hosted ? "your own Anthropic key (under Your keys)" : <>the key in <code>.env</code></>} (each request is cached, so a rerun is free). Nothing the apps mark as gated runs unless you chose so above; a mail is read as claims to check, never as instructions.</p>
           <div><button className="btn primary" disabled={busy || !setup} onClick={() => void run()}>{busy ? "Starting…" : "Save and run"}</button></div>
           {runProblem && <p className="err">{runProblem}</p>}
         </div>
@@ -304,13 +321,65 @@ export function AppsView({ onRun }: Props) {
   );
 }
 
+// ---- your keys (hosted) -------------------------------------------------------------------------
+
+/** The secrets your apps and a real model need, kept encrypted on the server. A value is sent
+ * once, when you save it, and never shown again: a saved key can only be replaced or removed. */
+function KeysPanel({ keys, onChange }: { keys: { saved: string[]; wanted: string[] }; onChange: (saved: string[]) => void }) {
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [other, setOther] = useState("");
+  const [extra, setExtra] = useState<string[]>([]); // names added here, not saved yet
+  const [problem, setProblem] = useState("");
+  const names = [...new Set([...keys.wanted, ...keys.saved, ...extra])].sort();
+
+  async function save(name: string) {
+    try {
+      const r = await api.saveKey(name, values[name] ?? "");
+      setValues((v) => ({ ...v, [name]: "" }));
+      setProblem("");
+      onChange(r.saved);
+    } catch (e) {
+      setProblem((e as Error).message);
+    }
+  }
+  async function remove(name: string) {
+    try { onChange((await api.deleteKey(name)).saved); } catch (e) { setProblem((e as Error).message); }
+  }
+
+  return (
+    <section className="panel">
+      <div className="ph"><div><div className="eyebrow">Kept encrypted · never shown again</div><h2>Your keys</h2></div></div>
+      <div className="pb insp">
+        <p className="note">Your Anthropic key pays for your own runs (from console.anthropic.com). An app's token, like Todoist's, comes from that app's settings. Only your runs use them.</p>
+        {names.map((name) => {
+          const saved = keys.saved.includes(name);
+          return (
+            <div key={name} className="key-row">
+              <code>{name}</code>
+              <span className="tag" style={c(saved ? "var(--ok)" : "var(--stale)")}>{saved ? "saved" : "not set"}</span>
+              <input type="password" autoComplete="off" placeholder={saved ? "replace it" : "paste it here"} value={values[name] ?? ""} onChange={(e) => setValues((v) => ({ ...v, [name]: e.target.value }))} />
+              <button className="btn" disabled={!(values[name] ?? "").trim()} onClick={() => void save(name)}>Save</button>
+              {saved && <button className="btn danger" onClick={() => void remove(name)}>Remove</button>}
+            </div>
+          );
+        })}
+        <label>Another key, by the name an app uses<input value={other} placeholder="NOTES_TOKEN" onChange={(e) => setOther(e.target.value.toUpperCase())} /></label>
+        <div><button className="btn" disabled={!/^[A-Z_][A-Z0-9_]*$/.test(other)} onClick={() => { setExtra((x) => [...x, other]); setOther(""); }}>+ Add it to the list</button></div>
+        {problem && <p className="err">{problem}</p>}
+      </div>
+    </section>
+  );
+}
+
 // ---- one app ------------------------------------------------------------------------------------
 
-function AppCard({ entry, info, test, testing, onTest, onChange, onRemove }: {
+function AppCard({ entry, info, test, testing, where, onTest, onChange, onRemove }: {
   entry: ConnectionEntry;
   info: ConnectionInfo | undefined;
   test: ConnectionTest | undefined;
   testing: boolean;
+  where: string; // where its secrets are kept: "in .env", or "under Your keys"
+
   onTest: () => void;
   onChange: (patch: Partial<ConnectionEntry>) => void;
   onRemove: () => void;
@@ -327,7 +396,7 @@ function AppCard({ entry, info, test, testing, onTest, onChange, onRemove }: {
         <span className="muted">{info?.label || (entry.preset ? `preset ${entry.preset}` : String(entry.command ?? entry.url ?? ""))}</span>
         {!info && <span className="tag">not saved</span>}
         {info && (missing.length
-          ? <span className="tag" style={c("var(--stale)")}>needs {missing.join(", ")} in .env</span>
+          ? <span className="tag" style={c("var(--stale)")}>needs {missing.join(", ")} {where}</span>
           : <span className="tag" style={c("var(--ok)")}>ready</span>)}
         <span className="grow" />
         <button className="btn" disabled={testing} onClick={onTest}>{testing ? "Testing…" : "Test"}</button>
@@ -367,10 +436,11 @@ function AppCard({ entry, info, test, testing, onTest, onChange, onRemove }: {
   );
 }
 
-function AddApp({ presets, taken, onAdd }: { presets: Preset[]; taken: string[]; onAdd: (e: ConnectionEntry) => void }) {
+function AddApp({ presets, taken, hosted, onAdd }: { presets: Preset[]; taken: string[]; hosted: boolean; onAdd: (e: ConnectionEntry) => void }) {
   const [custom, setCustom] = useState(false);
   const [name, setName] = useState("");
-  const [how, setHow] = useState<"command" | "url">("command");
+  // hosted: an app of your own is a server on the internet; nobody starts commands on the server
+  const [how, setHow] = useState<"command" | "url">(hosted ? "url" : "command");
   const [command, setCommand] = useState("");
   const [args, setArgs] = useState("");
   const [url, setUrl] = useState("");
@@ -406,10 +476,12 @@ function AddApp({ presets, taken, onAdd }: { presets: Preset[]; taken: string[];
       {custom && (
         <div className="insp custom">
           <label>Name (its tools are called name_tool)<input value={name} onChange={(e) => setName(e.target.value)} placeholder="notes" /></label>
-          <div className="seg" role="group" aria-label="How to reach it">
-            <button aria-pressed={how === "command"} onClick={() => setHow("command")}>Start a command</button>
-            <button aria-pressed={how === "url"} onClick={() => setHow("url")}>A URL</button>
-          </div>
+          {!hosted && (
+            <div className="seg" role="group" aria-label="How to reach it">
+              <button aria-pressed={how === "command"} onClick={() => setHow("command")}>Start a command</button>
+              <button aria-pressed={how === "url"} onClick={() => setHow("url")}>A URL</button>
+            </div>
+          )}
           {how === "command" ? (
             <>
               <label>Command<input value={command} onChange={(e) => setCommand(e.target.value)} placeholder="npx" /></label>
@@ -418,7 +490,7 @@ function AddApp({ presets, taken, onAdd }: { presets: Preset[]; taken: string[];
           ) : (
             <label>URL<input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com/mcp" /></label>
           )}
-          <label>{how === "command" ? "Settings it reads" : "Headers"}, one per line, secrets as $NAME from .env
+          <label>{how === "command" ? "Settings it reads" : "Headers"}, one per line, secrets as $NAME from {hosted ? "Your keys" : ".env"}
             <textarea rows={2} value={secrets} onChange={(e) => setSecrets(e.target.value)} placeholder={how === "command" ? "API_KEY=$NOTES_KEY" : "Authorization=Bearer $NOTES_TOKEN"} />
           </label>
           <div><button className="btn" onClick={add}>Add it</button></div>

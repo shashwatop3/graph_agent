@@ -42,11 +42,19 @@ def _env() -> None:
                 os.environ.setdefault(key.strip(), value.strip())
 
 
-def make_client(model: str, pack: ConsolePack, team: TeamSpec, cache: Path) -> ModelClient:
+def make_client(
+    model: str, pack: ConsolePack, team: TeamSpec, cache: Path, key: str | None = None
+) -> ModelClient:
     """The model a space runs on. `cache`: the folder of model caches (each person's own, hosted:
-    what one person's run asked, with their mail in it, is never replayed to another)."""
+    what one person's run asked, with their mail in it, is never replayed to another). `key`: the
+    person's own Anthropic key (hosted); None: the one in .env."""
     if model == "stand-in":
         return pack.stand_in(team)
+    if key is not None:  # someone's own key: never this server's, nor its workspace
+        if not key:
+            raise ValueError("a real model needs your Anthropic key: add it under Your keys")
+        real = AnthropicClient(model, key, max_tokens=2000)
+        return CachedClient(real, cache / f"{model}-mt2000{pack.cache_suffix}")
     _env()
     key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not key:
@@ -429,6 +437,7 @@ class Spaces:
         options: dict[str, str] | None = None,
         owner: str = "local",
         cache: Path = ROOT / "runs" / "cache",
+        key: str | None = None,
     ) -> Space:
         space_id = uuid.uuid4().hex[:8]
         the_store: Store = (
@@ -436,7 +445,7 @@ class Spaces:
             if store == "falkor"
             else MemoryStore()
         )
-        client = make_client(model, pack, team, cache)
+        client = make_client(model, pack, team, cache, key)
         session = pack.start(team, client, the_store, EventLog(), options or {})
         space = Space(space_id, pack.name, name or team.name, model, session, the_store, owner)
         with space.lock:

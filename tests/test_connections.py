@@ -108,3 +108,16 @@ def test_the_person_can_gate_a_tool_or_free_one():
         assert table == {"sim_mail_search": True, "sim_mail_read": False, "sim_mail_send": False}
     finally:
         tools.close()
+
+
+def test_a_server_started_with_someones_own_secrets_gets_only_those(monkeypatch):  # noqa: ANN001
+    from graph_agent.frame.connections import Connection, server_of
+
+    monkeypatch.setenv("SECRET_KEY", "the-servers-own")
+    monkeypatch.setenv("TODOIST_API_KEY", "the-servers-todoist")
+    connection = Connection(name="t", command="npx", env={"TODOIST_API_KEY": "$TODOIST_API_KEY"})
+    mine = server_of(connection.with_secrets({"TODOIST_API_KEY": "mine"}))
+    assert mine.env["TODOIST_API_KEY"] == "mine"
+    assert "SECRET_KEY" not in mine.env and "PATH" in mine.env
+    local = server_of(connection)  # the local console: the environment, as before
+    assert local.env["TODOIST_API_KEY"] == "the-servers-todoist" and "SECRET_KEY" in local.env

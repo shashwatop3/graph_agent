@@ -7,6 +7,7 @@ with; renaming a team later keeps its file.
 """
 
 import re
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, cast
 
@@ -48,15 +49,25 @@ class AppsConsole:
         )
     ]
 
-    def __init__(self, teams_dir: Path = TEAMS, connections_file: Path = CONNECTIONS) -> None:
-        # the repository's files by default; a hosted console gives each person their own
+    def __init__(
+        self,
+        teams_dir: Path = TEAMS,
+        connections_file: Path = CONNECTIONS,
+        secrets: Callable[[], Mapping[str, str]] | None = None,
+    ) -> None:
+        # the repository's files and .env by default; a hosted console gives each person their
+        # own files, and their own keys (read again each time: they may have just added one)
         self.teams_dir = teams_dir
         self.connections_file = connections_file
+        self.secrets = secrets
 
     def connections(self) -> list[Connection]:
-        """Yours, from connections.json (their secrets from .env)."""
-        load_env(ROOT / ".env")
-        return load_connections(self.connections_file)
+        """Yours, from connections.json (their secrets from .env, or your own keys)."""
+        if self.secrets is None:
+            load_env(ROOT / ".env")
+            return load_connections(self.connections_file)
+        keys = self.secrets()
+        return [c.with_secrets(keys) for c in load_connections(self.connections_file)]
 
     # ---- your teams ---------------------------------------------------------------------------
 

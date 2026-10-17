@@ -38,7 +38,7 @@ from .auth import router as auth_router
 from .connections import router as connections_router
 from .registry import pack_named, packs_for
 from .spaces import ROOT, Spaces
-from .users import User, hosted, secret_key
+from .users import User, hosted, secret_key, secrets_of
 
 CONSOLE = ROOT / "viewer" / "console" / "dist"
 
@@ -90,6 +90,10 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
         return space
 
     You = Depends(current_user)  # the person asking (the local one, when not hosted)
+
+    def own_key(user: User) -> str | None:
+        """Hosted: the person's own Anthropic key ("" if they have none). Local: None (.env)."""
+        return secrets_of(user).get("ANTHROPIC_API_KEY", "") if hosted() else None
 
     # ---- building a team ----------------------------------------------------------------------
 
@@ -192,6 +196,7 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
                 options=body.options,
                 owner=user.id,
                 cache=user.folder / "runs" / "cache",  # local: the repository's runs/cache
+                key=own_key(user),
             )
         except (ValidationError, ValueError, KeyError) as error:
             raise HTTPException(400, str(error)) from error
@@ -334,6 +339,7 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
                 options=options,
                 owner=user.id,
                 cache=ROOT / "runs" / "cache",
+                key=own_key(user),
             )
         except (ValueError, KeyError) as error:
             raise HTTPException(400, str(error)) from error

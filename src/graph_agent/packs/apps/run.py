@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from graph_agent.core.store import Store
-from graph_agent.frame.connections import Connection, connect, load_connections, load_env, resolve
+from graph_agent.frame.connections import Connection, connect, load_connections, load_env
 from graph_agent.frame.events import EventLog
 from graph_agent.frame.feeds import attach
 from graph_agent.frame.runtime import Runtime
@@ -98,7 +98,7 @@ def build_apps(
     `servers`: connection name -> a server to use instead of starting it (tests)."""
     things = team.settings.extra.get("things") or THINGS
     trusted = [feed.name for c in connections for feed in c.feeds if feed.trusted]
-    me = next((resolve(feed.me) for c in connections for feed in c.feeds if feed.me), "")
+    me = next((c.resolve(feed.me) for c in connections for feed in c.feeds if feed.me), "")
     pack = AppsPack(things, trusted, me)
     runtime = Runtime(team, pack, store, client, log=log)
     pack.setup(runtime)
