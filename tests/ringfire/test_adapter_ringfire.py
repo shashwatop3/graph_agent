@@ -2,7 +2,7 @@
 
 import pytest
 
-from graph_agent.adapters import ringfire as rf
+from graph_agent.packs.ringfire import adapter as rf
 from graph_agent.stores.memory import MemoryStore
 
 N = 6

@@ -1,8 +1,8 @@
 """Read a run log written with --log (see src/graph_agent/harness/trace.py).
 
-    uv run python benchmarks/inspect_log.py runs/x/logs/graph-memory_g0_n12_s0.jsonl
-    uv run python benchmarks/inspect_log.py LOG --day 4 --agent A3     # one turn in full
-    uv run python benchmarks/inspect_log.py LOG --kind exposure        # every event of one kind
+    uv run python benchmarks/ringfire/inspect_log.py runs/x/logs/graph-memory_g0_n12_s0.jsonl
+    uv run python benchmarks/ringfire/inspect_log.py LOG --day 4 --agent A3     # one turn in full
+    uv run python benchmarks/ringfire/inspect_log.py LOG --kind exposure   # every event of one kind
 
 With no filter it prints a summary: problems first (tool errors, turns that ran out of steps,
 wrong probe answers, false beliefs still held), then a day-by-day timeline.

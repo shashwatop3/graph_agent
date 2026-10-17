@@ -1,6 +1,6 @@
 """Run a small sweep against a real model served locally (or anywhere OpenAI-compatible).
 
-    uv run python benchmarks/pilot.py --systems graph-memory B0 --agents 6 --seeds 0
+    uv run python benchmarks/ringfire/pilot.py --systems graph-memory B0 --agents 6 --seeds 0
 
 Every request is cached under runs/cache/<model>, so rerunning the same sweep is instant and free.
 Results go to runs/pilot/ (results.json, results.csv, summary.md).
@@ -11,11 +11,11 @@ import os
 import time
 from pathlib import Path
 
-from graph_agent.harness.experiment import Knobs, run_experiment
 from graph_agent.harness.llm import AnthropicClient, CachedClient, OpenAICompatibleClient
+from graph_agent.packs.ringfire.benchmark.experiment import Knobs, run_experiment
 
 # a plain KEY=value file, kept out of git, so the key never goes in a command or in chat
-env_file = Path(__file__).parent.parent / ".env"
+env_file = Path(__file__).parents[2] / ".env"
 if env_file.exists():
     for line in env_file.read_text().splitlines():
         key, _, value = line.partition("=")

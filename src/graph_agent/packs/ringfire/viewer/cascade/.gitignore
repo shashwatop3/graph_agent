@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# made from a local run log (runs/ is not in git)
+public/sample.json

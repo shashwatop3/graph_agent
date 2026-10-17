@@ -1,0 +1,722 @@
+<title>Ring Fire Isle</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/postprocessing/MaskPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.2/anime.min.js"></script>
+<style>
+/* Layout: a full-bleed 3D scene (an island ring at night) with a thin HUD over it: title and stats top-left,
+   switches top-right, the night numeral top-centre, truth counts bottom-left, turn track along the bottom.
+   One deliberate dark world. */
+:root {
+  --bg: #0b0e14; --hair: rgb(255 255 255 / .09); --hair2: rgb(255 255 255 / .16); --glass: rgb(14 18 27 / .72);
+  --ink: #e9e5db; --dim: #8b909d; --faint: #4a5061;
+  --ember: #ff8a3d; --flame: #ffc46b; --water: #5ccfe6; --lie: #ff5c9a; --truth: #9ab8ff; --cut: #ff5050; --gold: #e8c37a;
+  --f-display: "Instrument Serif", Georgia, serif; --f-ui: "Geist", system-ui, sans-serif; --f-mono: "Geist Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { background: var(--bg); color: var(--ink); }
+body { font-family: var(--f-ui); font-size: 14px; -webkit-font-smoothing: antialiased; }
+.app { padding: 12px 16px; padding-block: 12px 16px; }
+button { font: inherit; color: inherit; cursor: pointer; background: none; border: 0; }
+button:focus-visible, input:focus-visible { outline: 1px solid var(--gold); outline-offset: 3px; border-radius: 4px; }
+.caps { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+.stage { position: relative; height: clamp(560px, 88vh, 940px); border-radius: 18px; overflow: hidden; border: 1px solid var(--hair);
+  background: radial-gradient(120% 90% at 50% 30%, #151c2b 0%, #0b0e14 60%); }
+#gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+.hud { position: absolute; pointer-events: none; }
+.hud > * { pointer-events: auto; }
+.tl { top: 18px; left: 20px; display: grid; gap: 12px; }
+.tl h1 { margin: 0; font-family: var(--f-display); font-weight: 400; font-size: 38px; line-height: .9; }
+.tl h1 em { color: var(--flame); }
+.stats { display: flex; gap: 22px; flex-wrap: wrap; }
+.stat { display: grid; }
+.stat .v { font-family: var(--f-display); font-style: italic; font-size: 30px; line-height: 1; color: var(--c); font-variant-numeric: tabular-nums; }
+.tr { top: 18px; right: 18px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.toggle { display: inline-flex; gap: 2px; padding: 2px; border-radius: 999px; border: 1px solid var(--hair2); background: var(--glass); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+.toggle button { padding: 5px 12px; border-radius: 999px; font-size: 12.5px; color: var(--dim); transition: background .3s, color .3s; white-space: nowrap; }
+.toggle button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.chk { display: inline-flex; gap: 7px; align-items: center; font-size: 12.5px; color: var(--dim); padding: 4px 10px; border-radius: 999px; background: var(--glass); }
+.chk input { accent-color: var(--lie); }
+.tc { top: 16px; left: 50%; transform: translateX(-50%); text-align: center; width: min(420px, 60%); pointer-events: none; }
+.numwrap { height: 64px; overflow: hidden; }
+.num { display: block; font-family: var(--f-display); font-style: italic; font-size: 64px; line-height: 64px; }
+.cap { font-size: 13px; color: var(--dim); line-height: 1.45; text-wrap: balance; margin-top: 2px; }
+.bl { left: 20px; bottom: 86px; display: grid; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--glass); border: 1px solid var(--hair); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+.bl .row { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--dim); }
+.bl i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: var(--c); margin-right: 6px; }
+.bl b { font-family: var(--f-mono); font-weight: 500; color: var(--ink); margin-left: 4px; }
+.track { left: 16px; right: 16px; bottom: 14px; display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 14px; background: var(--glass); border: 1px solid var(--hair); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+.tb { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--hair2); display: grid; place-items: center; font-size: 12px; flex: none; }
+.tb:disabled { opacity: .35; cursor: default; }
+.pips { flex: 1; min-width: 0; max-width: calc(var(--n, 40) * 34px); height: 30px; display: flex; gap: 2px; align-items: flex-end; position: relative; }
+.pip { flex: 1; min-width: 3px; height: var(--h); border-radius: 2px 2px 0 0; background: var(--hair2); position: relative; }
+.pip::after { content: ""; position: absolute; left: 0; top: -4px; height: 2px; width: var(--l); background: var(--lie); border-radius: 1px; }
+.pip.past { background: rgb(255 255 255 / .24); } .pip.now { background: var(--flame); }
+.spd { font-family: var(--f-mono); font-size: 11.5px; color: var(--dim); padding: 6px 10px; border-radius: 999px; border: 1px solid var(--hair2); flex: none; }
+.start { left: 50%; bottom: 84px; transform: translateX(-50%); padding: 9px 20px; border-radius: 999px; border: 1px solid rgb(255 196 107 / .5); background: rgb(255 196 107 / .08); color: var(--flame); font-size: 13.5px; white-space: nowrap; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.lab { position: absolute; transform: translate(-50%, -100%); font-family: var(--f-mono); font-size: 11px; color: var(--dim); white-space: nowrap; padding: 1px 5px; border-radius: 4px; transition: color .3s, background .3s; }
+.lab.sel { color: var(--bg); background: var(--gold); }
+.lab.liar { color: var(--lie); }
+.lab.hot { color: var(--ink); }
+.tip { position: absolute; pointer-events: none; padding: 6px 9px; border-radius: 8px; background: var(--glass); border: 1px solid var(--hair2); font-size: 12px; white-space: nowrap; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+.tip small { color: var(--dim); font-family: var(--f-mono); }
+.dossier { top: 120px; right: 18px; width: min(320px, calc(100% - 36px)); max-height: calc(100% - 220px); overflow: auto; padding: 16px; border-radius: 14px; background: rgb(14 18 27 / .84); border: 1px solid var(--hair2); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); display: grid; gap: 14px; }
+.d-h { display: flex; align-items: baseline; gap: 10px; }
+.d-h .nm { font-family: var(--f-display); font-size: 36px; line-height: .9; }
+.d-h .x { margin-left: auto; color: var(--dim); font-size: 18px; width: 28px; height: 28px; border-radius: 50%; }
+.d-sec { display: grid; gap: 6px; }
+.msg { font-size: 13px; line-height: 1.45; padding-left: 10px; border-left: 1px solid var(--hair2); }
+.msg.lie { border-left-color: var(--lie); }
+.msg small { display: block; font-family: var(--f-mono); font-size: 10.5px; color: var(--dim); }
+.thought { font-family: var(--f-display); font-style: italic; font-size: 18px; line-height: 1.35; }
+.caret { display: inline-block; width: 1px; height: 1em; background: var(--flame); vertical-align: -2px; margin-left: 2px; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.blist { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.blist li { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+.blist li.dead > span:first-child { color: var(--dim); text-decoration: line-through; text-decoration-color: var(--cut); }
+.st { font-family: var(--f-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--c); }
+.none { color: var(--dim); font-size: 12.5px; margin: 0; }
+details summary { cursor: pointer; color: var(--dim); font-size: 12px; }
+details > div { display: grid; gap: 6px; margin-top: 6px; }
+.fallback { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px; color: var(--dim); }
+.foot { font-size: 11.5px; color: var(--faint); margin: 10px 4px 0; }
+@media (max-width: 760px) {
+  .tc { top: 120px; } .tl h1 { font-size: 28px; } .stats { gap: 14px; } .stat .v { font-size: 22px; }
+  .bl { display: none; } .dossier { top: auto; bottom: 76px; left: 12px; right: 12px; width: auto; max-height: 50%; }
+}
+</style>
+
+<div class="app">
+  <div class="stage" id="stage">
+    <canvas id="gl" aria-label="3D island: a ring of fields, a watchtower for each agent, messages flying between towers"></canvas>
+    <div class="labels" id="labels" aria-hidden="true"></div>
+    <div class="tip" id="tip" hidden></div>
+
+    <div class="hud tl"><div><span class="caps" id="tag"></span><h1>Ring Fire <em>Isle</em></h1></div><div class="stats" id="stats"></div></div>
+    <div class="hud tr">
+      <div class="toggle" role="group" aria-label="Agent memory"><button id="m-graph" aria-pressed="true">Graph mind</button><button id="m-prompt" aria-pressed="false">Prompt mind</button></div>
+      <div class="toggle" role="group" aria-label="Island size"><button id="d-real" aria-pressed="true">16 keepers</button><button id="d-scale" aria-pressed="false">64 keepers</button></div>
+      <label class="chk"><input type="checkbox" id="reveal"> Reveal liars</label>
+    </div>
+    <div class="hud tc"><span class="caps">Night</span><div class="numwrap"><span class="num" id="num">1</span></div><div class="cap" id="cap"></div></div>
+    <div class="hud bl"><span class="caps">Truth on the island</span><div class="row" id="wcount"></div><span class="caps" style="letter-spacing:.08em;text-transform:none">Drag to orbit · scroll to zoom · hover a field</span></div>
+    <button class="hud start" id="start">Play the night ▸</button>
+    <div class="hud track" aria-label="Turn track">
+      <button class="tb" id="prev" aria-label="Previous night">◂</button>
+      <button class="tb" id="play" aria-label="Play">▶</button>
+      <button class="tb" id="next" aria-label="Next night">▸</button>
+      <div class="pips" id="pips"></div>
+      <button class="spd" id="speed">1×</button>
+    </div>
+    <div class="hud dossier" id="dossier" hidden></div>
+  </div>
+  <p class="foot" id="foot"></p>
+</div>
+
+<script>
+const REAL = {"graph":{"turns":{"A1|0":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false]],"final":"Day 0: I have no beliefs or fire reports yet, so I won't water today and will wait for arrival information."},"A2|0":{"steps":[["recall",{},"nothing matches",false]],"final":"I have no recorded beliefs or fire reports yet, so I won't water on day 0 and will wait for arrival information before acting."},"A3|0":{"steps":[["recall",{"predicate":"fire.arrival_day"},"nothing matches",false],["recall",{"subject":"F6"},"nothing matches",false],["recall",{"subject":"F7"},"nothing matches",false]],"final":"I have no recorded beliefs about fire arrival on F6 or F7, so I won't water today."},"A4|0":{"steps":[["recall",{"subject":"F8"},"nothing matches",false],["recall",{"subject":"F9"},"nothing matches",false],["recall",{},"nothing matches",false]],"final":"No fire arrival is known for F8 or F9 yet, so I won't water on day 0 and I'll wait for reports before spending one of my two waterings."},"A5|0":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false],["traverse",{"entity":"A5","hops":2},"0 step(s): A5",false]],"final":"Day 0: I have no fire-arrival information for F10 or F11 and no known neighbours yet, so I'm holding off on watering and will wait for reports."},"A7|0":{"steps":[["act",{"type":"water","target":"F15","depends_on":["B1"]},"X1: you will water your fields today",false],["assert_belief",{"subject":"F15","predicate":"fire.arrival_day","value":0,"depends_on":["B1"],"confidence":1},"recorded B2",false]],"final":"I watered F15 today, since fire reaches it on day 0, and recorded its arrival day as 0."},"A8|0":{"steps":[["recall",{},"nothing matches",false]],"final":"Day 0: I have no beliefs on file and no report of fire near F16 or F17, so I am not watering today and will wait for arrival information."},"A9|0":{"steps":[["recall",{},"nothing matches",false],["traverse",{"entity":"F18","hops":2},"0 step(s): F18\n1 step(s): F17 F19\n2 step(s): F16 F20",false]],"final":"Nothing is known about when fire reaches F18 or F19, so I won't water today and I have no arrival times to share yet."},"A10|0":{"steps":[["recall",{"predicate":"fire.arrival_day"},"nothing matches",false],["recall",{},"nothing matches",false]],"final":"No fire arrival information is recorded yet and nothing says fire is due at F20 or F21 today, so I won't water on day 0."},"A11|0":{"steps":[["recall",{},"nothing matches",false]],"final":"No fire is due at F22 or F23 yet, and I have no recorded beliefs, so I'm holding my waterings and will wait for arrival information."},"A15|0":{"steps":[["recall",{},"nothing matches",false],["recall",{"status":"all"},"error: status must be one of active, suspect, stale, superseded, retracted",true]],"final":"I have no beliefs yet and no fire arrival information for F30 or F31, so I won't water today and will wait for reports from neighbours."},"A1|1":{"steps":[],"final":"I won't water today: A0's claim is about F16, not my fields (F2, F3), and nothing shows fire due on them yet. I'll hold my two waterings until fire is actually due."},"A2|1":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false]],"final":"No fire arrival information is recorded yet, so I won't water on day 1 and will wait for reports about when fire reaches F4 or F5."},"A3|1":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false],["traverse",{"entity":"F6","hops":2},"0 step(s): F6\n1 step(s): F5 F7\n2 step(s): F4 F8",false]],"final":"I have no record of when fire is due at F6 or F7, so I won't water today. I'll wait for a neighbour's report before acting."},"A4|1":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false]],"final":"Day 1: I have no beliefs about when fire reaches F8 or F9, so I won't water yet and will wait for arrival information from neighbours."},"A5|1":{"steps":[],"final":"No water today because no fire is due at F10 or F11, and A6's claim concerns F16, which is not my field. I'll hold my waterings.\n\nDay 1: no action taken. Waiting for fire timing on F10 or F11 before watering."},"A7|1":{"steps":[],"final":""},"A8|1":{"steps":[["recall",{},"nothing matches",false],["traverse",{"entity":"F16","hops":2},"0 step(s): F16\n1 step(s): F15 F17\n2 step(s): F14 F18",false]],"final":"No fire arrival information is available yet for F16 or F17, so I'm holding off on watering today and will wait for reports from neighbours."},"A9|1":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false]],"final":"I have no beliefs about when fire reaches F18 or F19, so I won't water today. I'll hold my two waterings until a neighbour reports an arrival day."},"A10|1":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false]],"final":"I have no beliefs about fire arrival yet and no reports of fire due at F20 or F21, so I won't water today."},"A11|1":{"steps":[],"final":"No water today: I have no evidence that fire is due at F22 or F23, and the only report (A12's claim that fire reaches F16 on day 8) is single-source and unverified."},"A15|1":{"steps":[],"final":"No water today: nothing I have points to fire reaching F30 or F31 yet. The two reports only place fire at F16 on day 8, which is not one of my fields."},"A1|2":{"steps":[["assert_belief",{"subject":"F2","predicate":"fire.arrival_day","value":3,"depends_on":["B8"],"confidence":0.7},"recorded B14",false],["assert_belief",{},"error: bad arguments for assert_belief: Toolbox.assert_belief() missing 4 required positional arguments: 'subject', 'predicate', 'value', and 'depends_on'",true],["recall",{},"[B14 active routes 0 conf 0.7] fire reaches F2 on day 3   derived by you\n[B8 active routes 1 conf 1] fire reaches F16 on day 1   seen directly",false],["assert_belief",{"subject":"F3","predicate":"fire.arrival_day","value":4,"depends_on":["B8"],"confidence":0.7},"recorded B15",false]],"final":"Today is day 2 and fire isn't due at F2 or F3 until day 3 and day 4, so I'm holding off on watering. I recorded F2 arriving on day 3 and F3 on day 4, both derived from the direct day-1 sighting at F16. A0's day-8 claim for F16 is superseded by that sighting."},"A2|2":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false]],"final":"I have no beliefs about fire timing yet, so I won't water today; I'll wait for information about when fire is due at F4 or F5."},"A3|2":{"steps":[["recall",{"predicate":"fire.arrival_day"},"nothing matches",false],["recall",{},"nothing matches",false]],"final":"No beliefs on record about fire timing for F6 or F7, so I won't water today and will wait for a neighbour's report before spending one of my two waterings."},"A4|2":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false]],"final":"I have no recorded beliefs about when fire will reach F8 or F9, so I won't water today and will wait for a fire-arrival report before acting."},"A5|2":{"steps":[["assert_belief",{"subject":"F10","predicate":"fire.arrival_day","value":11,"depends_on":["B9"]},"recorded B16",false],["assert_belief",{"subject":"F11","predicate":"fire.arrival_day","value":12,"depends_on":["B9"]},"recorded B17",false]],"final":"Fire reaches F16 on day 1, so by the one-field-per-day spread it should reach F10 on day 11 and F11 on day 12. Neither field is due today, so I won't water.\n\nI'm not sending A6's day-8 claim on, since the evidence contradicts it. I'm also not deciding on waterings yet, since neither field is due until day 11."},"A7|2":{"steps":[],"final":""},"A8|2":{"steps":[["act",{"type":"water","target":"F17","params":{"day":2,"fields":["F17"]},"depends_on":["B11"]},"X2: you will water your fields today",false],["assert_belief",{"subject":"F17","predicate":"fire.arrival_day"},"error: bad arguments for assert_belief: Toolbox.assert_belief() missing 2 required positional arguments: 'value' and 'depends_on'",true],["assert_belief",{"subject":"F17","predicate":"fire.arrival_day","value":2,"depends_on":["B11"],"confidence":0.8},"recorded B18",false]],"final":"Fire reached F16 on day 1, so I expect it at F17 today; I watered F17 and recorded that arrival as day 2."},"A9|2":{"steps":[["recall",{"predicate":"fire.arrival_day"},"nothing matches",false],["recall",{"subject":"F18"},"nothing matches",false],["recall",{"subject":"F19"},"nothing matches",false]],"final":"I have no beliefs about fire timing for F18 or F19, so I won't water today.\n\nI'm not sending any message to my neighbours yet, since I have nothing to report. I'll wait for fire-timing information before acting."},"A10|2":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false]],"final":"No beliefs are recorded yet, so I don't know when fire reaches F20 or F21. I'm holding my two waterings and not acting today.\n\nI'm not sending any arrival-day claims until I have evidence for them."},"A11|2":{"steps":[["assert_belief",{"subject":"F22","predicate":"fire.arrival_day","value":7},"error: bad arguments for assert_belief: Toolbox.assert_belief() missing 1 required positional argument: 'depends_on'",true],["assert_belief",{"subject":"F16","predicate":"fire.arrival_day","value":1,"depends_on":["B12"],"confidence":1},"recorded B19",false]],"final":"I recorded that fire reached F16 on day 1, based on the direct observation, and I'm not watering today because nothing shows fire due on F22 or F23 yet. Day 8 for F16 was A12's claim, and the evidence contradicts it."},"A15|2":{"steps":[["assert_belief",{"subject":"F16","predicate":"fire.arrival_day","value":1,"depends_on":["B13"],"confidence":1},"recorded B20",false],["send",{"to":"A14"},"error: bad arguments for send: Toolbox.send() missing 1 required positional argument: 'belief_id'",true],["shortest_path",{"src":"F16","dst":"F30"},"cost 14",false],["recall",{},"[B13 active routes 1 conf 1] fire reaches F16 on day 1   seen directly\n[B20 active routes 0 conf 1] fire reaches F16 on day 1   derived by you",false],["send",{"to":"A14","belief_id":"B20"},"sent to A14",false],["send",{"to":"A0","belief_id":"B20"},"sent to A0",false]],"final":"I recorded that fire reached F16 on day 1, based on the direct evidence, and sent that to A14 and A0 to correct their day-8 claim. The 14-cost path from F16 to F30 suggests my own fields are not due soon, so I did not water today."},"A1|3":{"steps":[["act",{"type":"water","target":"F2","params":{"fields":["F2"],"day":3},"depends_on":["B14"]},"X3: you will water your fields today",false],["assert_belief",{},"error: bad arguments for assert_belief: Toolbox.assert_belief() missing 4 required positional arguments: 'subject', 'predicate', 'value', and 'depends_on'",true],["assert_belief",{"subject":"F2","predicate":"fire.arrival_day","value":3,"depends_on":["B14"],"confidence":0.7},"recorded B25",false],["assert_belief",{"subject":"F3","predicate":"fire.arrival_day","value":4,"depends_on":["B15"],"confidence":0.7},"recorded B26",false]],"final":"I'm watering F2 today, since fire is due there on day 3. F3 is due on day 4, and I can't water two days in a row, so I'll have to decide on F3 tomorrow. I've recorded both arrival days as beliefs."},"A2|3":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false],["traverse",{"entity":"F4","hops":2},"0 step(s): F4\n1 step(s): F3 F5\n2 step(s): F2 F6",false]],"final":"I have no evidence yet of when fire will reach F4 or F5, so I won't water today and I have nothing to share with neighbours."},"A3|3":{"steps":[["recall",{"predicate":"fire.arrival_day"},"nothing matches",false],["recall",{},"nothing matches",false]],"final":"I have no recorded fire arrival days for F6 or F7, so I won't water today and will save my two waterings until fire is actually due."},"A4|3":{"steps":[["recall",{"predicate":"fire.arrival_day"},"nothing matches",false],["recall",{},"nothing matches",false]],"final":"I have no recorded beliefs about when fire reaches F8 or F9, so I have no evidence that fire is due today and I will not water yet."},"A5|3":{"steps":[],"final":"Fire isn't due at F10 or F11 until days 11 and 12, so I won't water today. I'm keeping both waterings for later."},"A7|3":{"steps":[["recall",{},"[B1 active routes 1 conf 1] fire reaches F15 on day 0   seen directly\n[B10 active routes 1 conf 1] fire reaches F16 on day 1   seen directly\n[B2 active routes 0 conf 1] fire reaches F15 on day 0   der",false],["explain",{"belief_id":"B1"},"[B1 active routes 1 conf 1] fire reaches F15 on day 0   seen directly\n  action X1 (committed) rests on it, 1 step(s) down\n  belief B2 (active) rests on it, 1 step(s) down",false]],"final":"I'm not watering today: my records show fire reached F15 on day 0, so no fire is due there on day 3, and watering only works on a day fire is due. I'm flagging commitment X1 for review, since it conflicts with that rule."},"A8|3":{"steps":[["assert_belief",{"subject":"F16","predicate":"fire.arrival_day","value":1,"depends_on":["B11"],"confidence":1},"recorded B27",false],["assert_belief",{},"error: bad arguments for assert_belief: Toolbox.assert_belief() missing 4 required positional arguments: 'subject', 'predicate', 'value', and 'depends_on'",true]],"final":"Today is day 3 and fire was due at F16 on day 1 and at F17 on day 2, so neither field is due for watering now and I'm not watering. I have no record of whether the day-2 watering of F17 happened, and I couldn't tell my neighbours because I don't know their names."},"A9|3":{"steps":[["recall",{"predicate":"fire.arrival_day"},"nothing matches",false],["recall",{},"nothing matches",false]],"final":"I have no beliefs about fire arrival yet, so I won't water today (day 3) and will wait for word on when fire is due at F18 or F19."},"A10|3":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false]],"final":"I have no recorded beliefs about fire timing, so I won't water on day 3 and will hold my 2 waterings until fire is due on F20 or F21."},"A11|3":{"steps":[["recall",{"subject":"F22"},"nothing matches",false],["recall",{"subject":"F23"},"nothing matches",false]],"final":"I'm not watering today: nothing I know says fire is due on F22 or F23 today. The only fire fact I hold is that it reaches F16 on day 1, and I have no arrival dates for my own fields. I'll hold my two waterings until I get a firm date."},"A15|3":{"steps":[["recall",{},"[B13 active routes 1 conf 1] fire reaches F16 on day 1   seen directly\n[B20 active routes 0 conf 1] fire reaches F16 on day 1   derived by you",false],["traverse",{"entity":"F31","hops":2},"0 step(s): F31\n1 step(s): F0 F30\n2 step(s): F1 F29",false]],"final":"No fire is due at F30 or F31 today, so I'm not watering. The only known arrival is fire at F16 on day 1, which is far upstream of my fields."}},"msgs":[[1,12,11,[12],16,8],[1,14,15,[14],16,8],[1,6,5,[6],16,8],[1,6,7,[6],16,8],[1,0,15,[0],16,8],[1,0,1,[0],16,8],[2,15,14,[15],16,1],[2,15,0,[15],16,1],[3,0,1,[15,0],16,1],[3,14,13,[15,14],16,1]],"days":[{"ign":[15],"out":[],"saved":[],"water":[7]},{"ign":[16],"out":[],"saved":[],"water":[]},{"ign":[],"out":[15],"saved":[17],"water":[8]},{"ign":[],"out":[16],"saved":[],"water":[1]}],"expo":[[1,"A1","A0",["B7"]],[1,"A5","A6",["B5"]],[1,"A7","A6",["B6"]],[1,"A11","A12",["B3"]],[1,"A15","A0",[]],[1,"A15","A14",["B4"]]]},"prompt":{"turns":{"A1|0":{"steps":[],"final":"No fire is due on my fields (F2, F3) today, and nothing has been published yet, so I won't water or send anything."},"A2|0":{"steps":[],"final":"Day 0: no fire is due on F4 or F5 and no reports have arrived, so I won't water and will wait for published arrival days."},"A3|0":{"steps":[],"final":"No fire is due on my fields (F6, F7) yet and there are no published arrival days, so I won't water today and have nothing to pass on."},"A4|0":{"steps":[],"final":"No fire is due on my fields (F8, F9) today and the shared log is empty, so I won't water and will wait for published arrival days."},"A5|0":{"steps":[],"final":"Nothing is published yet and no fire is due on my fields (F10, F11) today, so I won't water and will wait for evidence."},"A7|0":{"steps":[["act",{"type":"water"},"X7_1: you will water your fields today",false],["send",{"to":"A8"},"error: bad arguments for send: BaselineTools.send() missing 2 required positional arguments: 'field' and 'day'",true],["send",{"to":"A8","field":"F16","day":1},"sent to A8",false]],"final":"I watered F14 and F15 today, since fire reached F15 on day 0, and I warned A8 that fire should reach F16 on day 1. I can't water tomorrow because I can't water two days in a row."},"A8|0":{"steps":[],"final":"No fire is due on my fields (F16, F17) today and no arrival times have been published, so I won't water yet."},"A9|0":{"steps":[],"final":"No fire is due on my fields (F18, F19) yet and there are no messages or published arrival days, so I won't water today."},"A10|0":{"steps":[],"final":"Nothing has been published yet and no fire is due on F20 or F21 today, so I won't water or send anything."},"A11|0":{"steps":[],"final":"No fire is due on my fields (F22, F23) yet and nothing has been published, so I won't water today."},"A15|0":{"steps":[],"final":"No fire is due at F30 or F31 on day 0 and nothing has been published, so I won't water today."},"A1|1":{"steps":[],"final":"No fire is due at F2 or F3 on day 1 according to the published log, so I won't water today and will wait for evidence about my fields."},"A2|1":{"steps":[],"final":"No fire is due on my fields (F4, F5) today and nothing has been published yet, so I won't water. I'll wait for published arrival days before acting."},"A3|1":{"steps":[],"final":"No fire is due on my fields (F6, F7) yet and the shared log is empty, so I won't water or send anything today."},"A4|1":{"steps":[["act",{"type":"water"},"X4_1: you will water your fields today",false]],"final":"I made a mistake: I called water on day 1 even though no fire was published as due on F8 or F9. The system confirmed it, so my fields were watered today. I have no evidence of fire arrival yet, so I won't water again until a published arrival day says so."},"A5|1":{"steps":[],"final":"I won't water today: no fire is published as due at F10 or F11, and A6's claim about F16 on day 8 is unverified and doesn't concern my fields."},"A7|1":{"steps":[],"final":""},"A8|1":{"steps":[],"final":""},"A9|1":{"steps":[],"final":"Nothing has been published about fire arrival yet, so I have no basis to water F18 or F19 today. I'll hold until a verified arrival day comes in."},"A10|1":{"steps":[],"final":"No fire is due on my fields (F20, F21) today and nothing has been published yet, so I'll hold off on watering and wait for arrival information."},"A11|1":{"steps":[],"final":"No fire is confirmed due at F22 or F23 today, and A12's claim about F16 can't be checked against any published evidence, so I'm not watering, linking, or passing it on."},"A15|1":{"steps":[["act",{"type":"water"},"X15_1: you will water your fields today",false]],"final":"I called water by mistake: I meant to hold off, since no fire is due at F30 or F31 and the only claims concern F16. The system has recorded it as watering today, and I have no tool to undo that. I'll hold off on any further watering until fire is actually due."},"A1|2":{"steps":[],"final":"Day 2: A0's claim that fire reaches F16 on day 8 contradicts the published record (F16 caught fire on day 1), so I'm disregarding it and will not water on its basis. No fire is published for F2 or F3, so I'm taking no action today and I'm treating A0 as unreliable."},"A2|2":{"steps":[],"final":"No fire is known to be due at F4 or F5 yet, and the shared log is empty, so I won't water today."},"A3|2":{"steps":[],"final":"Nothing is published yet and no fire is due on F6 or F7 today, so I won't water and will hold until a fire-arrival report comes in."},"A4|2":{"steps":[],"final":"No fire is due on my fields (F8, F9) and the shared log is empty, so I won't water today and will wait for published arrival evidence."},"A5|2":{"steps":[],"final":"I'm not watering today: no published evidence says fire is due at F10 or F11. A6's claim that F16 burns on day 8 conflicts with the published record (F16 caught fire on day 1), so I'm treating it as false and won't act on it or pass it on."},"A7|2":{"steps":[["send",{},"error: bad arguments for send: BaselineTools.send() missing 3 required positional arguments: 'to', 'field', and 'day'",true]],"final":""},"A8|2":{"steps":[["act",{"type":"water"},"X8_1: you will water your fields today",false],["send",{"to":"A9","field":"F17","day":2},"sent to A9",false]],"final":"I watered today (day 2) because fire is due at F17 next, and I sent A9 the F17 warning. F16 was published as burning on day 1, so watering it now won't put it out."},"A9|2":{"steps":[],"final":"No fire is due on my fields (F18, F19) yet and the shared log is empty, so I won't water today."},"A10|2":{"steps":[],"final":"Nothing has been published or sent to me yet, so no fire is due on my fields (F20, F21) today. I'm not watering or linking."},"A11|2":{"steps":[],"final":""},"A15|2":{"steps":[["send",{"to":"A14","field":"F16","day":8},"sent to A14",false],["send",{"to":"A0","field":"F16"},"error: bad arguments for send: BaselineTools.send() missing 1 required positional argument: 'day'",true],["send",{"to":"A14","field":"F16","day":1},"sent to A14",false],["send",{"to":"A0","field":"F16","day":1},"sent to A0",false],["send",{},"error: bad arguments for send: BaselineTools.send() missing 3 required positional arguments: 'to', 'field', and 'day'",true],["act",{"type":"water"},"error: you watered yesterday, so you cannot water today",true]],"final":"I can't water today because the system says I watered yesterday. I also sent A14 and A0 a correction: the published log shows F16 caught fire on day 1, not day 8, so their claim is false."},"A1|3":{"steps":[],"final":"A0's claim that fire reaches F16 on day 8 contradicts the published record (F16 caught fire on day 1"},"A2|3":{"steps":[],"final":"No fire is due on my fields (F4, F5) yet, and the shared log is empty, so I won't water or make any claims today."},"A3|3":{"steps":[],"final":"No fire is due on my fields (F6, F7) yet, and the shared log is empty, so I won't water today."},"A4|3":{"steps":[],"final":"No fire is due on F8 or F9 today, and nothing has been published yet, so I won't water or send anything."},"A5|3":{"steps":[["send",{"to":"A6","field":"F16","day":1,"note":"Your claim that fire reaches F16 on day 8 contradicts the published record: F16 caught fire on day 1. I am not acting on it."},"error: bad arguments for send: BaselineTools.send() got an unexpected keyword argument 'note'",true],["send",{"to":"A6","field":"F16","day":1},"sent to A6",false],["act",{"type":"water"},"X5_1: you will water your fields today",false]],"final":"I told A6 that its F16 claim contradicts the published record, but I also watered today even though no published evidence shows fire due on F10 or F11. That water action was not justified by the evidence, so I'll avoid repeating it and wait for a verified arrival day."},"A7|3":{"steps":[],"final":""},"A8|3":{"steps":[],"final":""},"A9|3":{"steps":[],"final":""},"A10|3":{"steps":[],"final":"No fire is reported on F20 or F21 yet and the shared log is empty, so I won't water today. I'll wait for published arrival times before acting."},"A11|3":{"steps":[],"final":""},"A15|3":{"steps":[],"final":""}},"msgs":[[0,7,8,[7],16,1],[1,12,11,[12],16,8],[1,14,15,[14],16,8],[1,6,5,[6],16,8],[1,6,7,[6],16,8],[1,0,15,[0],16,8],[1,0,1,[0],16,8],[2,8,9,[8],17,2],[2,15,14,[0,15],16,8],[2,15,14,[15],16,1],[2,15,0,[15],16,1],[3,0,1,[15,0],16,1],[3,5,6,[5],16,1],[3,14,13,[0,15,14],16,8],[3,14,13,[15,14],16,1]],"days":[{"ign":[15],"out":[],"saved":[],"water":[7]},{"ign":[16],"out":[],"saved":[],"water":[4,15]},{"ign":[],"out":[15],"saved":[17],"water":[8]},{"ign":[],"out":[16],"saved":[],"water":[5]}],"expo":[]}};
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const A = i => "A" + i, num = a => +a.slice(1);
+const REDUCED = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+const AN = window.anime && !REDUCED ? window.anime : null;
+const wait = ms => new Promise(r => setTimeout(r, ms));
+function realDataset() {
+  const truth = { 15: 0, 16: 1 };
+  const runs = {};
+  for (const k of ["graph", "prompt"]) {
+    const r = REAL[k];
+    runs[k] = { ...r, msgs: r.msgs.map(m => [...m, truth[m[4]] !== undefined && m[5] !== truth[m[4]]]) };
+  }
+  return {
+    name: "real", n: 16, D: 4, fpa: 2, imp: new Set([0, 6, 12, 13, 14]), extra: [[6, 15], [8, 15]], runs,
+    sub: "Ring Fire · 16 agents, 5 of them imposters · haiku-5.5 · run hard16, seed 0 (real log)",
+    captions: ["Fire starts in F15. Its owner A7 sees it and waters.",
+      "Five imposters tell their neighbours F16 burns on day 8. It ignites on day 1.",
+      "Agents learn the truth. A15 decides what to tell its neighbours.",
+      "Reports keep travelling. F16 burns out; the fire is over."],
+    beliefs: {
+      A0: [["B23", 16, 1, 2, null, "told", "A15"]],
+      A1: [["B7", 16, 8, 1, 1, "told", "A0"], ["B8", 16, 1, 1, null, "seen", ""], ["B14", 2, 3, 2, null, "forecast", ""], ["B15", 3, 4, 2, null, "forecast", ""]],
+      A5: [["B5", 16, 8, 1, 1, "told", "A6"], ["B9", 16, 1, 1, null, "seen", ""], ["B16", 10, 11, 2, null, "forecast", ""], ["B17", 11, 12, 2, null, "forecast", ""]],
+      A7: [["B1", 15, 0, 0, null, "seen", ""], ["B6", 16, 8, 1, 1, "told", "A6"], ["B10", 16, 1, 1, null, "seen", ""]],
+      A8: [["B11", 16, 1, 1, null, "seen", ""], ["B18", 17, 2, 1, null, "forecast", ""]],
+      A11: [["B3", 16, 8, 1, 1, "told", "A12"], ["B12", 16, 1, 1, null, "seen", ""]],
+      A13: [["B28", 16, 1, 3, null, "told", "A14"]],
+      A14: [["B21", 16, 1, 2, null, "told", "A15"]],
+      A15: [["B4", 16, 8, 1, 1, "told", "A14, A0"], ["B13", 16, 1, 1, null, "seen", ""], ["B20", 16, 1, 2, null, "forecast", ""]],
+    },
+  };
+}
+
+// Seeded stand-in simulation at scale. Not a real run: same rules, invented numbers.
+function scaleDataset() {
+  const n = 64, fpa = 4, F = n * fpa, D = 40;
+  const imp = new Set([5, 17, 18, 19, 30, 41, 47, 52, 60]); // 17-19 is a colluding cluster
+  const extra = [[10, 25], [33, 50], [44, 2], [58, 20]];
+  const fronts0 = [[0, 10, 34], [8, 120, 26], [16, 200, 30], [24, 66, 22], [30, 236, 18]]; // [start day, field, max length]
+  const owner = f => Math.floor(f / fpa) % n;
+  function simulate(mode, seed) {
+    const rng = seed => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+    const rnd = rng(seed), rndW = rng(seed * 31 + 1); // separate streams: messages, and water decisions
+    const G = mode === "graph";
+    const ign = {}, saved = new Set(), waterLeft = Array(n).fill(2), lastWater = Array(n).fill(-9);
+    const cut = Array.from({ length: n }, () => new Set());
+    const days = [], msgs = [], expo = [], turns = {};
+    const inbox = Array.from({ length: n }, () => []);   // messages delivered, not yet relayed
+    const warned = Array.from({ length: n }, () => ({})); // field -> claimed day (true reports)
+    const liesHeard = Array.from({ length: n }, () => []); // [field, sender, claim]
+    const fronts = [];
+    const say = (d, a, text) => { const k = `${A(a)}|${d}`; turns[k] = turns[k] || { final: "", steps: [] }; turns[k].final += (turns[k].final ? " " : "") + text; };
+    const send = (d, from, to, route, field, claim, lie) => {
+      if (to < 0) to += n; to %= n;
+      const m = [d, from, to, route, field, claim, lie]; msgs.push(m); inbox[to].push(m);
+    };
+    for (let d = 0; d < D; d++) {
+      const today = { ign: [], out: [], saved: [], water: [] };
+      fronts0.filter(f => f[0] === d).forEach(([, f, len]) => { if (ign[f] === undefined) { ign[f] = d; today.ign.push(f); fronts.push({ pos: f, left: len }); } });
+      // advance fronts: owner of the next field may water if warned
+      for (const fr of fronts) {
+        if (fr.done || ign[fr.pos] === d) continue;
+        const f = (fr.pos + 1) % F, o = owner(f);
+        if (ign[f] !== undefined || saved.has(f) || fr.left <= 0) { fr.done = true; continue; }
+        const w = warned[o][f];
+        const p = w === d ? (G ? .55 : .4) : w !== undefined ? .15 : .03;
+        if (!imp.has(o) && waterLeft[o] > 0 && lastWater[o] < d - 1 && rndW() < p) {
+          waterLeft[o]--; lastWater[o] = d; today.water.push(o); saved.add(f); today.saved.push(f); fr.done = true;
+          say(d, o, `Fire is due at F${f} today, so I'm watering it.`);
+        } else { ign[f] = d; today.ign.push(f); fr.pos = f; fr.left--; }
+      }
+      for (const [f, d0] of Object.entries(ign)) if (d0 === d - 2) today.out.push(+f);
+      // owners of newly burning fields warn downstream
+      today.ign.forEach(f => {
+        const o = owner(f); if (imp.has(o)) return;
+        const ahead = 3 * fpa;
+        send(d, o, o + 1, [o], (f + ahead) % F, d + ahead, false);
+        say(d, o, `F${f} is burning. Warning A${(o + 1) % n}: F${(f + ahead) % F} on day ${d + ahead}.`);
+      });
+      // relays from yesterday's inbox
+      for (let a = 0; a < n; a++) {
+        const box = inbox[a]; inbox[a] = [];
+        for (const m of box) {
+          const [, from, , route, field, claim, lie] = m;
+          if (imp.has(a)) { if (route.length < 6 && rnd() < .7) send(d, a, a + 1, [...route, a], field, lie ? claim : claim + 6, true); continue; }
+          if (!lie) {
+            warned[a][field] = claim;
+            if (owner(field) === a) say(d, a, `A${from} warns that F${field} burns on day ${claim}. That's my field; I'll be ready to water.`);
+            else if (route.length < 6 && rnd() < .85) { send(d, a, a + 1, [...route, a], field, claim, false); say(d, a, `A${from} reports F${field} burns on day ${claim}. Forwarding it to A${(a + 1) % n}.`); }
+            continue;
+          }
+          liesHeard[a].push([field, from, claim]);
+          const trusted = !route.some(x => cut[a].has(x));
+          const p = G ? (trusted ? .06 : 0) : .3;
+          if (route.length < 6 && rnd() < p) { send(d, a, a + 1, [...route, a], field, claim, true); say(d, a, `A${from} says F${field} burns on day ${claim}. Passing it on.`); }
+          else if (!G) say(d, a, `A${from} says F${field} burns on day ${claim}. I can't check it yet.`);
+        }
+      }
+      // imposters start fresh lies about fields just ahead of a front
+      imp.forEach(a => {
+        if (rnd() > .16) return;
+        const live = fronts.filter(fr => !fr.done); if (!live.length) return;
+        const fr = live[Math.floor(rnd() * live.length)], k = 2 + Math.floor(rnd() * 6), field = (fr.pos + k) % F;
+        send(d, a, a + 1, [a], field, d + k + 7, true); send(d, a, a - 1, [a], field, d + k + 7, true);
+      });
+      // evidence: whoever heard a lie about a field that ignited today cuts the liar (graph memory only)
+      if (G) today.ign.forEach(f => {
+        for (let a = 0; a < n; a++) liesHeard[a].filter(l => l[0] === f && !cut[a].has(l[1])).forEach(([, s0]) => {
+          cut[a].add(s0); expo.push([d, A(a), A(s0), [`F${f}`]]);
+          say(d, a, `A${s0} said F${f} burns later; it ignited today. I've stopped trusting A${s0} and dropped what only it supported.`);
+        });
+      });
+      days.push(today);
+    }
+    return { msgs, days, expo, turns };
+  }
+  return {
+    name: "scale", n, D, fpa, imp, extra, runs: { graph: simulate("graph", 7), prompt: simulate("prompt", 7) },
+    sub: "Scale preview · 64 agents, 256 fields, 40 days, 9 imposters · seeded stand-in data, not a real run",
+    captions: null, beliefs: null,
+  };
+}
+
+
+
+const SETS = {};
+const S = { set: "real", mem: "graph", day: 1, open: null, reveal: false, playing: false, speed: 1, token: 0, shown: {} };
+const ds = () => SETS[S.set] || (SETS[S.set] = S.set === "real" ? realDataset() : scaleDataset());
+const run = () => ds().runs[S.mem];
+const small = () => ds().n <= 24;
+const T = ms => ms / S.speed;
+const cutsUpTo = d => run().expo.filter(e => e[0] <= d);
+function world(d) {
+  const r = run(), st = {};
+  for (let k = 0; k <= d; k++) { r.days[k].ign.forEach(f => st[f] = "burning"); r.days[k].out.forEach(f => st[f] = "burnt"); r.days[k].saved.forEach(f => st[f] = "saved"); }
+  return { st, watered: new Set(d >= 0 ? r.days[d].water : []) };
+}
+function tallies(d) {
+  const v = Object.values(world(d).st);
+  return { lies: run().msgs.filter(m => m[0] <= d && m[6] && !ds().imp.has(m[1])).length, cuts: cutsUpTo(d).length, lost: v.filter(x => x !== "saved").length, saved: v.filter(x => x === "saved").length };
+}
+function caption(d) {
+  if (ds().captions) return ds().captions[d];
+  const ms = run().msgs.filter(m => m[0] === d);
+  return `${ms.length} messages, ${ms.filter(m => m[6]).length} of them lies. ${run().days[d].ign.length} fields catch fire.`;
+}
+
+// ================= three.js scene =================
+const HAS3D = !!window.THREE && (() => { try { return !!document.createElement("canvas").getContext("webgl"); } catch (e) { return false; } })();
+let renderer, scene, camera, controls, composer, clock;
+const W = { tiles: [], towers: [], links: {}, trails: [], fx: [], group: null, embers: null };
+const COL = { grass: 0x1c3a2a, grassTop: 0x24503a, burnt: 0x231c1a, ember: 0xff7a2f, saved: 0x123c46, water: 0x5ccfe6, lie: 0xff5c9a, truth: 0x9ab8ff, cut: 0xff5050, gold: 0xe8c37a, tower: 0x2a3142, link: 0x39445e };
+
+function initGL() {
+  const cv = $("#gl");
+  renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+  scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x0b0e14, 0.018);
+  camera = new THREE.PerspectiveCamera(40, 1, 0.1, 300);
+  camera.position.set(0, 42, 60);
+  controls = new THREE.OrbitControls(camera, cv);
+  controls.enableDamping = true; controls.dampingFactor = 0.07; controls.enablePan = false;
+  controls.minDistance = 12; controls.maxDistance = 70; controls.maxPolarAngle = 1.32; controls.minPolarAngle = 0.25;
+  controls.autoRotate = !REDUCED; controls.autoRotateSpeed = 0.25;
+  controls.addEventListener("start", () => controls.autoRotate = false);
+  scene.add(new THREE.HemisphereLight(0x9ab0ff, 0x0b0e14, 0.55));
+  const moon = new THREE.DirectionalLight(0xbfd0ff, 0.75); moon.position.set(-18, 30, 12); scene.add(moon);
+  const warm = new THREE.PointLight(0xff8a3d, 0, 30, 2); warm.position.set(0, 4, 0); scene.add(warm); W.warm = warm;
+  // the sea of night: a dark disc with faint contour rings
+  const sea = new THREE.Mesh(new THREE.CircleGeometry(120, 96), new THREE.MeshStandardMaterial({ color: 0x0c111a, roughness: 1 }));
+  sea.rotation.x = -Math.PI / 2; sea.position.y = -1.2; scene.add(sea);
+  for (let k = 1; k <= 7; k++) {
+    const ring = new THREE.Mesh(new THREE.RingGeometry(k * 5.2, k * 5.2 + 0.03, 160), new THREE.MeshBasicMaterial({ color: 0x1c2638, transparent: true, opacity: 0.6 }));
+    ring.rotation.x = -Math.PI / 2; ring.position.y = -1.18; scene.add(ring);
+  }
+  if (THREE.EffectComposer && THREE.UnrealBloomPass) {
+    composer = new THREE.EffectComposer(renderer);
+    composer.addPass(new THREE.RenderPass(scene, camera));
+    composer.addPass(new THREE.UnrealBloomPass(new THREE.Vector2(512, 512), 0.95, 0.55, 0.32));
+  }
+  clock = new THREE.Clock();
+  resize(); addEventListener("resize", resize);
+  pointer();
+  requestAnimationFrame(loop);
+  // a slow establishing shot
+  if (AN) AN({ targets: camera.position, x: 0, y: small() ? 20 : 26, z: small() ? 27 : 34, duration: 2600, easing: "easeInOutCubic" });
+  else camera.position.set(0, 20, 27);
+}
+function resize() {
+  const r = $("#stage").getBoundingClientRect();
+  renderer.setSize(r.width, r.height, false); camera.aspect = r.width / r.height; camera.updateProjectionMatrix();
+  if (composer) composer.setSize(r.width, r.height);
+}
+
+// geometry of the ring
+const geo = () => small() ? { rI: 7, rO: 10, rT: 11.3, h: 2.2 } : { rI: 10.5, rO: 13.2, rT: 14.1, h: 1.4 };
+const angOf = (f, F) => f / F * Math.PI * 2;
+const at = (r, a, y) => new THREE.Vector3(r * Math.cos(a), y, -r * Math.sin(a));
+function agentAngle(i) { const { n, fpa } = ds(); return angOf(i * fpa + fpa / 2, n * fpa); }
+function towerTop(i) { const g = geo(); return at(g.rT, agentAngle(i), g.h + 0.35); }
+
+function buildWorld() {
+  if (W.group) { scene.remove(W.group); W.group.traverse(o => { o.geometry && o.geometry.dispose(); o.material && o.material.dispose && o.material.dispose(); }); }
+  const grp = new THREE.Group(); scene.add(grp); W.group = grp;
+  W.tiles = []; W.towers = []; W.links = {}; W.trails = []; W.fx = [];
+  const { n, fpa } = ds(), F = n * fpa, g = geo();
+  // plateau under the fields
+  const plate = new THREE.Mesh(new THREE.CylinderGeometry(g.rO + 1.8, g.rO + 0.6, 1.2, 96, 1, true), new THREE.MeshStandardMaterial({ color: 0x141b27, roughness: 1, side: THREE.DoubleSide }));
+  plate.position.y = -0.6; grp.add(plate);
+  const top = new THREE.Mesh(new THREE.RingGeometry(g.rI - 0.8, g.rO + 1.8, 128), new THREE.MeshStandardMaterial({ color: 0x121925, roughness: 1 }));
+  top.rotation.x = -Math.PI / 2; top.position.y = -0.01; grp.add(top);
+  // fields: low-poly wedges, a wider gap between keepers
+  for (let f = 0; f < F; f++) {
+    const o = Math.floor(f / fpa), pad = (f % fpa === 0 ? 0.022 : 0.006) * (small() ? 1 : 0.5), pad2 = ((f + 1) % fpa === 0 ? 0.022 : 0.006) * (small() ? 1 : 0.5);
+    const a0 = angOf(f, F) + pad, a1 = angOf(f + 1, F) - pad2;
+    const sh = new THREE.Shape();
+    sh.moveTo(g.rI * Math.cos(a0), g.rI * Math.sin(a0));
+    sh.lineTo(g.rO * Math.cos(a0), g.rO * Math.sin(a0));
+    sh.absarc(0, 0, g.rO, a0, a1, false);
+    sh.lineTo(g.rI * Math.cos(a1), g.rI * Math.sin(a1));
+    sh.absarc(0, 0, g.rI, a1, a0, true);
+    const h = 0.45 + ((f * 37) % 7) * 0.025;
+    const gm = new THREE.ExtrudeGeometry(sh, { depth: h, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.04, bevelSegments: 1, curveSegments: small() ? 6 : 2 });
+    gm.rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshStandardMaterial({ color: COL.grass, roughness: 0.85, metalness: 0, flatShading: true, emissive: 0x000000 });
+    const m = new THREE.Mesh(gm, mat); m.userData = { field: f, owner: o, state: "alive", h };
+    grp.add(m); W.tiles.push(m);
+  }
+  // towers
+  const towerMat = new THREE.MeshStandardMaterial({ color: COL.tower, roughness: 0.6, metalness: 0.3, flatShading: true });
+  for (let i = 0; i < n; i++) {
+    const a = agentAngle(i), base = at(g.rT, a, 0), t = new THREE.Group(); t.position.copy(base);
+    const s = small() ? 1 : 0.6;
+    const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.42 * s, 0.5 * s, 0.18, 6), towerMat); foot.position.y = 0.09; t.add(foot);
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.11 * s, 0.2 * s, g.h, 6), towerMat); shaft.position.y = g.h / 2; t.add(shaft);
+    const lampMat = new THREE.MeshBasicMaterial({ color: 0x4a5061 });
+    const lamp = new THREE.Mesh(new THREE.OctahedronGeometry(0.26 * s, 0), lampMat); lamp.position.y = g.h + 0.35; t.add(lamp);
+    const liar = new THREE.Mesh(new THREE.TorusGeometry(0.62 * s, 0.035, 6, 32), new THREE.MeshBasicMaterial({ color: COL.lie, transparent: true, opacity: 0 }));
+    liar.rotation.x = Math.PI / 2; liar.position.y = 0.2; t.add(liar);
+    const sel = new THREE.Mesh(new THREE.TorusGeometry(0.5 * s, 0.025, 6, 40), new THREE.MeshBasicMaterial({ color: COL.gold, transparent: true, opacity: 0 }));
+    sel.rotation.x = Math.PI / 2; sel.position.y = g.h + 0.35; t.add(sel);
+    const hit = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, g.h + 1, 6), new THREE.MeshBasicMaterial({ visible: false })); hit.position.y = (g.h + 1) / 2; hit.userData.agent = i; t.add(hit);
+    grp.add(t);
+    W.towers.push({ group: t, lamp, liar, sel, hit, lit: 0 });
+  }
+  // links between neighbouring towers (and the few shortcuts, arched over the middle)
+  const pairs = []; for (let i = 0; i < n; i++) pairs.push([i, (i + 1) % n, false]); ds().extra.forEach(([a, b]) => pairs.push([a, b, true]));
+  pairs.forEach(([a, b, chord]) => {
+    const p = towerTop(a), q = towerTop(b);
+    const pts = chord ? new THREE.QuadraticBezierCurve3(p, new THREE.Vector3(0, geo().h + 4, 0), q).getPoints(40) : [p, q];
+    const gm = new THREE.BufferGeometry().setFromPoints(pts);
+    const mat = new THREE.LineDashedMaterial({ color: COL.link, transparent: true, opacity: chord ? 0.35 : 0.55, dashSize: chord ? 0.25 : 100, gapSize: chord ? 0.35 : 0 });
+    const ln = new THREE.Line(gm, mat); ln.computeLineDistances(); grp.add(ln);
+    W.links[[a, b].sort((x, y) => x - y).join("-")] = ln;
+  });
+  // embers over burning fields
+  const N = 700, pos = new Float32Array(N * 3), seed = new Float32Array(N);
+  for (let k = 0; k < N; k++) { seed[k] = Math.random(); pos[k * 3 + 1] = -50; }
+  const eg = new THREE.BufferGeometry(); eg.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  const em = new THREE.PointsMaterial({ color: 0xffa04d, size: small() ? 0.16 : 0.12, map: dotTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.95 });
+  W.embers = new THREE.Points(eg, em); W.embers.userData = { seed, life: new Float32Array(N), src: new Int32Array(N).fill(-1) }; grp.add(W.embers);
+}
+function dotTexture() {
+  const c = document.createElement("canvas"); c.width = c.height = 64; const x = c.getContext("2d");
+  const g = x.createRadialGradient(32, 32, 0, 32, 32, 32); g.addColorStop(0, "rgba(255,255,255,1)"); g.addColorStop(.3, "rgba(255,220,170,.8)"); g.addColorStop(1, "rgba(255,140,60,0)");
+  x.fillStyle = g; x.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c);
+}
+
+// ================= state → scene =================
+function applyTowers(d, quiet) {
+  const turns = run().turns;
+  W.towers.forEach((t, i) => {
+    const id = A(i), lit = !quiet && !!turns[`${id}|${d}`];
+    t.lit = lit ? 1 : 0;
+    t.lamp.material.color.setHex(lit ? 0xffc46b : 0x4a5061);
+    t.liar.material.opacity = S.reveal && ds().imp.has(i) ? 0.95 : 0;
+    t.sel.material.opacity = S.open === id ? 1 : 0;
+  });
+}
+function applyLinks(d) {
+  const cut = new Set(cutsUpTo(d).map(e => [num(e[1]), num(e[2])].sort((a, b) => a - b).join("-")));
+  for (const [k, ln] of Object.entries(W.links)) {
+    const c = cut.has(k), chord = ln.material.dashSize < 1;
+    ln.material.color.setHex(c ? COL.cut : COL.link); ln.material.opacity = c ? 0.95 : chord ? 0.35 : 0.55;
+    ln.material.dashSize = c ? 0.3 : chord ? 0.25 : 100; ln.material.gapSize = c ? 0.25 : chord ? 0.35 : 0;
+  }
+}
+function applyWorld(d, animate) {
+  const { st, watered } = world(d);
+  let burning = 0;
+  W.tiles.forEach(m => {
+    const f = m.userData.field, s = st[f] || "alive", prev = m.userData.state; m.userData.state = s;
+    const mat = m.material;
+    if (s === "burning") burning++;
+    const target = s === "burning" ? COL.ember : s === "burnt" ? COL.burnt : s === "saved" ? COL.saved : COL.grass;
+    const emiss = s === "burning" ? 0xff5a1a : s === "saved" ? 0x0e5a6a : 0x000000;
+    const y = s === "burnt" ? -0.22 : 0;
+    if (animate && AN && prev !== s) {
+      const from = mat.color.clone(), to = new THREE.Color(target), e0 = mat.emissive.clone(), e1 = new THREE.Color(emiss), o = { t: 0 };
+      AN({ targets: o, t: 1, duration: 1100, easing: "easeInOutQuad", update: () => { mat.color.copy(from).lerp(to, o.t); mat.emissive.copy(e0).lerp(e1, o.t); } });
+      AN({ targets: m.position, y: [s === "burning" ? 0.35 : m.position.y, y], duration: 1200, easing: "easeOutElastic(1, .6)" });
+      if (s === "saved") splash(m);
+    } else { mat.color.setHex(target); mat.emissive.setHex(emiss); m.position.y = y; }
+    mat.emissiveIntensity = s === "burning" ? 1.2 : 0.6;
+    m.userData.watered = watered.has(m.userData.owner);
+  });
+  W.burningCount = burning;
+  const cnt = { alive: 0, burning: 0, burnt: 0, saved: 0 }; W.tiles.forEach(m => cnt[m.userData.state]++);
+  $("#wcount").innerHTML = [["alive", cnt.alive + cnt.saved, "#3f6b54"], ["on fire", cnt.burning, "var(--ember)"], ["burnt", cnt.burnt, "#5a4a44"], ["saved", cnt.saved, "var(--water)"]]
+    .map(([l, v, c]) => `<span><i style="--c:${c}"></i>${l}<b>${v}</b></span>`).join("");
+}
+function clearTrails(fade) {
+  const old = W.trails; W.trails = [];
+  if (fade && AN && old.length) { AN({ targets: old.map(l => l.material), opacity: 0, duration: T(400), easing: "easeOutQuad", complete: () => old.forEach(l => { W.group.remove(l); l.geometry.dispose(); l.material.dispose(); }) }); }
+  else old.forEach(l => { W.group.remove(l); l.geometry.dispose(); l.material.dispose(); });
+}
+function curveFor(m, k) {
+  const p = towerTop(m[1]), q = towerTop(m[2]), mid = p.clone().add(q).multiplyScalar(0.5);
+  const lift = (small() ? 2.2 : 1.4) + p.distanceTo(q) * 0.25 + (k % 3) * 0.25;
+  mid.multiplyScalar(0.92); mid.y += lift;
+  return new THREE.QuadraticBezierCurve3(p, mid, q);
+}
+function trailFor(m, k, drawn) {
+  const pts = curveFor(m, k).getPoints(48), gm = new THREE.BufferGeometry().setFromPoints(pts);
+  const mine = S.open && (A(m[1]) === S.open || A(m[2]) === S.open);
+  const base = m[6] ? 0.85 : small() ? 0.6 : 0.22;
+  const ln = new THREE.Line(gm, new THREE.LineBasicMaterial({ color: m[6] ? COL.lie : COL.truth, transparent: true, opacity: S.open && !mine ? base * 0.25 : base }));
+  gm.setDrawRange(0, drawn ? 49 : 0); W.group.add(ln); W.trails.push(ln); return ln;
+}
+function setTrails(d) { clearTrails(false); run().msgs.filter(m => m[0] === d).forEach((m, k) => trailFor(m, k, true)); }
+function applyStats(d, animate) {
+  const t = tallies(d);
+  for (const k of Object.keys(t)) { const nd = $("#s-" + k), from = S.shown[k] || 0, to = t[k];
+    if (animate && AN && from !== to) { const o = { v: from }; AN({ targets: o, v: to, round: 1, duration: 900, easing: "easeOutQuart", update: () => nd.textContent = o.v }); } else nd.textContent = to;
+    S.shown[k] = to; }
+}
+function setCentre(d, animate) {
+  const n_ = $("#num"), cap = $("#cap"), text = caption(d);
+  if (!animate || !AN) { n_.textContent = d; cap.textContent = text; return Promise.resolve(); }
+  return AN.timeline({ easing: "easeInOutQuart" })
+    .add({ targets: [n_, cap], translateY: [0, -18], opacity: [1, 0], duration: T(300) })
+    .add({ targets: n_, translateY: [30, 0], opacity: [0, 1], duration: T(480), begin: () => { n_.textContent = d; cap.textContent = text; } })
+    .add({ targets: cap, opacity: [0, 1], duration: T(400) }, `-=${T(240)}`).finished;
+}
+function settle(d) { applyTowers(d); applyLinks(d); applyWorld(d, false); applyStats(d, false); setTrails(d); setCentre(d, false); applyTrack(); if (S.open) renderDossier(false); }
+
+// ================= one night =================
+async function playNight(d, token) {
+  const live = () => token === S.token;
+  S.day = d; applyTrack(); clearTrails(true); applyTowers(d, true);
+  await setCentre(d, true); if (!live()) return;
+  const ms = run().msgs.filter(m => m[0] === d), stagger = small() ? 260 : 80;
+  await Promise.all(ms.map((m, k) => wait(T(k * stagger)).then(() => live() && fly(m, k))));
+  if (!live()) return;
+  applyTowers(d); applyWorld(d, true);
+  await wait(T(900)); if (!live()) return;
+  const cuts = run().expo.filter(e => e[0] === d);
+  for (let i = 0; i < cuts.length; i++) { if (!live()) return; snap(cuts[i]); if (i < 10) await wait(T(240)); }
+  applyLinks(d); applyStats(d, true); if (S.open) renderDossier(true);
+  await wait(T(1000));
+}
+function fly(m, k) {
+  const ln = trailFor(m, k, false);
+  if (!AN) { ln.geometry.setDrawRange(0, 49); return Promise.resolve(); }
+  const curve = curveFor(m, k), col = m[6] ? COL.lie : COL.truth;
+  const orb = new THREE.Mesh(new THREE.SphereGeometry(small() ? 0.16 : 0.11, 12, 8), new THREE.MeshBasicMaterial({ color: col }));
+  const glow = new THREE.Mesh(new THREE.SphereGeometry(small() ? 0.36 : 0.24, 12, 8), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.25, depthWrite: false, blending: THREE.AdditiveBlending }));
+  orb.add(glow); W.group.add(orb); orb.position.copy(curve.getPoint(0));
+  const o = { t: 0 };
+  return AN({ targets: o, t: 1, duration: T(small() ? 1300 : 900), easing: "easeInOutCubic",
+    update: () => { orb.position.copy(curve.getPoint(o.t)); ln.geometry.setDrawRange(0, Math.max(2, Math.round(o.t * 49))); }
+  }).finished.then(() => { W.group.remove(orb); orb.geometry.dispose(); orb.material.dispose(); glow.geometry.dispose(); glow.material.dispose(); ln.geometry.setDrawRange(0, 49); landing(m[2], col); });
+}
+function landing(i, col) {
+  const t = W.towers[i]; t.lamp.material.color.setHex(0xffc46b); t.lit = 1;
+  if (!AN) return;
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.38, 40), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
+  ring.rotation.x = -Math.PI / 2; ring.position.copy(t.group.position); ring.position.y = 0.06; W.group.add(ring);
+  AN({ targets: ring.scale, x: [1, 4.5], y: [1, 4.5], duration: 1000, easing: "easeOutQuart" });
+  AN({ targets: ring.material, opacity: [0.9, 0], duration: 1000, easing: "easeOutQuad", complete: () => { W.group.remove(ring); ring.geometry.dispose(); ring.material.dispose(); } });
+  AN({ targets: t.lamp.scale, x: [1.6, 1], y: [1.6, 1], z: [1.6, 1], duration: 700, easing: "easeOutElastic(1, .5)" });
+}
+function splash(m) {
+  const c = new THREE.Box3().setFromObject(m).getCenter(new THREE.Vector3());
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.28, 40), new THREE.MeshBasicMaterial({ color: COL.water, transparent: true, opacity: 1, side: THREE.DoubleSide, depthWrite: false }));
+  ring.rotation.x = -Math.PI / 2; ring.position.set(c.x, 0.6, c.z); W.group.add(ring);
+  AN({ targets: ring.scale, x: [1, 6], y: [1, 6], duration: 1400, easing: "easeOutQuart" });
+  AN({ targets: ring.material, opacity: [1, 0], duration: 1400, easing: "easeOutQuad", complete: () => { W.group.remove(ring); ring.geometry.dispose(); ring.material.dispose(); } });
+}
+function snap(e) {
+  const key = [num(e[1]), num(e[2])].sort((a, b) => a - b).join("-"), ln = W.links[key];
+  if (ln) { ln.material.color.setHex(COL.cut); ln.material.opacity = 1; ln.material.dashSize = 0.3; ln.material.gapSize = 0.25; }
+  if (!AN) return;
+  const p = towerTop(num(e[1])), q = towerTop(num(e[2]));
+  const gm = new THREE.BufferGeometry().setFromPoints([p, q]);
+  const flash = new THREE.Line(gm, new THREE.LineBasicMaterial({ color: 0xff7070, transparent: true, opacity: 1 })); W.group.add(flash);
+  const spark = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 8), new THREE.MeshBasicMaterial({ color: COL.cut, transparent: true, opacity: 1, blending: THREE.AdditiveBlending }));
+  spark.position.copy(p).add(q).multiplyScalar(0.5); W.group.add(spark);
+  AN({ targets: spark.scale, x: [0.4, 2.4], y: [0.4, 2.4], z: [0.4, 2.4], duration: 700, easing: "easeOutQuart" });
+  AN({ targets: [flash.material, spark.material], opacity: [1, 0], duration: 900, easing: "easeOutQuad", complete: () => { [flash, spark].forEach(x => { W.group.remove(x); x.geometry.dispose(); x.material.dispose(); }); } });
+}
+
+// ================= frame loop =================
+function loop() {
+  const dt = Math.min(0.05, clock.getDelta()), t = clock.elapsedTime;
+  controls.update();
+  // burning fields flicker
+  W.tiles.forEach((m, k) => { if (m.userData.state === "burning") m.material.emissiveIntensity = 0.9 + 0.35 * Math.sin(t * 7 + k * 1.7) + 0.15 * Math.sin(t * 13 + k); });
+  W.warm.intensity = Math.min(3, (W.burningCount || 0) * (small() ? 0.9 : 0.12));
+  W.towers.forEach((tw, i) => { tw.lamp.rotation.y += dt * (tw.lit ? 1.4 : 0.3); if (tw.sel.material.opacity > 0) tw.sel.rotation.z += dt * 1.2; });
+  updateEmbers(dt);
+  if (composer) composer.render(); else renderer.render(scene, camera);
+  updateLabels();
+  requestAnimationFrame(loop);
+}
+function updateEmbers(dt) {
+  const P = W.embers; if (!P) return;
+  const burning = W.tiles.filter(m => m.userData.state === "burning");
+  const arr = P.geometry.attributes.position.array, u = P.userData;
+  for (let k = 0; k < u.life.length; k++) {
+    if (u.life[k] <= 0) {
+      if (!burning.length || REDUCED || Math.random() > 0.08) { arr[k * 3 + 1] = -50; continue; }
+      const m = burning[(Math.random() * burning.length) | 0], c = m.userData.center || (m.userData.center = new THREE.Box3().setFromObject(m).getCenter(new THREE.Vector3()));
+      arr[k * 3] = c.x + (Math.random() - .5) * 1.2; arr[k * 3 + 1] = 0.5; arr[k * 3 + 2] = c.z + (Math.random() - .5) * 1.2; u.life[k] = 1;
+    }
+    u.life[k] -= dt * (0.45 + u.seed[k] * 0.4);
+    arr[k * 3 + 1] += dt * (1.2 + u.seed[k] * 1.6);
+    arr[k * 3] += Math.sin(clock.elapsedTime * 2 + k) * dt * 0.3;
+  }
+  P.geometry.attributes.position.needsUpdate = true;
+}
+
+// ================= labels, hover, click =================
+let labelEls = [];
+function buildLabels() {
+  const box = $("#labels"); box.innerHTML = "";
+  labelEls = W.towers.map((_, i) => { const d = document.createElement("div"); d.className = "lab"; d.textContent = A(i); box.appendChild(d); return d; });
+}
+function updateLabels() {
+  const r = $("#stage").getBoundingClientRect(), v = new THREE.Vector3(), turns = run().turns;
+  W.towers.forEach((t, i) => {
+    const el = labelEls[i]; if (!el) return;
+    const id = A(i), liar = S.reveal && ds().imp.has(i), show = small() || i % 4 === 0 || S.open === id || liar || hoverAgent === i;
+    v.copy(towerTop(i)); v.y += 0.6; v.project(camera);
+    const vis = show && v.z < 1;
+    el.style.display = vis ? "" : "none"; if (!vis) return;
+    el.style.left = ((v.x + 1) / 2 * r.width) + "px"; el.style.top = ((1 - v.y) / 2 * r.height) + "px";
+    el.className = "lab" + (S.open === id ? " sel" : liar ? " liar" : t.lit || hoverAgent === i ? " hot" : "");
+  });
+}
+let hoverAgent = -1;
+function pointer() {
+  const cv = $("#gl"), ray = new THREE.Raycaster(), p = new THREE.Vector2(), tip = $("#tip");
+  let down = null;
+  const pick = e => {
+    const r = cv.getBoundingClientRect(); p.set((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1);
+    ray.setFromCamera(p, camera);
+    const hitT = ray.intersectObjects(W.towers.map(t => t.hit), false)[0];
+    if (hitT) return { agent: hitT.object.userData.agent };
+    const hitF = ray.intersectObjects(W.tiles, false)[0];
+    return hitF ? { field: hitF.object.userData.field, owner: hitF.object.userData.owner, state: hitF.object.userData.state } : null;
+  };
+  cv.addEventListener("pointerdown", e => down = [e.clientX, e.clientY]);
+  cv.addEventListener("pointermove", e => {
+    const h = pick(e), r = $("#stage").getBoundingClientRect();
+    hoverAgent = h && h.agent !== undefined ? h.agent : -1;
+    cv.style.cursor = hoverAgent >= 0 ? "pointer" : "grab";
+    if (h && h.field !== undefined) {
+      tip.hidden = false; tip.innerHTML = `F${h.field} <small>· keeper ${A(h.owner)} · ${{ alive: "alive", burning: "on fire", burnt: "burnt", saved: "saved by water" }[h.state]}</small>`;
+      tip.style.left = Math.min(e.clientX - r.left + 14, r.width - 220) + "px"; tip.style.top = (e.clientY - r.top + 14) + "px";
+    } else if (hoverAgent >= 0) {
+      tip.hidden = false; tip.innerHTML = `${A(hoverAgent)} <small>· keeper of F${hoverAgent * ds().fpa}–F${hoverAgent * ds().fpa + ds().fpa - 1} · click</small>`;
+      tip.style.left = Math.min(e.clientX - r.left + 14, r.width - 220) + "px"; tip.style.top = (e.clientY - r.top + 14) + "px";
+    } else tip.hidden = true;
+  });
+  cv.addEventListener("pointerleave", () => { tip.hidden = true; hoverAgent = -1; });
+  cv.addEventListener("pointerup", e => {
+    if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return;
+    const h = pick(e);
+    if (h && h.agent !== undefined) openDossier(A(h.agent));
+    else if (h && h.field !== undefined) openDossier(A(h.owner));
+    else if (S.open) closeDossier();
+  });
+}
+
+// ================= dossier =================
+function focusOn(i) {
+  if (!AN) return;
+  const p = towerTop(i), dir = new THREE.Vector3(p.x, 0, p.z).normalize();
+  const camTo = p.clone().add(dir.multiplyScalar(small() ? 13 : 12)); camTo.y = small() ? 11 : 10;
+  controls.autoRotate = false;
+  AN({ targets: controls.target, x: p.x * 0.45, y: 0.5, z: p.z * 0.45, duration: 1300, easing: "easeInOutCubic" });
+  AN({ targets: camera.position, x: camTo.x, y: camTo.y, z: camTo.z, duration: 1300, easing: "easeInOutCubic" });
+}
+function openDossier(id) { S.open = id; applyTowers(S.day); setTrails(S.day); renderDossier(true); focusOn(num(id)); }
+function closeDossier() { S.open = null; applyTowers(S.day); setTrails(S.day); const b = $("#dossier");
+  if (AN) AN({ targets: b, opacity: [1, 0], translateY: [0, 8], duration: 260, easing: "easeInQuad", complete: () => b.hidden = true }); else b.hidden = true;
+  if (AN) { AN({ targets: controls.target, x: 0, y: 0, z: 0, duration: 1200, easing: "easeInOutCubic" }); } }
+function msgLine(m, dir) {
+  const lie = m[6] && S.reveal, other = dir === "out" ? A(m[2]) : A(m[1]);
+  return `<div class="msg ${lie ? "lie" : ""}">${dir === "out" ? "to " + other : other}: fire reaches F${m[4]} on day ${m[5]}${lie ? ' <span class="st" style="--c:var(--lie)">lie</span>' : ""}<small>${m[3].map(A).join(" → ")}</small></div>`;
+}
+function capped(list, f, k = 3) {
+  if (!list.length) return '<p class="none">Nothing.</p>';
+  return list.slice(0, k).map(f).join("") + (list.length > k ? `<details><summary>${list.length - k} more</summary><div>${list.slice(k).map(f).join("")}</div></details>` : "");
+}
+function renderDossier(fresh) {
+  const id = S.open; if (!id) return;
+  const i = num(id), d = S.day, fpa = ds().fpa, box = $("#dossier");
+  const ms = run().msgs.filter(m => m[0] === d), heard = ms.filter(m => A(m[2]) === id), said = ms.filter(m => A(m[1]) === id);
+  const t = run().turns[`${id}|${d}`], cuts = [...new Set(cutsUpTo(d).filter(e => e[1] === id).map(e => e[2]))];
+  let h = `<div class="d-h"><span class="nm">${id}</span><span class="caps">keeper of F${i * fpa}${fpa > 2 ? "–" : ", "}F${i * fpa + fpa - 1}${S.reveal && ds().imp.has(i) ? ' · <span style="color:var(--lie)">liar</span>' : ""}</span><button class="x" id="x" aria-label="Close">×</button></div>`;
+  h += `<div class="d-sec"><span class="caps">Thinks · night ${d}</span><div class="thought" id="thought">${t ? "" : '<span class="none" style="font-family:var(--f-ui);font-style:normal">Silent tonight.</span>'}</div></div>`;
+  h += `<div class="d-sec"><span class="caps">Heard</span>${capped(heard, m => msgLine(m, "in"))}</div>`;
+  h += `<div class="d-sec"><span class="caps">Said</span>${capped(said, m => msgLine(m, "out"))}</div>`;
+  if (S.mem === "graph") {
+    let rows = [];
+    if (ds().beliefs) rows = (ds().beliefs[id] || []).filter(b => b[3] <= d).map(b => { const dead = b[4] !== null && b[4] <= d; return [dead, `F${b[1]} burns day ${b[2]}`, dead ? ["dropped", "var(--cut)"] : b[5] === "forecast" ? ["forecast", "var(--dim)"] : ["holds", "var(--truth)"], b[6] ? `via ${b[6]}` : b[5]]; });
+    else {
+      const cut = new Set(cutsUpTo(d).filter(e => e[1] === id).map(e => num(e[2]))), by = new Map();
+      run().msgs.filter(m => m[0] <= d && A(m[2]) === id).forEach(m => { const k = m[4] + "|" + m[5], b = by.get(k) || { f: m[4], c: m[5], r: [] }; b.r.push(m[3]); by.set(k, b); });
+      rows = [...by.values()].map(b => { const live = b.r.filter(r => !r.some(x => cut.has(x))).length; return [!live, `F${b.f} burns day ${b.c}`, live ? ["holds", "var(--truth)"] : ["dropped", "var(--cut)"], `${live}/${b.r.length} routes`]; }).sort((a, b) => b[0] - a[0]);
+    }
+    const row = r => `<li class="${r[0] ? "dead" : ""}"><span>${r[1]} <small style="color:var(--dim)">${r[3]}</small></span><span class="st" style="--c:${r[2][1]}">${r[2][0]}</span></li>`;
+    h += `<div class="d-sec"><span class="caps">Memory graph</span>${rows.length ? `<ul class="blist">${rows.slice(0, 5).map(row).join("")}</ul>${rows.length > 5 ? `<details><summary>${rows.length - 5} more</summary><div><ul class="blist">${rows.slice(5).map(row).join("")}</ul></div></details>` : ""}` : '<p class="none">Empty so far.</p>'}</div>`;
+    if (cuts.length) h += `<div class="d-sec"><span class="caps">Distrusts</span><p class="none" style="color:var(--cut)">${cuts.join(", ")}, caught lying by the evidence.</p></div>`;
+  } else h += `<div class="d-sec"><span class="caps">Memory</span><p class="none">No memory graph. A prompt mind re-reads the whole chat log every night and keeps nothing structured.</p></div>`;
+  const wasHidden = box.hidden;
+  box.innerHTML = h; box.hidden = false; $("#x").onclick = closeDossier;
+  if (t) {
+    const text = `“${t.final || "…"}”`, el_ = $("#thought");
+    if (AN && fresh) { const o = { n: 0 }; el_.innerHTML = '<span></span><i class="caret"></i>'; const sp = el_.firstChild;
+      AN({ targets: o, n: text.length, duration: Math.min(2400, text.length * 16), easing: "linear", update: () => sp.textContent = text.slice(0, o.n | 0) }); }
+    else el_.textContent = text;
+  }
+  if (AN && wasHidden) AN({ targets: box, opacity: [0, 1], translateY: [10, 0], duration: 420, easing: "easeOutQuart" });
+}
+
+// ================= track + controls =================
+function buildTrack() {
+  const D = ds().D, r = run(), mx = Math.max(1, ...Array.from({ length: D }, (_, d) => r.msgs.filter(m => m[0] === d).length));
+  $("#pips").style.setProperty("--n", D);
+  $("#pips").innerHTML = Array.from({ length: D }, (_, d) => { const ms = r.msgs.filter(m => m[0] === d), l = ms.filter(m => m[6]).length;
+    return `<button class="pip" data-d="${d}" aria-label="Night ${d}" style="--h:${22 + 78 * ms.length / mx}%;--l:${ms.length ? l / ms.length * 100 : 0}%"></button>`; }).join("");
+  document.querySelectorAll(".pip").forEach(p => p.onclick = () => { stop(); go(+p.dataset.d); });
+}
+function applyTrack() {
+  document.querySelectorAll(".pip").forEach((p, d) => { p.classList.toggle("past", d < S.day); p.classList.toggle("now", d === S.day); });
+  $("#prev").disabled = S.day === 0; $("#next").disabled = S.day >= ds().D - 1;
+}
+function go(d) { S.token++; S.day = Math.max(0, Math.min(ds().D - 1, d)); settle(S.day); }
+function stop() { if (!S.playing) return; S.playing = false; S.token++; $("#play").textContent = "▶"; $("#start").hidden = false; settle(S.day); }
+async function play(fromStart) {
+  if (S.playing) return stop();
+  S.playing = true; $("#play").textContent = "❚❚"; $("#start").hidden = true; controls.autoRotate = !REDUCED;
+  let d = fromStart || S.day >= ds().D - 1 ? 0 : S.day + 1;
+  if (fromStart) { S.token++; applyLinks(-1); applyWorld(-1, false); applyStats(-1, false); }
+  while (S.playing && d < ds().D) { const tok = ++S.token; await playNight(d, tok); if (tok !== S.token) return; d++; }
+  S.playing = false; $("#play").textContent = "▶"; $("#start").hidden = false;
+}
+$("#play").onclick = () => play(false);
+$("#start").onclick = () => play(true);
+$("#prev").onclick = () => { stop(); go(S.day - 1); };
+$("#next").onclick = async () => { if (S.playing) stop(); if (S.day < ds().D - 1) { const tok = ++S.token; await playNight(S.day + 1, tok); if (tok === S.token) settle(S.day); } };
+$("#speed").onclick = () => { S.speed = S.speed === 1 ? 2 : S.speed === 2 ? 4 : 1; $("#speed").textContent = S.speed + "×"; };
+const press = (a, b, v) => { $(a).setAttribute("aria-pressed", v); $(b).setAttribute("aria-pressed", !v); };
+$("#m-graph").onclick = () => { stop(); press("#m-graph", "#m-prompt", true); S.mem = "graph"; buildTrack(); go(S.day); };
+$("#m-prompt").onclick = () => { stop(); press("#m-graph", "#m-prompt", false); S.mem = "prompt"; buildTrack(); go(S.day); };
+$("#reveal").onchange = e => { S.reveal = e.target.checked; applyTowers(S.day); if (S.open) renderDossier(false); };
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.key === "Escape" && S.open) closeDossier();
+  if (e.key === "ArrowRight") { stop(); go(S.day + 1); } if (e.key === "ArrowLeft") { stop(); go(S.day - 1); }
+});
+function setSet(k) {
+  stop(); S.set = k; press("#d-real", "#d-scale", k === "real"); S.open = null; $("#dossier").hidden = true;
+  $("#tag").textContent = k === "real" ? "16 keepers · 5 liars · real run" : "64 keepers · 9 liars · stand-in data";
+  $("#foot").textContent = k === "real" ? "Every message, thought and belief comes from the run logs: runs/hard16, seed 0, graph-memory and B3o prompt-only." : "64 keepers is a seeded stand-in simulation with the game's rules, not a model run.";
+  $("#stats").innerHTML = [["lies", "Lies passed on", "var(--lie)"], ["cuts", "Trust cuts", "var(--cut)"], ["lost", "Fields burnt", "var(--ember)"], ["saved", "Saved", "var(--water)"]]
+    .map(([key, l, c]) => `<div class="stat" style="--c:${c}"><span class="v" id="s-${key}">0</span><span class="caps">${l}</span></div>`).join("");
+  S.shown = {};
+  buildWorld(); buildLabels(); buildTrack();
+  if (AN && camera) AN({ targets: controls.target, x: 0, y: 0, z: 0, duration: 800, easing: "easeInOutCubic" });
+  go(k === "real" ? 1 : 9);
+}
+$("#d-real").onclick = () => setSet("real");
+$("#d-scale").onclick = () => setSet("scale");
+
+if (HAS3D) { initGL(); setSet("real"); }
+else { $("#stage").insertAdjacentHTML("beforeend", '<div class="fallback"><p>This view needs WebGL, which this browser or frame did not provide.<br>The 2D night map shows the same replay.</p></div>'); }
+</script>

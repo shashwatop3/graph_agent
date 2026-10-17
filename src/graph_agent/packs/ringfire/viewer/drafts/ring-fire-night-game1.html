@@ -1,0 +1,657 @@
+<title>Ring Fire Night</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800;900&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.2/anime.min.js"></script>
+<style>
+/* Layout: a game screen. HUD across the top, the night map of beacons in the middle, the truth minimap and
+   dispatch log on the right, a turn track along the bottom. One deliberate dark world (no light theme). */
+:root {
+  --night: #0a0f1d; --terrain: #10182c; --panel: #131c33; --edge: #26324f; --dim: #8791ab; --ink: #ece6d6;
+  --ember: #ff7a2f; --flame: #ffb347; --char: #3d2f2b; --grass: #1c3a2c; --water: #39c6ff;
+  --lie: #ff4fa3; --truth: #86b4ff; --cut: #ff3b3b; --gold: #f2c14e;
+  --f-display: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--night); color: var(--ink); }
+body { font-family: var(--f-body); font-size: 14px; background:
+  radial-gradient(1200px 700px at 40% 45%, #16213d 0%, var(--night) 70%) fixed; }
+.wrap { padding: 16px; padding-block: 14px 24px; display: grid; gap: 12px; max-width: 1440px; margin: 0 auto; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.mono { font-family: var(--f-mono); }
+
+/* HUD */
+.hud { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }
+.logo { display: flex; align-items: baseline; gap: 10px; }
+.logo b { font-family: var(--f-display); font-weight: 900; font-size: 34px; letter-spacing: .04em; line-height: 1; text-transform: uppercase;
+  background: linear-gradient(180deg, var(--flame), var(--ember)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.logo span { font-family: var(--f-mono); font-size: 11px; color: var(--dim); letter-spacing: .12em; text-transform: uppercase; }
+.gauges { display: flex; gap: 8px; flex-wrap: wrap; }
+.gauge { background: linear-gradient(180deg, #172242, #111a33); border: 1px solid var(--edge); border-radius: 10px; padding: 5px 12px 6px; min-width: 92px; position: relative; overflow: hidden; }
+.gauge .v { font-family: var(--f-display); font-weight: 800; font-size: 28px; line-height: 1; color: var(--c, var(--ink)); font-variant-numeric: tabular-nums; }
+.gauge .k { font-family: var(--f-mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+.gauge::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--c, var(--edge)); opacity: .8; }
+.switches { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--edge); border-radius: 10px; padding: 3px; background: #0e1529; }
+.seg button { border: 0; background: transparent; border-radius: 7px; padding: 6px 12px; font-size: 12.5px; color: var(--dim); white-space: nowrap; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--night); font-weight: 600; }
+.chk { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--dim); }
+
+/* main */
+.main { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+@media (max-width: 980px) { .main { grid-template-columns: minmax(0, 1fr); } }
+.frame { background: linear-gradient(180deg, rgb(19 28 51 / .9), rgb(13 20 38 / .9)); border: 1px solid var(--edge); border-radius: 16px; min-width: 0; position: relative; }
+.frame-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 14px 0; flex-wrap: wrap; }
+.frame-h h2 { margin: 0; font-family: var(--f-display); font-weight: 800; font-size: 20px; letter-spacing: .06em; text-transform: uppercase; }
+.frame-h small { font-family: var(--f-mono); font-size: 10.5px; color: var(--dim); letter-spacing: .08em; text-transform: uppercase; }
+
+.stage { position: relative; aspect-ratio: 1 / 1; max-height: 78vh; margin: 0 auto; width: 100%; max-width: 100%; }
+.stage canvas, .stage svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+svg text { font-family: var(--f-mono); }
+.beacon { cursor: pointer; }
+.banner { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); text-align: center; pointer-events: none; }
+.banner .big { font-family: var(--f-display); font-weight: 900; font-size: clamp(54px, 9vw, 110px); line-height: .9; letter-spacing: .03em; color: var(--ink); text-shadow: 0 0 30px rgb(255 122 47 / .45); }
+.banner .sub { font-family: var(--f-mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--flame); margin-top: 6px; max-width: 28ch; margin-inline: auto; }
+.startbtn { position: absolute; left: 50%; bottom: 7%; transform: translateX(-50%); border: 1px solid var(--flame); background: rgb(255 122 47 / .14); color: var(--flame);
+  font-family: var(--f-display); font-weight: 800; letter-spacing: .12em; text-transform: uppercase; font-size: 18px; padding: 8px 22px; border-radius: 999px; }
+.startbtn:hover { background: rgb(255 122 47 / .25); }
+
+/* dossier */
+.dossier { position: absolute; top: 12px; right: 12px; width: min(340px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow: auto; z-index: 6;
+  background: linear-gradient(180deg, #18233f, #111a31); border: 1px solid var(--edge); border-radius: 14px; padding: 14px; display: grid; gap: 12px;
+  box-shadow: 0 20px 50px -10px rgb(0 0 0 / .6), inset 0 1px 0 rgb(255 255 255 / .04); }
+.dos-h { display: grid; grid-template-columns: 54px minmax(0,1fr) auto; gap: 10px; align-items: center; }
+.sigil { width: 54px; height: 54px; }
+.dos-h .name { font-family: var(--f-display); font-weight: 900; font-size: 30px; line-height: .9; letter-spacing: .03em; }
+.dos-h .role { font-family: var(--f-mono); font-size: 10.5px; color: var(--dim); letter-spacing: .06em; text-transform: uppercase; margin-top: 3px; }
+.close { border: 1px solid var(--edge); background: transparent; width: 30px; height: 30px; border-radius: 50%; color: var(--dim); }
+.sec { display: grid; gap: 6px; }
+.sec > .t { font-family: var(--f-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+.line { border-radius: 10px; padding: 7px 10px; background: rgb(255 255 255 / .04); border: 1px solid var(--edge); font-size: 13px; line-height: 1.4; }
+.line.out { border-color: rgb(134 180 255 / .45); }
+.line.false { border-color: var(--lie); box-shadow: 0 0 0 1px rgb(255 79 163 / .25), 0 0 18px -6px var(--lie); }
+.line small { display: block; font-family: var(--f-mono); font-size: 10.5px; color: var(--dim); margin-top: 2px; }
+.speech { font-size: 13.5px; line-height: 1.55; font-style: italic; padding: 10px 12px; border-radius: 12px; background: #0d1427; border: 1px solid var(--edge); position: relative; min-height: 2.6em; }
+.speech::before { content: ""; position: absolute; left: 18px; top: -7px; width: 12px; height: 12px; background: #0d1427; border-left: 1px solid var(--edge); border-top: 1px solid var(--edge); transform: rotate(45deg); }
+.chip { font-family: var(--f-mono); font-size: 10.5px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--c, var(--edge)); color: var(--c, var(--dim)); white-space: nowrap; }
+.bl { list-style: none; padding: 0; margin: 0; display: grid; gap: 5px; }
+.bl li { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; }
+.bl li.dead > span:first-child { text-decoration: line-through; color: var(--dim); }
+.none { color: var(--dim); font-size: 12.5px; margin: 0; }
+details summary { cursor: pointer; font-size: 12px; color: var(--dim); }
+details > div { margin-top: 6px; display: grid; gap: 6px; }
+@media (max-width: 640px) { .dossier { position: fixed; top: auto; bottom: 8px; left: 8px; right: 8px; width: auto; max-height: 72vh; } }
+
+/* truth minimap */
+.side { display: grid; gap: 12px; }
+.pad { padding: 10px 14px 14px; }
+.wstats { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 6px; }
+.ws { border-radius: 8px; padding: 5px 8px; background: #0e1529; border: 1px solid var(--edge); min-width: 0; }
+.ws .v { font-family: var(--f-display); font-weight: 800; font-size: 22px; line-height: 1.05; color: var(--c); font-variant-numeric: tabular-nums; }
+.ws .k { font-family: var(--f-mono); font-size: 9.5px; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; }
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 5px; margin-top: 10px; }
+.tile { border-radius: 7px; padding: 5px 7px; background: var(--grass); border: 1px solid rgb(255 255 255 / .05); display: grid; gap: 1px; min-width: 0; position: relative; }
+.tile b { font-family: var(--f-mono); font-size: 12px; }
+.tile .own { font-family: var(--f-mono); font-size: 10px; color: rgb(236 230 214 / .65); }
+.tile.burning { background: linear-gradient(180deg, var(--flame), var(--ember)); color: #2a1206; box-shadow: 0 0 16px -4px var(--ember); }
+.tile.burning .own { color: rgb(42 18 6 / .75); }
+.tile.burnt { background: var(--char); color: #b8a69d; }
+.tile.saved { box-shadow: inset 0 0 0 2px var(--water), 0 0 14px -6px var(--water); }
+.tile.watered::after { content: "≈"; position: absolute; top: 2px; right: 6px; color: var(--water); font-weight: 700; }
+.tile.mine { outline: 2px solid var(--gold); outline-offset: 1px; }
+.blocks { display: grid; grid-template-columns: repeat(auto-fill, minmax(42px, 1fr)); gap: 4px; margin-top: 10px; }
+.blk { border: 0; padding: 3px; border-radius: 6px; background: #0e1529; display: grid; gap: 2px; }
+.blk .cells { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px; }
+.blk .c { aspect-ratio: 1; border-radius: 2px; background: var(--grass); }
+.blk .c.burning { background: var(--ember); box-shadow: 0 0 8px -1px var(--ember); } .blk .c.burnt { background: var(--char); } .blk .c.saved { background: var(--water); }
+.blk .t { font-family: var(--f-mono); font-size: 9px; color: var(--dim); text-align: center; }
+.blk.mine { outline: 2px solid var(--gold); }
+.log { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 230px; overflow: auto; font-family: var(--f-mono); font-size: 11.5px; }
+.log li { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 8px; padding: 4px 0; border-bottom: 1px dashed var(--edge); }
+.log .k { font-weight: 600; color: var(--c); letter-spacing: .04em; }
+
+/* turn track */
+.track { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: rgb(14 21 41 / .9); border: 1px solid var(--edge); border-radius: 14px; padding: 10px 12px; }
+.tbtn { height: 36px; min-width: 40px; border-radius: 10px; border: 1px solid var(--edge); background: #172242; font-size: 14px; padding: 0 12px; }
+.tbtn.primary { border-color: var(--flame); color: var(--flame); }
+.pips { display: flex; gap: 3px; flex: 1 1 300px; min-width: 0; align-items: flex-end; height: 34px; }
+.pip { flex: 1; min-width: 4px; border: 0; padding: 0; border-radius: 3px 3px 1px 1px; background: var(--edge); position: relative; }
+.pip.past { background: #3a4a72; }
+.pip.now { background: var(--flame); box-shadow: 0 0 12px var(--ember); }
+.pip .lie { position: absolute; left: 0; right: 0; bottom: 0; background: var(--lie); border-radius: 0 0 1px 1px; opacity: .85; }
+.daytxt { font-family: var(--f-display); font-weight: 800; font-size: 22px; letter-spacing: .05em; min-width: 6.5ch; }
+.speed { font-family: var(--f-mono); font-size: 12px; }
+.foot { font-size: 11.5px; color: var(--dim); }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+
+<div class="wrap">
+  <header class="hud">
+    <div class="logo"><b>Ring Fire</b><span id="tagline"></span></div>
+    <div class="gauges" id="gauges"></div>
+    <div class="switches">
+      <div class="seg" role="group" aria-label="Agent memory"><button id="m-graph" aria-pressed="true">Graph mind</button><button id="m-prompt" aria-pressed="false">Prompt mind</button></div>
+      <div class="seg" role="group" aria-label="Map"><button id="d-real" aria-pressed="true">16 keepers</button><button id="d-scale" aria-pressed="false">64 keepers</button></div>
+      <label class="chk"><input type="checkbox" id="reveal"> Reveal liars</label>
+    </div>
+  </header>
+
+  <div class="main">
+    <section class="frame" aria-label="Night map">
+      <div class="frame-h"><h2>The ring at night</h2><small id="stage-hint">click a beacon to open its dossier</small></div>
+      <div class="stage" id="stage">
+        <canvas id="embers" aria-hidden="true"></canvas>
+        <svg id="map" viewBox="0 0 640 640" role="img" aria-label="Agents as beacons and the messages between them"></svg>
+        <div class="banner" id="banner"><div class="big" id="b-big"></div><div class="sub" id="b-sub"></div></div>
+        <button class="startbtn" id="start">▶ Play the night</button>
+        <div class="dossier" id="dossier" hidden></div>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="frame">
+        <div class="frame-h"><h2>Truth map</h2><small>what really happened · agents can't see this</small></div>
+        <div class="pad"><div class="wstats" id="wstats"></div><div id="world"></div></div>
+      </section>
+      <section class="frame">
+        <div class="frame-h"><h2>Dispatch</h2><small id="log-day"></small></div>
+        <div class="pad"><ul class="log" id="log"></ul></div>
+      </section>
+    </aside>
+  </div>
+
+  <section class="track" aria-label="Turn track">
+    <button class="tbtn" id="prev" aria-label="Previous day">◂</button>
+    <button class="tbtn primary" id="play" aria-label="Play">▶</button>
+    <button class="tbtn" id="next" aria-label="Next day">▸</button>
+    <span class="daytxt" id="daytxt"></span>
+    <div class="pips" id="pips"></div>
+    <button class="tbtn speed" id="speed">1×</button>
+  </section>
+  <p class="foot" id="foot"></p>
+</div>
+
+<script>
+const REAL = {"graph":{"turns":{"A1|0":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false]],"final":"Day 0: I have no beliefs or fire reports yet, so I won't water today and will wait for arrival information."},"A2|0":{"steps":[["recall",{},"nothing matches",false]],"final":"I have no recorded beliefs or fire reports yet, so I won't water on day 0 and will wait for arrival information before acting."},"A3|0":{"steps":[["recall",{"predicate":"fire.arrival_day"},"nothing matches",false],["recall",{"subject":"F6"},"nothing matches",false],["recall",{"subject":"F7"},"nothing matches",false]],"final":"I have no recorded beliefs about fire arrival on F6 or F7, so I won't water today."},"A4|0":{"steps":[["recall",{"subject":"F8"},"nothing matches",false],["recall",{"subject":"F9"},"nothing matches",false],["recall",{},"nothing matches",false]],"final":"No fire arrival is known for F8 or F9 yet, so I won't water on day 0 and I'll wait for reports before spending one of my two waterings."},"A5|0":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false],["traverse",{"entity":"A5","hops":2},"0 step(s): A5",false]],"final":"Day 0: I have no fire-arrival information for F10 or F11 and no known neighbours yet, so I'm holding off on watering and will wait for reports."},"A7|0":{"steps":[["act",{"type":"water","target":"F15","depends_on":["B1"]},"X1: you will water your fields today",false],["assert_belief",{"subject":"F15","predicate":"fire.arrival_day","value":0,"depends_on":["B1"],"confidence":1},"recorded B2",false]],"final":"I watered F15 today, since fire reaches it on day 0, and recorded its arrival day as 0."},"A8|0":{"steps":[["recall",{},"nothing matches",false]],"final":"Day 0: I have no beliefs on file and no report of fire near F16 or F17, so I am not watering today and will wait for arrival information."},"A9|0":{"steps":[["recall",{},"nothing matches",false],["traverse",{"entity":"F18","hops":2},"0 step(s): F18\n1 step(s): F17 F19\n2 step(s): F16 F20",false]],"final":"Nothing is known about when fire reaches F18 or F19, so I won't water today and I have no arrival times to share yet."},"A10|0":{"steps":[["recall",{"predicate":"fire.arrival_day"},"nothing matches",false],["recall",{},"nothing matches",false]],"final":"No fire arrival information is recorded yet and nothing says fire is due at F20 or F21 today, so I won't water on day 0."},"A11|0":{"steps":[["recall",{},"nothing matches",false]],"final":"No fire is due at F22 or F23 yet, and I have no recorded beliefs, so I'm holding my waterings and will wait for arrival information."},"A15|0":{"steps":[["recall",{},"nothing matches",false],["recall",{"status":"all"},"error: status must be one of active, suspect, stale, superseded, retracted",true]],"final":"I have no beliefs yet and no fire arrival information for F30 or F31, so I won't water today and will wait for reports from neighbours."},"A1|1":{"steps":[],"final":"I won't water today: A0's claim is about F16, not my fields (F2, F3), and nothing shows fire due on them yet. I'll hold my two waterings until fire is actually due."},"A2|1":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false]],"final":"No fire arrival information is recorded yet, so I won't water on day 1 and will wait for reports about when fire reaches F4 or F5."},"A3|1":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false],["traverse",{"entity":"F6","hops":2},"0 step(s): F6\n1 step(s): F5 F7\n2 step(s): F4 F8",false]],"final":"I have no record of when fire is due at F6 or F7, so I won't water today. I'll wait for a neighbour's report before acting."},"A4|1":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false]],"final":"Day 1: I have no beliefs about when fire reaches F8 or F9, so I won't water yet and will wait for arrival information from neighbours."},"A5|1":{"steps":[],"final":"No water today because no fire is due at F10 or F11, and A6's claim concerns F16, which is not my field. I'll hold my waterings.\n\nDay 1: no action taken. Waiting for fire timing on F10 or F11 before watering."},"A7|1":{"steps":[],"final":""},"A8|1":{"steps":[["recall",{},"nothing matches",false],["traverse",{"entity":"F16","hops":2},"0 step(s): F16\n1 step(s): F15 F17\n2 step(s): F14 F18",false]],"final":"No fire arrival information is available yet for F16 or F17, so I'm holding off on watering today and will wait for reports from neighbours."},"A9|1":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false]],"final":"I have no beliefs about when fire reaches F18 or F19, so I won't water today. I'll hold my two waterings until a neighbour reports an arrival day."},"A10|1":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false]],"final":"I have no beliefs about fire arrival yet and no reports of fire due at F20 or F21, so I won't water today."},"A11|1":{"steps":[],"final":"No water today: I have no evidence that fire is due at F22 or F23, and the only report (A12's claim that fire reaches F16 on day 8) is single-source and unverified."},"A15|1":{"steps":[],"final":"No water today: nothing I have points to fire reaching F30 or F31 yet. The two reports only place fire at F16 on day 8, which is not one of my fields."},"A1|2":{"steps":[["assert_belief",{"subject":"F2","predicate":"fire.arrival_day","value":3,"depends_on":["B8"],"confidence":0.7},"recorded B14",false],["assert_belief",{},"error: bad arguments for assert_belief: Toolbox.assert_belief() missing 4 required positional arguments: 'subject', 'predicate', 'value', and 'depends_on'",true],["recall",{},"[B14 active routes 0 conf 0.7] fire reaches F2 on day 3   derived by you\n[B8 active routes 1 conf 1] fire reaches F16 on day 1   seen directly",false],["assert_belief",{"subject":"F3","predicate":"fire.arrival_day","value":4,"depends_on":["B8"],"confidence":0.7},"recorded B15",false]],"final":"Today is day 2 and fire isn't due at F2 or F3 until day 3 and day 4, so I'm holding off on watering. I recorded F2 arriving on day 3 and F3 on day 4, both derived from the direct day-1 sighting at F16. A0's day-8 claim for F16 is superseded by that sighting."},"A2|2":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false]],"final":"I have no beliefs about fire timing yet, so I won't water today; I'll wait for information about when fire is due at F4 or F5."},"A3|2":{"steps":[["recall",{"predicate":"fire.arrival_day"},"nothing matches",false],["recall",{},"nothing matches",false]],"final":"No beliefs on record about fire timing for F6 or F7, so I won't water today and will wait for a neighbour's report before spending one of my two waterings."},"A4|2":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false]],"final":"I have no recorded beliefs about when fire will reach F8 or F9, so I won't water today and will wait for a fire-arrival report before acting."},"A5|2":{"steps":[["assert_belief",{"subject":"F10","predicate":"fire.arrival_day","value":11,"depends_on":["B9"]},"recorded B16",false],["assert_belief",{"subject":"F11","predicate":"fire.arrival_day","value":12,"depends_on":["B9"]},"recorded B17",false]],"final":"Fire reaches F16 on day 1, so by the one-field-per-day spread it should reach F10 on day 11 and F11 on day 12. Neither field is due today, so I won't water.\n\nI'm not sending A6's day-8 claim on, since the evidence contradicts it. I'm also not deciding on waterings yet, since neither field is due until day 11."},"A7|2":{"steps":[],"final":""},"A8|2":{"steps":[["act",{"type":"water","target":"F17","params":{"day":2,"fields":["F17"]},"depends_on":["B11"]},"X2: you will water your fields today",false],["assert_belief",{"subject":"F17","predicate":"fire.arrival_day"},"error: bad arguments for assert_belief: Toolbox.assert_belief() missing 2 required positional arguments: 'value' and 'depends_on'",true],["assert_belief",{"subject":"F17","predicate":"fire.arrival_day","value":2,"depends_on":["B11"],"confidence":0.8},"recorded B18",false]],"final":"Fire reached F16 on day 1, so I expect it at F17 today; I watered F17 and recorded that arrival as day 2."},"A9|2":{"steps":[["recall",{"predicate":"fire.arrival_day"},"nothing matches",false],["recall",{"subject":"F18"},"nothing matches",false],["recall",{"subject":"F19"},"nothing matches",false]],"final":"I have no beliefs about fire timing for F18 or F19, so I won't water today.\n\nI'm not sending any message to my neighbours yet, since I have nothing to report. I'll wait for fire-timing information before acting."},"A10|2":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false]],"final":"No beliefs are recorded yet, so I don't know when fire reaches F20 or F21. I'm holding my two waterings and not acting today.\n\nI'm not sending any arrival-day claims until I have evidence for them."},"A11|2":{"steps":[["assert_belief",{"subject":"F22","predicate":"fire.arrival_day","value":7},"error: bad arguments for assert_belief: Toolbox.assert_belief() missing 1 required positional argument: 'depends_on'",true],["assert_belief",{"subject":"F16","predicate":"fire.arrival_day","value":1,"depends_on":["B12"],"confidence":1},"recorded B19",false]],"final":"I recorded that fire reached F16 on day 1, based on the direct observation, and I'm not watering today because nothing shows fire due on F22 or F23 yet. Day 8 for F16 was A12's claim, and the evidence contradicts it."},"A15|2":{"steps":[["assert_belief",{"subject":"F16","predicate":"fire.arrival_day","value":1,"depends_on":["B13"],"confidence":1},"recorded B20",false],["send",{"to":"A14"},"error: bad arguments for send: Toolbox.send() missing 1 required positional argument: 'belief_id'",true],["shortest_path",{"src":"F16","dst":"F30"},"cost 14",false],["recall",{},"[B13 active routes 1 conf 1] fire reaches F16 on day 1   seen directly\n[B20 active routes 0 conf 1] fire reaches F16 on day 1   derived by you",false],["send",{"to":"A14","belief_id":"B20"},"sent to A14",false],["send",{"to":"A0","belief_id":"B20"},"sent to A0",false]],"final":"I recorded that fire reached F16 on day 1, based on the direct evidence, and sent that to A14 and A0 to correct their day-8 claim. The 14-cost path from F16 to F30 suggests my own fields are not due soon, so I did not water today."},"A1|3":{"steps":[["act",{"type":"water","target":"F2","params":{"fields":["F2"],"day":3},"depends_on":["B14"]},"X3: you will water your fields today",false],["assert_belief",{},"error: bad arguments for assert_belief: Toolbox.assert_belief() missing 4 required positional arguments: 'subject', 'predicate', 'value', and 'depends_on'",true],["assert_belief",{"subject":"F2","predicate":"fire.arrival_day","value":3,"depends_on":["B14"],"confidence":0.7},"recorded B25",false],["assert_belief",{"subject":"F3","predicate":"fire.arrival_day","value":4,"depends_on":["B15"],"confidence":0.7},"recorded B26",false]],"final":"I'm watering F2 today, since fire is due there on day 3. F3 is due on day 4, and I can't water two days in a row, so I'll have to decide on F3 tomorrow. I've recorded both arrival days as beliefs."},"A2|3":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false],["traverse",{"entity":"F4","hops":2},"0 step(s): F4\n1 step(s): F3 F5\n2 step(s): F2 F6",false]],"final":"I have no evidence yet of when fire will reach F4 or F5, so I won't water today and I have nothing to share with neighbours."},"A3|3":{"steps":[["recall",{"predicate":"fire.arrival_day"},"nothing matches",false],["recall",{},"nothing matches",false]],"final":"I have no recorded fire arrival days for F6 or F7, so I won't water today and will save my two waterings until fire is actually due."},"A4|3":{"steps":[["recall",{"predicate":"fire.arrival_day"},"nothing matches",false],["recall",{},"nothing matches",false]],"final":"I have no recorded beliefs about when fire reaches F8 or F9, so I have no evidence that fire is due today and I will not water yet."},"A5|3":{"steps":[],"final":"Fire isn't due at F10 or F11 until days 11 and 12, so I won't water today. I'm keeping both waterings for later."},"A7|3":{"steps":[["recall",{},"[B1 active routes 1 conf 1] fire reaches F15 on day 0   seen directly\n[B10 active routes 1 conf 1] fire reaches F16 on day 1   seen directly\n[B2 active routes 0 conf 1] fire reaches F15 on day 0   der",false],["explain",{"belief_id":"B1"},"[B1 active routes 1 conf 1] fire reaches F15 on day 0   seen directly\n  action X1 (committed) rests on it, 1 step(s) down\n  belief B2 (active) rests on it, 1 step(s) down",false]],"final":"I'm not watering today: my records show fire reached F15 on day 0, so no fire is due there on day 3, and watering only works on a day fire is due. I'm flagging commitment X1 for review, since it conflicts with that rule."},"A8|3":{"steps":[["assert_belief",{"subject":"F16","predicate":"fire.arrival_day","value":1,"depends_on":["B11"],"confidence":1},"recorded B27",false],["assert_belief",{},"error: bad arguments for assert_belief: Toolbox.assert_belief() missing 4 required positional arguments: 'subject', 'predicate', 'value', and 'depends_on'",true]],"final":"Today is day 3 and fire was due at F16 on day 1 and at F17 on day 2, so neither field is due for watering now and I'm not watering. I have no record of whether the day-2 watering of F17 happened, and I couldn't tell my neighbours because I don't know their names."},"A9|3":{"steps":[["recall",{"predicate":"fire.arrival_day"},"nothing matches",false],["recall",{},"nothing matches",false]],"final":"I have no beliefs about fire arrival yet, so I won't water today (day 3) and will wait for word on when fire is due at F18 or F19."},"A10|3":{"steps":[["recall",{},"nothing matches",false],["recall",{"predicate":"fire.arrival_day"},"nothing matches",false]],"final":"I have no recorded beliefs about fire timing, so I won't water on day 3 and will hold my 2 waterings until fire is due on F20 or F21."},"A11|3":{"steps":[["recall",{"subject":"F22"},"nothing matches",false],["recall",{"subject":"F23"},"nothing matches",false]],"final":"I'm not watering today: nothing I know says fire is due on F22 or F23 today. The only fire fact I hold is that it reaches F16 on day 1, and I have no arrival dates for my own fields. I'll hold my two waterings until I get a firm date."},"A15|3":{"steps":[["recall",{},"[B13 active routes 1 conf 1] fire reaches F16 on day 1   seen directly\n[B20 active routes 0 conf 1] fire reaches F16 on day 1   derived by you",false],["traverse",{"entity":"F31","hops":2},"0 step(s): F31\n1 step(s): F0 F30\n2 step(s): F1 F29",false]],"final":"No fire is due at F30 or F31 today, so I'm not watering. The only known arrival is fire at F16 on day 1, which is far upstream of my fields."}},"msgs":[[1,12,11,[12],16,8],[1,14,15,[14],16,8],[1,6,5,[6],16,8],[1,6,7,[6],16,8],[1,0,15,[0],16,8],[1,0,1,[0],16,8],[2,15,14,[15],16,1],[2,15,0,[15],16,1],[3,0,1,[15,0],16,1],[3,14,13,[15,14],16,1]],"days":[{"ign":[15],"out":[],"saved":[],"water":[7]},{"ign":[16],"out":[],"saved":[],"water":[]},{"ign":[],"out":[15],"saved":[17],"water":[8]},{"ign":[],"out":[16],"saved":[],"water":[1]}],"expo":[[1,"A1","A0",["B7"]],[1,"A5","A6",["B5"]],[1,"A7","A6",["B6"]],[1,"A11","A12",["B3"]],[1,"A15","A0",[]],[1,"A15","A14",["B4"]]]},"prompt":{"turns":{"A1|0":{"steps":[],"final":"No fire is due on my fields (F2, F3) today, and nothing has been published yet, so I won't water or send anything."},"A2|0":{"steps":[],"final":"Day 0: no fire is due on F4 or F5 and no reports have arrived, so I won't water and will wait for published arrival days."},"A3|0":{"steps":[],"final":"No fire is due on my fields (F6, F7) yet and there are no published arrival days, so I won't water today and have nothing to pass on."},"A4|0":{"steps":[],"final":"No fire is due on my fields (F8, F9) today and the shared log is empty, so I won't water and will wait for published arrival days."},"A5|0":{"steps":[],"final":"Nothing is published yet and no fire is due on my fields (F10, F11) today, so I won't water and will wait for evidence."},"A7|0":{"steps":[["act",{"type":"water"},"X7_1: you will water your fields today",false],["send",{"to":"A8"},"error: bad arguments for send: BaselineTools.send() missing 2 required positional arguments: 'field' and 'day'",true],["send",{"to":"A8","field":"F16","day":1},"sent to A8",false]],"final":"I watered F14 and F15 today, since fire reached F15 on day 0, and I warned A8 that fire should reach F16 on day 1. I can't water tomorrow because I can't water two days in a row."},"A8|0":{"steps":[],"final":"No fire is due on my fields (F16, F17) today and no arrival times have been published, so I won't water yet."},"A9|0":{"steps":[],"final":"No fire is due on my fields (F18, F19) yet and there are no messages or published arrival days, so I won't water today."},"A10|0":{"steps":[],"final":"Nothing has been published yet and no fire is due on F20 or F21 today, so I won't water or send anything."},"A11|0":{"steps":[],"final":"No fire is due on my fields (F22, F23) yet and nothing has been published, so I won't water today."},"A15|0":{"steps":[],"final":"No fire is due at F30 or F31 on day 0 and nothing has been published, so I won't water today."},"A1|1":{"steps":[],"final":"No fire is due at F2 or F3 on day 1 according to the published log, so I won't water today and will wait for evidence about my fields."},"A2|1":{"steps":[],"final":"No fire is due on my fields (F4, F5) today and nothing has been published yet, so I won't water. I'll wait for published arrival days before acting."},"A3|1":{"steps":[],"final":"No fire is due on my fields (F6, F7) yet and the shared log is empty, so I won't water or send anything today."},"A4|1":{"steps":[["act",{"type":"water"},"X4_1: you will water your fields today",false]],"final":"I made a mistake: I called water on day 1 even though no fire was published as due on F8 or F9. The system confirmed it, so my fields were watered today. I have no evidence of fire arrival yet, so I won't water again until a published arrival day says so."},"A5|1":{"steps":[],"final":"I won't water today: no fire is published as due at F10 or F11, and A6's claim about F16 on day 8 is unverified and doesn't concern my fields."},"A7|1":{"steps":[],"final":""},"A8|1":{"steps":[],"final":""},"A9|1":{"steps":[],"final":"Nothing has been published about fire arrival yet, so I have no basis to water F18 or F19 today. I'll hold until a verified arrival day comes in."},"A10|1":{"steps":[],"final":"No fire is due on my fields (F20, F21) today and nothing has been published yet, so I'll hold off on watering and wait for arrival information."},"A11|1":{"steps":[],"final":"No fire is confirmed due at F22 or F23 today, and A12's claim about F16 can't be checked against any published evidence, so I'm not watering, linking, or passing it on."},"A15|1":{"steps":[["act",{"type":"water"},"X15_1: you will water your fields today",false]],"final":"I called water by mistake: I meant to hold off, since no fire is due at F30 or F31 and the only claims concern F16. The system has recorded it as watering today, and I have no tool to undo that. I'll hold off on any further watering until fire is actually due."},"A1|2":{"steps":[],"final":"Day 2: A0's claim that fire reaches F16 on day 8 contradicts the published record (F16 caught fire on day 1), so I'm disregarding it and will not water on its basis. No fire is published for F2 or F3, so I'm taking no action today and I'm treating A0 as unreliable."},"A2|2":{"steps":[],"final":"No fire is known to be due at F4 or F5 yet, and the shared log is empty, so I won't water today."},"A3|2":{"steps":[],"final":"Nothing is published yet and no fire is due on F6 or F7 today, so I won't water and will hold until a fire-arrival report comes in."},"A4|2":{"steps":[],"final":"No fire is due on my fields (F8, F9) and the shared log is empty, so I won't water today and will wait for published arrival evidence."},"A5|2":{"steps":[],"final":"I'm not watering today: no published evidence says fire is due at F10 or F11. A6's claim that F16 burns on day 8 conflicts with the published record (F16 caught fire on day 1), so I'm treating it as false and won't act on it or pass it on."},"A7|2":{"steps":[["send",{},"error: bad arguments for send: BaselineTools.send() missing 3 required positional arguments: 'to', 'field', and 'day'",true]],"final":""},"A8|2":{"steps":[["act",{"type":"water"},"X8_1: you will water your fields today",false],["send",{"to":"A9","field":"F17","day":2},"sent to A9",false]],"final":"I watered today (day 2) because fire is due at F17 next, and I sent A9 the F17 warning. F16 was published as burning on day 1, so watering it now won't put it out."},"A9|2":{"steps":[],"final":"No fire is due on my fields (F18, F19) yet and the shared log is empty, so I won't water today."},"A10|2":{"steps":[],"final":"Nothing has been published or sent to me yet, so no fire is due on my fields (F20, F21) today. I'm not watering or linking."},"A11|2":{"steps":[],"final":""},"A15|2":{"steps":[["send",{"to":"A14","field":"F16","day":8},"sent to A14",false],["send",{"to":"A0","field":"F16"},"error: bad arguments for send: BaselineTools.send() missing 1 required positional argument: 'day'",true],["send",{"to":"A14","field":"F16","day":1},"sent to A14",false],["send",{"to":"A0","field":"F16","day":1},"sent to A0",false],["send",{},"error: bad arguments for send: BaselineTools.send() missing 3 required positional arguments: 'to', 'field', and 'day'",true],["act",{"type":"water"},"error: you watered yesterday, so you cannot water today",true]],"final":"I can't water today because the system says I watered yesterday. I also sent A14 and A0 a correction: the published log shows F16 caught fire on day 1, not day 8, so their claim is false."},"A1|3":{"steps":[],"final":"A0's claim that fire reaches F16 on day 8 contradicts the published record (F16 caught fire on day 1"},"A2|3":{"steps":[],"final":"No fire is due on my fields (F4, F5) yet, and the shared log is empty, so I won't water or make any claims today."},"A3|3":{"steps":[],"final":"No fire is due on my fields (F6, F7) yet, and the shared log is empty, so I won't water today."},"A4|3":{"steps":[],"final":"No fire is due on F8 or F9 today, and nothing has been published yet, so I won't water or send anything."},"A5|3":{"steps":[["send",{"to":"A6","field":"F16","day":1,"note":"Your claim that fire reaches F16 on day 8 contradicts the published record: F16 caught fire on day 1. I am not acting on it."},"error: bad arguments for send: BaselineTools.send() got an unexpected keyword argument 'note'",true],["send",{"to":"A6","field":"F16","day":1},"sent to A6",false],["act",{"type":"water"},"X5_1: you will water your fields today",false]],"final":"I told A6 that its F16 claim contradicts the published record, but I also watered today even though no published evidence shows fire due on F10 or F11. That water action was not justified by the evidence, so I'll avoid repeating it and wait for a verified arrival day."},"A7|3":{"steps":[],"final":""},"A8|3":{"steps":[],"final":""},"A9|3":{"steps":[],"final":""},"A10|3":{"steps":[],"final":"No fire is reported on F20 or F21 yet and the shared log is empty, so I won't water today. I'll wait for published arrival times before acting."},"A11|3":{"steps":[],"final":""},"A15|3":{"steps":[],"final":""}},"msgs":[[0,7,8,[7],16,1],[1,12,11,[12],16,8],[1,14,15,[14],16,8],[1,6,5,[6],16,8],[1,6,7,[6],16,8],[1,0,15,[0],16,8],[1,0,1,[0],16,8],[2,8,9,[8],17,2],[2,15,14,[0,15],16,8],[2,15,14,[15],16,1],[2,15,0,[15],16,1],[3,0,1,[15,0],16,1],[3,5,6,[5],16,1],[3,14,13,[0,15,14],16,8],[3,14,13,[15,14],16,1]],"days":[{"ign":[15],"out":[],"saved":[],"water":[7]},{"ign":[16],"out":[],"saved":[],"water":[4,15]},{"ign":[],"out":[15],"saved":[17],"water":[8]},{"ign":[],"out":[16],"saved":[],"water":[5]}],"expo":[]}};
+const $ = s => document.querySelector(s);
+const NS = "http://www.w3.org/2000/svg";
+const el = (t, a, p) => { const n = document.createElementNS(NS, t); for (const k in a) n.setAttribute(k, a[k]); p && p.appendChild(n); return n; };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const A = i => "A" + i, num = a => +a.slice(1);
+const REDUCED = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+const AN = window.anime && !REDUCED ? window.anime : null; // no library or reduced motion: everything snaps
+const tween = (opts) => AN ? AN(opts).finished : (opts.complete && opts.complete(), Promise.resolve());
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function realDataset() {
+  const truth = { 15: 0, 16: 1 };
+  const runs = {};
+  for (const k of ["graph", "prompt"]) {
+    const r = REAL[k];
+    runs[k] = { ...r, msgs: r.msgs.map(m => [...m, truth[m[4]] !== undefined && m[5] !== truth[m[4]]]) };
+  }
+  return {
+    name: "real", n: 16, D: 4, fpa: 2, imp: new Set([0, 6, 12, 13, 14]), extra: [[6, 15], [8, 15]], runs,
+    sub: "Ring Fire · 16 agents, 5 of them imposters · haiku-5.5 · run hard16, seed 0 (real log)",
+    captions: ["Fire starts in F15. Its owner A7 sees it and waters.",
+      "Five imposters tell their neighbours F16 burns on day 8. It ignites on day 1.",
+      "Agents learn the truth. A15 decides what to tell its neighbours.",
+      "Reports keep travelling. F16 burns out; the fire is over."],
+    beliefs: {
+      A0: [["B23", 16, 1, 2, null, "told", "A15"]],
+      A1: [["B7", 16, 8, 1, 1, "told", "A0"], ["B8", 16, 1, 1, null, "seen", ""], ["B14", 2, 3, 2, null, "forecast", ""], ["B15", 3, 4, 2, null, "forecast", ""]],
+      A5: [["B5", 16, 8, 1, 1, "told", "A6"], ["B9", 16, 1, 1, null, "seen", ""], ["B16", 10, 11, 2, null, "forecast", ""], ["B17", 11, 12, 2, null, "forecast", ""]],
+      A7: [["B1", 15, 0, 0, null, "seen", ""], ["B6", 16, 8, 1, 1, "told", "A6"], ["B10", 16, 1, 1, null, "seen", ""]],
+      A8: [["B11", 16, 1, 1, null, "seen", ""], ["B18", 17, 2, 1, null, "forecast", ""]],
+      A11: [["B3", 16, 8, 1, 1, "told", "A12"], ["B12", 16, 1, 1, null, "seen", ""]],
+      A13: [["B28", 16, 1, 3, null, "told", "A14"]],
+      A14: [["B21", 16, 1, 2, null, "told", "A15"]],
+      A15: [["B4", 16, 8, 1, 1, "told", "A14, A0"], ["B13", 16, 1, 1, null, "seen", ""], ["B20", 16, 1, 2, null, "forecast", ""]],
+    },
+  };
+}
+
+// Seeded stand-in simulation at scale. Not a real run: same rules, invented numbers.
+function scaleDataset() {
+  const n = 64, fpa = 4, F = n * fpa, D = 40;
+  const imp = new Set([5, 17, 18, 19, 30, 41, 47, 52, 60]); // 17-19 is a colluding cluster
+  const extra = [[10, 25], [33, 50], [44, 2], [58, 20]];
+  const fronts0 = [[0, 10, 34], [8, 120, 26], [16, 200, 30], [24, 66, 22], [30, 236, 18]]; // [start day, field, max length]
+  const owner = f => Math.floor(f / fpa) % n;
+  function simulate(mode, seed) {
+    const rng = seed => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+    const rnd = rng(seed), rndW = rng(seed * 31 + 1); // separate streams: messages, and water decisions
+    const G = mode === "graph";
+    const ign = {}, saved = new Set(), waterLeft = Array(n).fill(2), lastWater = Array(n).fill(-9);
+    const cut = Array.from({ length: n }, () => new Set());
+    const days = [], msgs = [], expo = [], turns = {};
+    const inbox = Array.from({ length: n }, () => []);   // messages delivered, not yet relayed
+    const warned = Array.from({ length: n }, () => ({})); // field -> claimed day (true reports)
+    const liesHeard = Array.from({ length: n }, () => []); // [field, sender, claim]
+    const fronts = [];
+    const say = (d, a, text) => { const k = `${A(a)}|${d}`; turns[k] = turns[k] || { final: "", steps: [] }; turns[k].final += (turns[k].final ? " " : "") + text; };
+    const send = (d, from, to, route, field, claim, lie) => {
+      if (to < 0) to += n; to %= n;
+      const m = [d, from, to, route, field, claim, lie]; msgs.push(m); inbox[to].push(m);
+    };
+    for (let d = 0; d < D; d++) {
+      const today = { ign: [], out: [], saved: [], water: [] };
+      fronts0.filter(f => f[0] === d).forEach(([, f, len]) => { if (ign[f] === undefined) { ign[f] = d; today.ign.push(f); fronts.push({ pos: f, left: len }); } });
+      // advance fronts: owner of the next field may water if warned
+      for (const fr of fronts) {
+        if (fr.done || ign[fr.pos] === d) continue;
+        const f = (fr.pos + 1) % F, o = owner(f);
+        if (ign[f] !== undefined || saved.has(f) || fr.left <= 0) { fr.done = true; continue; }
+        const w = warned[o][f];
+        const p = w === d ? (G ? .55 : .4) : w !== undefined ? .15 : .03;
+        if (!imp.has(o) && waterLeft[o] > 0 && lastWater[o] < d - 1 && rndW() < p) {
+          waterLeft[o]--; lastWater[o] = d; today.water.push(o); saved.add(f); today.saved.push(f); fr.done = true;
+          say(d, o, `Fire is due at F${f} today, so I'm watering it.`);
+        } else { ign[f] = d; today.ign.push(f); fr.pos = f; fr.left--; }
+      }
+      for (const [f, d0] of Object.entries(ign)) if (d0 === d - 2) today.out.push(+f);
+      // owners of newly burning fields warn downstream
+      today.ign.forEach(f => {
+        const o = owner(f); if (imp.has(o)) return;
+        const ahead = 3 * fpa;
+        send(d, o, o + 1, [o], (f + ahead) % F, d + ahead, false);
+        say(d, o, `F${f} is burning. Warning A${(o + 1) % n}: F${(f + ahead) % F} on day ${d + ahead}.`);
+      });
+      // relays from yesterday's inbox
+      for (let a = 0; a < n; a++) {
+        const box = inbox[a]; inbox[a] = [];
+        for (const m of box) {
+          const [, from, , route, field, claim, lie] = m;
+          if (imp.has(a)) { if (route.length < 6 && rnd() < .7) send(d, a, a + 1, [...route, a], field, lie ? claim : claim + 6, true); continue; }
+          if (!lie) {
+            warned[a][field] = claim;
+            if (owner(field) === a) say(d, a, `A${from} warns that F${field} burns on day ${claim}. That's my field; I'll be ready to water.`);
+            else if (route.length < 6 && rnd() < .85) { send(d, a, a + 1, [...route, a], field, claim, false); say(d, a, `A${from} reports F${field} burns on day ${claim}. Forwarding it to A${(a + 1) % n}.`); }
+            continue;
+          }
+          liesHeard[a].push([field, from, claim]);
+          const trusted = !route.some(x => cut[a].has(x));
+          const p = G ? (trusted ? .06 : 0) : .3;
+          if (route.length < 6 && rnd() < p) { send(d, a, a + 1, [...route, a], field, claim, true); say(d, a, `A${from} says F${field} burns on day ${claim}. Passing it on.`); }
+          else if (!G) say(d, a, `A${from} says F${field} burns on day ${claim}. I can't check it yet.`);
+        }
+      }
+      // imposters start fresh lies about fields just ahead of a front
+      imp.forEach(a => {
+        if (rnd() > .16) return;
+        const live = fronts.filter(fr => !fr.done); if (!live.length) return;
+        const fr = live[Math.floor(rnd() * live.length)], k = 2 + Math.floor(rnd() * 6), field = (fr.pos + k) % F;
+        send(d, a, a + 1, [a], field, d + k + 7, true); send(d, a, a - 1, [a], field, d + k + 7, true);
+      });
+      // evidence: whoever heard a lie about a field that ignited today cuts the liar (graph memory only)
+      if (G) today.ign.forEach(f => {
+        for (let a = 0; a < n; a++) liesHeard[a].filter(l => l[0] === f && !cut[a].has(l[1])).forEach(([, s0]) => {
+          cut[a].add(s0); expo.push([d, A(a), A(s0), [`F${f}`]]);
+          say(d, a, `A${s0} said F${f} burns later; it ignited today. I've stopped trusting A${s0} and dropped what only it supported.`);
+        });
+      });
+      days.push(today);
+    }
+    return { msgs, days, expo, turns };
+  }
+  return {
+    name: "scale", n, D, fpa, imp, extra, runs: { graph: simulate("graph", 7), prompt: simulate("prompt", 7) },
+    sub: "Scale preview · 64 agents, 256 fields, 40 days, 9 imposters · seeded stand-in data, not a real run",
+    captions: null, beliefs: null,
+  };
+}
+
+
+
+// ================= state =================
+const SETS = { real: null, scale: null };
+const S = { set: "real", mem: "graph", day: 1, reveal: false, open: null, playing: false, speed: 1, token: 0, shown: { lies: 0, cuts: 0, burnt: 0, saved: 0 } };
+const ds = () => SETS[S.set] || (SETS[S.set] = S.set === "real" ? realDataset() : scaleDataset());
+const run = () => ds().runs[S.mem];
+const big = () => ds().n <= 24;
+
+// ================= geometry =================
+const C = 320;
+const R = () => big() ? 236 : 262, RN = () => big() ? 19 : 7.5;
+const pos = i => { const a = i / ds().n * 2 * Math.PI - Math.PI / 2; return [C + R() * Math.cos(a), C + R() * Math.sin(a)]; };
+function msgPath(m, k) {
+  const [x1, y1] = pos(m[1]), [x2, y2] = pos(m[2]), dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len, pad = RN() + 5;
+  const sx = x1 + ux * pad, sy = y1 + uy * pad, ex = x2 - ux * pad, ey = y2 - uy * pad;
+  const pull = big() ? .38 + (k % 3) * .05 : .25;
+  const qx = (sx + ex) / 2 + (C - (sx + ex) / 2) * pull, qy = (sy + ey) / 2 + (C - (sy + ey) / 2) * pull;
+  return { d: `M${sx},${sy} Q${qx},${qy} ${ex},${ey}`, qx, qy };
+}
+
+// ================= derived per day =================
+const cutsUpTo = d => run().expo.filter(e => e[0] <= d);
+function world(d) {
+  const r = run(), st = {};
+  for (let k = 0; k <= d; k++) { r.days[k].ign.forEach(f => st[f] = "burning"); r.days[k].out.forEach(f => st[f] = "burnt"); r.days[k].saved.forEach(f => st[f] = "saved"); }
+  return { st, watered: new Set(r.days[d].water) };
+}
+function tallies(d) {
+  const { st } = world(d), v = Object.values(st);
+  return {
+    lies: run().msgs.filter(m => m[0] <= d && m[6] && !ds().imp.has(m[1])).length,
+    cuts: cutsUpTo(d).length,
+    burnt: v.filter(x => x === "burnt" || x === "burning").length,
+    saved: v.filter(x => x === "saved").length,
+  };
+}
+
+// ================= map =================
+let L = {}; // svg layers
+function buildMap() {
+  const s = $("#map"); s.innerHTML = "";
+  const defs = el("defs", {}, s);
+  const glow = el("filter", { id: "glow", x: "-50%", y: "-50%", width: "200%", height: "200%" }, defs);
+  el("feGaussianBlur", { stdDeviation: 3.2, result: "b" }, glow);
+  const mg = el("feMerge", {}, glow); el("feMergeNode", { in: "b" }, mg); el("feMergeNode", { in: "SourceGraphic" }, mg);
+  const rg = el("radialGradient", { id: "pool" }, defs);
+  el("stop", { offset: "0%", "stop-color": "#1d2a4d", "stop-opacity": 1 }, rg); el("stop", { offset: "100%", "stop-color": "#0a0f1d", "stop-opacity": 0 }, rg);
+  [["lie", "var(--lie)"], ["tru", "var(--truth)"]].forEach(([id, c]) => {
+    const m = el("marker", { id: "h-" + id, viewBox: "0 0 10 10", refX: 8, refY: 5, markerWidth: 6, markerHeight: 6, orient: "auto" }, defs);
+    el("path", { d: "M0,0 L10,5 L0,10 z", fill: c }, m);
+  });
+  el("circle", { cx: C, cy: C, r: 300, fill: "url(#pool)" }, s);
+  // faint contour rings, like a map of a caldera
+  for (let k = 1; k <= 5; k++) el("circle", { cx: C, cy: C, r: 40 + k * 42, fill: "none", stroke: "#1b2645", "stroke-width": 1, "stroke-dasharray": k % 2 ? "2 6" : "none" }, s);
+  L = { links: el("g", {}, s), trails: el("g", {}, s), fx: el("g", {}, s), nodes: el("g", {}, s), top: el("g", {}, s) };
+}
+function drawLinks(d) {
+  L.links.innerHTML = "";
+  const n = ds().n, cuts = new Set(cutsUpTo(d).map(e => [num(e[1]), num(e[2])].sort((a, b) => a - b).join("-")));
+  const links = []; for (let i = 0; i < n; i++) links.push([i, (i + 1) % n]); ds().extra.forEach(l => links.push(l));
+  links.forEach(([a, b], k) => {
+    const [x1, y1] = pos(a), [x2, y2] = pos(b), key = [a, b].sort((p, q) => p - q).join("-"), cut = cuts.has(key);
+    if (k >= n) el("path", { d: `M${x1},${y1} Q${C},${C} ${x2},${y2}`, fill: "none", stroke: cut ? "var(--cut)" : "#2b3a63", "stroke-width": 1.2, "stroke-dasharray": "3 6" }, L.links);
+    else el("line", { x1, y1, x2, y2, stroke: cut ? "var(--cut)" : "#2b3a63", "stroke-width": cut ? 1.6 : 2, "stroke-dasharray": cut ? "5 6" : "none", "data-link": key }, L.links);
+    if (cut && k < n) { const mx = (x1 + x2) / 2, my = (y1 + y2) / 2, z = big() ? 6 : 4;
+      el("path", { d: `M${mx - z},${my - z} L${mx + z},${my + z} M${mx + z},${my - z} L${mx - z},${my + z}`, stroke: "var(--cut)", "stroke-width": 2.6, "stroke-linecap": "round", filter: "url(#glow)" }, L.links); }
+  });
+}
+function drawNodes(d, quiet) {
+  L.nodes.innerHTML = "";
+  const n = ds().n, r = RN(), turns = run().turns;
+  for (let i = 0; i < n; i++) {
+    const [x, y] = pos(i), id = A(i), liar = S.reveal && ds().imp.has(i), lit = !quiet && !!turns[`${id}|${d}`];
+    const g = el("g", { class: "beacon", tabindex: big() ? 0 : -1, role: "button", "aria-label": `Open ${id}`, "data-id": id }, L.nodes);
+    if (big()) el("circle", { cx: x, cy: y, r: r + 9, fill: "none", stroke: lit ? "rgb(255 179 71 / .35)" : "transparent", "stroke-width": 6 }, g);
+    else el("circle", { cx: x, cy: y, r: 13, fill: "transparent" }, g);
+    el("circle", { cx: x, cy: y, r, fill: "#0e1529", stroke: liar ? "var(--lie)" : "#566690", "stroke-width": liar ? 2.4 : 1.6, "stroke-dasharray": liar ? "3 3" : "none" }, g);
+    el("circle", { class: "core", cx: x, cy: y, r: r * .55, fill: lit ? "var(--flame)" : "#2b3a63", filter: lit ? "url(#glow)" : "" }, g);
+    if (S.open === id) { const ring = el("circle", { cx: x, cy: y, r: r + 6, fill: "none", stroke: "var(--gold)", "stroke-width": 2, "stroke-dasharray": "6 5", class: "selring" }, g);
+      if (AN) AN({ targets: ring, strokeDashoffset: [0, -22], duration: 1200, easing: "linear", loop: true }); }
+    const a = i / n * 2 * Math.PI - Math.PI / 2, lr = R() + (big() ? 36 : 20);
+    if (big() || i % 4 === 0 || S.open === id || liar)
+      el("text", { x: C + lr * Math.cos(a), y: C + lr * Math.sin(a) + 4, "text-anchor": "middle", "font-size": big() ? 13 : 9.5, "font-weight": 600, fill: S.open === id ? "var(--gold)" : liar ? "var(--lie)" : "var(--dim)" }, g).textContent = id;
+    el("title", {}, g).textContent = `${id} · keeper of F${i * ds().fpa}–F${i * ds().fpa + ds().fpa - 1}`;
+    g.addEventListener("click", e => { e.stopPropagation(); openDossier(id); });
+    g.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDossier(id); } });
+  }
+}
+function drawTrails(d) {
+  L.trails.innerHTML = "";
+  run().msgs.filter(m => m[0] === d).forEach((m, k) => {
+    const { d: p, qx, qy } = msgPath(m, k), mine = S.open && (A(m[1]) === S.open || A(m[2]) === S.open);
+    const faint = !big() ? .75 : m[6] ? .7 : .22;
+    el("path", { d: p, fill: "none", stroke: m[6] ? "var(--lie)" : "var(--truth)", "stroke-width": mine ? 2.6 : big() ? 2 : 1.3, opacity: S.open && !mine ? .15 : faint, "marker-end": big() || mine || m[6] ? `url(#h-${m[6] ? "lie" : "tru"})` : "" }, L.trails);
+    if (big() || mine) el("text", { x: qx, y: qy - 5, "text-anchor": "middle", "font-size": 10.5, "font-weight": 600, fill: m[6] ? "var(--lie)" : "var(--truth)", opacity: S.open && !mine ? .2 : 1 }, L.trails).textContent = `F${m[4]}·d${m[5]}`;
+  });
+}
+function settle(d) { drawLinks(d); drawTrails(d); drawNodes(d); drawWorld(d); drawLog(d); setGauges(d, false); drawTrack(); }
+
+// ================= animation of one day =================
+async function animateDay(d, token) {
+  const sp = S.speed, alive = () => token === S.token;
+  // pre-state: yesterday's cuts and world, no trails
+  drawLinks(Math.max(0, d - 1)); L.trails.innerHTML = ""; drawNodes(d, true); drawWorld(Math.max(0, d - 1)); drawTrack();
+  $("#log").innerHTML = ""; $("#log-day").textContent = `day ${d}`;
+  await banner(`Day ${d}`, caption(d), sp); if (!alive()) return;
+  // couriers
+  const msgs = run().msgs.filter(m => m[0] === d);
+  const gap = (big() ? 260 : 70) / sp, flights = [];
+  msgs.forEach((m, k) => flights.push(sleep(k * gap).then(() => alive() && courier(m, k, sp))));
+  await Promise.all(flights); if (!alive()) return;
+  drawNodes(d); drawTrails(d);
+  // the world turns: fire, water
+  drawWorld(d, true); await sleep(500 / sp); if (!alive()) return;
+  // trust cuts snap
+  const cuts = run().expo.filter(e => e[0] === d);
+  for (const [k, e] of cuts.entries()) { if (!alive()) return; snap(e); logLine("CUT", "var(--cut)", `${e[1]} stops trusting ${e[2]}`); if (k < 8) await sleep(260 / sp); }
+  drawLinks(d);
+  setGauges(d, true);
+  if (S.open) renderDossier(true);
+  await sleep(700 / sp);
+}
+async function banner(big_, sub, sp) {
+  $("#b-big").textContent = big_; $("#b-sub").textContent = sub;
+  const b = $("#banner");
+  if (!AN) { b.style.opacity = 1; return; }
+  AN.remove(b);
+  await AN({ targets: b, opacity: [0, 1], scale: [1.35, 1], letterSpacing: ["0.2em", "0.03em"], duration: 520 / sp, easing: "easeOutExpo" }).finished;
+  await sleep(500 / sp);
+  await AN({ targets: b, opacity: [1, .1], scale: [1, .92], duration: 420 / sp, easing: "easeInQuad" }).finished;
+}
+function courier(m, k, sp) {
+  const lie = m[6], col = lie ? "var(--lie)" : "var(--truth)";
+  logLine(lie ? "LIE" : "MSG", col, `${A(m[1])} → ${A(m[2])}  F${m[4]} burns day ${m[5]}`);
+  if (!AN) return Promise.resolve();
+  const { d } = msgPath(m, k);
+  const path = el("path", { d, fill: "none", stroke: col, "stroke-width": big() ? 2.4 : 1.6, opacity: .9, "stroke-linecap": "round" }, L.fx);
+  const len = path.getTotalLength();
+  path.setAttribute("stroke-dasharray", `${len}`); path.setAttribute("stroke-dashoffset", `${len}`);
+  const spark = el("circle", { r: big() ? 5.5 : 3.5, fill: col, filter: "url(#glow)" }, L.fx);
+  const head = el("circle", { r: big() ? 2.4 : 1.6, fill: "#fff" }, L.fx);
+  const o = { t: 0 }, dur = (big() ? 900 : 650) / sp;
+  return AN({ targets: o, t: 1, duration: dur, easing: "easeInOutSine",
+    update: () => { const p = path.getPointAtLength(o.t * len); spark.setAttribute("cx", p.x); spark.setAttribute("cy", p.y); head.setAttribute("cx", p.x); head.setAttribute("cy", p.y); path.setAttribute("stroke-dashoffset", len * (1 - o.t)); }
+  }).finished.then(() => {
+    spark.remove(); head.remove();
+    pulse(m[2], col);
+    return AN({ targets: path, opacity: [.9, 0], duration: 600 / sp, easing: "linear" }).finished;
+  }).then(() => path.remove());
+}
+function pulse(i, col) {
+  if (!AN) return;
+  const [x, y] = pos(i), ring = el("circle", { cx: x, cy: y, r: RN(), fill: "none", stroke: col, "stroke-width": 2 }, L.fx);
+  AN({ targets: ring, r: [RN(), RN() * 2.6], opacity: [.9, 0], strokeWidth: [2.5, 0], duration: 700, easing: "easeOutQuad", complete: () => ring.remove() });
+  const core = L.nodes.querySelector(`[data-id="${A(i)}"] .core`);
+  if (core) { core.setAttribute("fill", "var(--flame)"); core.setAttribute("filter", "url(#glow)"); }
+}
+function snap(e) {
+  if (!AN) return;
+  const a = num(e[1]), b = num(e[2]), [x1, y1] = pos(a), [x2, y2] = pos(b), mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+  const flash = el("line", { x1, y1, x2, y2, stroke: "var(--cut)", "stroke-width": 5, filter: "url(#glow)", "stroke-linecap": "round" }, L.fx);
+  AN({ targets: flash, opacity: [1, 0], strokeWidth: [6, 1], duration: 650, easing: "easeOutQuad", complete: () => flash.remove() });
+  for (let k = 0; k < 7; k++) {
+    const sh = el("circle", { cx: mx, cy: my, r: 2, fill: "var(--cut)" }, L.fx), ang = Math.random() * Math.PI * 2, dist = 14 + Math.random() * 22;
+    AN({ targets: sh, cx: mx + Math.cos(ang) * dist, cy: my + Math.sin(ang) * dist, opacity: [1, 0], duration: 600, easing: "easeOutCubic", complete: () => sh.remove() });
+  }
+}
+
+// ================= HUD =================
+function setGauges(d, animate) {
+  const t = tallies(d), F = ds().n * ds().fpa;
+  const defs = [["lies", "Lies spread", "var(--lie)"], ["cuts", "Trust cuts", "var(--cut)"], ["burnt", `Fields lost / ${F}`, "var(--ember)"], ["saved", "Saved by water", "var(--water)"]];
+  if (!$("#gauges").children.length) $("#gauges").innerHTML = defs.map(([k, l, c]) => `<div class="gauge" style="--c:${c}"><div class="v" id="g-${k}">0</div><div class="k" id="gk-${k}">${l}</div></div>`).join("");
+  defs.forEach(([k, l]) => {
+    $("#gk-" + k).textContent = l;
+    const node = $("#g-" + k), from = S.shown[k], to = t[k];
+    if (animate && AN && from !== to) {
+      const o = { v: from };
+      AN({ targets: o, v: to, round: 1, duration: 700, easing: "easeOutExpo", update: () => node.textContent = o.v });
+      AN({ targets: node.parentElement, scale: [1.08, 1], duration: 500, easing: "easeOutElastic(1, .6)" });
+    } else node.textContent = to;
+    S.shown[k] = to;
+  });
+}
+const CAPS = d => ds().captions ? ds().captions[d] : null;
+function caption(d) {
+  const c = CAPS(d); if (c) return c;
+  const ms = run().msgs.filter(m => m[0] === d);
+  return `${ms.length} messages · ${ms.filter(m => m[6]).length} lies · ${run().days[d].ign.length} fields ignite`;
+}
+
+// ================= truth map + dispatch =================
+function drawWorld(d, animate) {
+  const { n, fpa } = ds(), F = n * fpa, { st, watered } = world(d), prev = d > 0 ? world(d - 1).st : {};
+  const cnt = { alive: 0, burning: 0, burnt: 0, saved: 0 }; for (let f = 0; f < F; f++) cnt[st[f] || "alive"]++;
+  $("#wstats").innerHTML = [["alive", cnt.alive + cnt.saved, "#7fd49b"], ["on fire", cnt.burning, "var(--ember)"], ["burnt", cnt.burnt, "#b8a69d"], ["saved", cnt.saved, "var(--water)"]]
+    .map(([k, v, c]) => `<div class="ws"><div class="v" style="--c:${c}">${v}</div><div class="k">${k}</div></div>`).join("");
+  const label = { alive: "alive", burning: "on fire", burnt: "burnt", saved: "saved" };
+  if (big()) {
+    let h = "";
+    for (let f = 0; f < F; f++) { const s = st[f] || "alive", o = Math.floor(f / fpa);
+      h += `<div class="tile ${s} ${watered.has(o) ? "watered" : ""} ${S.open === A(o) ? "mine" : ""} ${st[f] !== prev[f] ? "changed" : ""}" title="F${f}, keeper ${A(o)}: ${label[s]}"><b>F${f}</b><span class="own">${A(o)} · ${label[s]}</span></div>`; }
+    $("#world").innerHTML = `<div class="tiles">${h}</div>`;
+  } else {
+    let h = "";
+    for (let o = 0; o < n; o++) { const cells = Array.from({ length: fpa }, (_, k) => o * fpa + k);
+      h += `<button class="blk ${S.open === A(o) ? "mine" : ""} ${cells.some(f => st[f] !== prev[f]) ? "changed" : ""}" data-a="${A(o)}" title="${A(o)}: ${cells.map(f => `F${f} ${label[st[f] || "alive"]}`).join(", ")}${watered.has(o) ? " · watered today" : ""}"><span class="cells">${cells.map(f => `<span class="c ${st[f] || ""}"></span>`).join("")}</span><span class="t">${A(o)}</span></button>`; }
+    $("#world").innerHTML = `<div class="blocks">${h}</div>`;
+    document.querySelectorAll(".blk").forEach(b => b.onclick = () => openDossier(b.dataset.a));
+  }
+  if (animate && AN) AN({ targets: "#world .changed", scale: [1.25, 1], duration: 700, delay: AN.stagger(25), easing: "easeOutElastic(1, .5)" });
+}
+function logLine(k, c, text) {
+  const li = document.createElement("li"); li.innerHTML = `<span class="k" style="--c:${c}">${k}</span><span>${esc(text)}</span>`;
+  const log = $("#log"); log.prepend(li);
+  while (log.children.length > 40) log.lastChild.remove();
+  if (AN) AN({ targets: li, translateX: [-14, 0], opacity: [0, 1], duration: 380, easing: "easeOutQuad" });
+}
+function drawLog(d) {
+  $("#log").innerHTML = ""; $("#log-day").textContent = `day ${d}`;
+  run().expo.filter(e => e[0] === d).forEach(e => logLine("CUT", "var(--cut)", `${e[1]} stops trusting ${e[2]}`));
+  run().days[d].ign.forEach(f => logLine("FIRE", "var(--ember)", `F${f} ignites (keeper ${A(Math.floor(f / ds().fpa))})`));
+  run().days[d].saved.forEach(f => logLine("SAVED", "var(--water)", `F${f} watered in time`));
+  run().msgs.filter(m => m[0] === d).slice().reverse().forEach(m => logLine(m[6] ? "LIE" : "MSG", m[6] ? "var(--lie)" : "var(--truth)", `${A(m[1])} → ${A(m[2])}  F${m[4]} burns day ${m[5]}`));
+}
+
+// ================= dossier =================
+function openDossier(id) { S.open = id; drawNodes(S.day); drawTrails(S.day); drawWorld(S.day); renderDossier(true); }
+function closeDossier() { S.open = null; $("#dossier").hidden = true; drawNodes(S.day); drawTrails(S.day); drawWorld(S.day); }
+function sigil(id) {
+  const i = num(id), liar = S.reveal && ds().imp.has(i), pts = [];
+  for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2 - Math.PI / 2; pts.push(`${27 + 24 * Math.cos(a)},${27 + 24 * Math.sin(a)}`); }
+  return `<svg class="sigil" viewBox="0 0 54 54" aria-hidden="true"><polygon points="${pts.join(" ")}" fill="#0e1529" stroke="${liar ? "var(--lie)" : "var(--gold)"}" stroke-width="2"/><text x="27" y="32" text-anchor="middle" font-size="14" font-weight="600" fill="${liar ? "var(--lie)" : "var(--gold)"}">${id}</text></svg>`;
+}
+function line(m, dir) {
+  const lie = m[6] && S.reveal, other = dir === "out" ? A(m[2]) : A(m[1]);
+  return `<div class="line ${dir} ${lie ? "false" : ""}">${dir === "out" ? "→ " + other : other + " says"}: fire reaches <b>F${m[4]}</b> on day <b>${m[5]}</b>${lie ? ' <span class="chip" style="--c:var(--lie)">lie</span>' : ""}<small>route ${m[3].map(A).join(" → ")}</small></div>`;
+}
+function capped(list, f, k = 3) {
+  if (!list.length) return '<p class="none">Nothing.</p>';
+  return list.slice(0, k).map(f).join("") + (list.length > k ? `<details><summary>${list.length - k} more</summary><div>${list.slice(k).map(f).join("")}</div></details>` : "");
+}
+function renderDossier(fresh) {
+  const id = S.open; if (!id) return;
+  const i = num(id), d = S.day, fpa = ds().fpa, box = $("#dossier");
+  const ms = run().msgs.filter(m => m[0] === d), heard = ms.filter(m => A(m[2]) === id), said = ms.filter(m => A(m[1]) === id);
+  const t = run().turns[`${id}|${d}`], cuts = [...new Set(cutsUpTo(d).filter(e => e[1] === id).map(e => e[2]))];
+  let h = `<div class="dos-h">${sigil(id)}<div><div class="name">${id}</div><div class="role">keeper of F${i * fpa}${fpa > 2 ? "–" : ", "}F${i * fpa + fpa - 1}${S.reveal && ds().imp.has(i) ? " · <span style=\"color:var(--lie)\">liar</span>" : ""}</div></div><button class="close" id="close" aria-label="Close">✕</button></div>`;
+  h += `<div class="sec"><span class="t">Heard · day ${d}</span>${capped(heard, m => line(m, "in"))}</div>`;
+  h += `<div class="sec"><span class="t">Thinks</span><div class="speech" id="speech">${t ? "" : '<span class="none">Silent today.</span>'}</div></div>`;
+  h += `<div class="sec"><span class="t">Says</span>${capped(said, m => line(m, "out"))}</div>`;
+  if (S.mem === "graph") {
+    if (ds().beliefs) {
+      const bel = (ds().beliefs[id] || []).filter(b => b[3] <= d);
+      h += `<div class="sec"><span class="t">Memory graph</span>${bel.length ? `<ul class="bl">${bel.map(b => { const dead = b[4] !== null && b[4] <= d;
+        return `<li class="${dead ? "dead" : ""}"><span>F${b[1]} burns day ${b[2]} <small style="color:var(--dim)">${b[5]}${b[6] ? " via " + b[6] : ""}</small></span><span class="chip" style="--c:${dead ? "var(--cut)" : b[5] === "forecast" ? "var(--dim)" : "var(--truth)"}">${dead ? "dropped" : b[5] === "forecast" ? "forecast" : "holds"}</span></li>`; }).join("")}</ul>` : '<p class="none">Empty so far.</p>'}</div>`;
+    } else {
+      const cut = new Set(cutsUpTo(d).filter(e => e[1] === id).map(e => num(e[2]))), by = new Map();
+      run().msgs.filter(m => m[0] <= d && A(m[2]) === id).forEach(m => { const k = m[4] + "|" + m[5], b = by.get(k) || { f: m[4], c: m[5], r: [] }; b.r.push(m[3]); by.set(k, b); });
+      const bel = [...by.values()].map(b => ({ ...b, live: b.r.filter(r => !r.some(x => cut.has(x))).length })).sort((a, b) => (a.live > 0) - (b.live > 0));
+      const row = b => `<li class="${b.live ? "" : "dead"}"><span>F${b.f} burns day ${b.c} <small style="color:var(--dim)">${b.live}/${b.r.length} routes</small></span><span class="chip" style="--c:${b.live ? "var(--truth)" : "var(--cut)"}">${b.live ? "holds" : "dropped"}</span></li>`;
+      h += `<div class="sec"><span class="t">Memory graph · ${bel.length}</span>${bel.length ? `<ul class="bl">${bel.slice(0, 5).map(row).join("")}</ul>` + (bel.length > 5 ? `<details><summary>${bel.length - 5} more</summary><div><ul class="bl">${bel.slice(5).map(row).join("")}</ul></div></details>` : "") : '<p class="none">Empty so far.</p>'}</div>`;
+    }
+    if (cuts.length) h += `<div class="sec"><span class="t">Distrusts</span><p class="none" style="color:var(--cut)">${cuts.join(", ")}: caught lying by the evidence.</p></div>`;
+  } else h += `<div class="sec"><span class="t">Memory</span><p class="none">No memory graph. A prompt mind re-reads the whole chat log every turn and keeps nothing structured.</p></div>`;
+  box.innerHTML = h; const wasHidden = box.hidden; box.hidden = false;
+  $("#close").onclick = closeDossier;
+  if (t) {
+    const text = `“${t.final || "…"}”`, sp = $("#speech");
+    if (AN && fresh) { const o = { n: 0 }; AN({ targets: o, n: text.length, duration: Math.min(2200, text.length * 18), easing: "linear", update: () => sp.textContent = text.slice(0, o.n | 0) }); }
+    else sp.textContent = text;
+  }
+  if (AN && wasHidden) AN({ targets: box, translateX: [40, 0], opacity: [0, 1], duration: 420, easing: "easeOutCubic" });
+}
+
+// ================= turn track =================
+function drawTrack() {
+  const D = ds().D, r = run(), mx = Math.max(1, ...Array.from({ length: D }, (_, d) => r.msgs.filter(m => m[0] === d).length));
+  $("#pips").innerHTML = Array.from({ length: D }, (_, d) => {
+    const ms = r.msgs.filter(m => m[0] === d), h = 30 + 70 * ms.length / mx, lies = ms.filter(m => m[6]).length;
+    return `<button class="pip ${d < S.day ? "past" : ""} ${d === S.day ? "now" : ""}" data-d="${d}" style="height:${h}%" aria-label="Day ${d}"><span class="lie" style="height:${ms.length ? lies / ms.length * 100 : 0}%"></span></button>`;
+  }).join("");
+  document.querySelectorAll(".pip").forEach(p => p.onclick = () => { stop(); goto(+p.dataset.d); });
+  $("#daytxt").textContent = `Day ${S.day}`;
+  $("#prev").disabled = S.day === 0; $("#next").disabled = S.day >= D - 1;
+}
+
+// ================= control flow =================
+function goto(d) { S.token++; S.day = Math.max(0, Math.min(ds().D - 1, d)); L.fx.innerHTML = ""; $("#banner").style.opacity = .1; $("#b-big").textContent = `Day ${S.day}`; $("#b-sub").textContent = caption(S.day); settle(S.day); if (S.open) renderDossier(false); }
+async function stepTo(d) {
+  const token = ++S.token; S.day = d; drawTrack();
+  await animateDay(d, token);
+  if (token === S.token) settle(d);
+}
+function stop() { S.playing = false; S.token++; $("#play").textContent = "▶"; $("#start").hidden = false; }
+async function play() {
+  if (S.playing) return stop();
+  S.playing = true; $("#play").textContent = "❚❚"; $("#start").hidden = true;
+  if (S.day >= ds().D - 1) S.day = -1;
+  while (S.playing && S.day < ds().D - 1) { await stepTo(S.day + 1); if (S.playing) await sleep(250 / S.speed); }
+  if (S.playing) stop();
+}
+$("#play").onclick = play;
+$("#start").onclick = () => { S.day = -1; play(); };
+$("#prev").onclick = () => { stop(); goto(S.day - 1); };
+$("#next").onclick = () => { if (S.playing) stop(); stepTo(Math.min(ds().D - 1, S.day + 1)); };
+$("#speed").onclick = () => { S.speed = S.speed === 1 ? 2 : S.speed === 2 ? 4 : 1; $("#speed").textContent = S.speed + "×"; };
+const press = (on, off, v) => { $(on).setAttribute("aria-pressed", v); $(off).setAttribute("aria-pressed", !v); };
+$("#m-graph").onclick = () => { press("#m-graph", "#m-prompt", true); S.mem = "graph"; goto(S.day); };
+$("#m-prompt").onclick = () => { press("#m-graph", "#m-prompt", false); S.mem = "prompt"; goto(S.day); };
+function setSet(k) {
+  stop(); S.set = k; press("#d-real", "#d-scale", k === "real");
+  S.open = k === "real" ? "A15" : null; $("#dossier").hidden = true;
+  $("#tagline").textContent = k === "real" ? "16 keepers · 5 liars · real run hard16, seed 0" : "64 keepers · 9 liars · stand-in data";
+  $("#foot").textContent = k === "real" ? "Every message, thought and belief is from the run logs (graph-memory and B3o prompt-only), runs/hard16 seed 0." : "64 keepers: a seeded stand-in simulation with the game's rules, not a model run.";
+  S.shown = { lies: 0, cuts: 0, burnt: 0, saved: 0 };
+  buildMap(); goto(k === "real" ? 1 : 9);
+}
+$("#d-real").onclick = () => setSet("real");
+$("#d-scale").onclick = () => setSet("scale");
+$("#reveal").onchange = e => { S.reveal = e.target.checked; drawNodes(S.day); if (S.open) renderDossier(false); };
+$("#map").addEventListener("click", () => S.open && closeDossier());
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.key === "Escape" && S.open) closeDossier();
+  if (e.key === " " && e.target === document.body) { e.preventDefault(); play(); }
+  if (e.key === "ArrowRight") { stop(); goto(S.day + 1); } if (e.key === "ArrowLeft") { stop(); goto(S.day - 1); }
+});
+
+// ================= embers (ambient, scales with fire) =================
+(function embers() {
+  const cv = $("#embers"), ctx = cv.getContext("2d"); if (!ctx) return;
+  let parts = [], w = 0, h = 0;
+  const size = () => { const r = cv.getBoundingClientRect(); w = cv.width = r.width * devicePixelRatio; h = cv.height = r.height * devicePixelRatio; };
+  size(); addEventListener("resize", size);
+  function tick() {
+    const burning = Object.values(world(Math.max(0, S.day)).st).filter(x => x === "burning").length;
+    const target = Math.min(140, 18 + burning * (big() ? 18 : 3));
+    while (parts.length < target) parts.push({ x: Math.random() * w, y: h + Math.random() * h * .3, v: .3 + Math.random() * .9, r: (.6 + Math.random() * 1.6) * devicePixelRatio, a: .2 + Math.random() * .5, s: Math.random() * 6 });
+    ctx.clearRect(0, 0, w, h);
+    parts.forEach(p => { p.y -= p.v * devicePixelRatio; p.x += Math.sin((p.y + p.s * 100) / 60) * .4; p.a -= .0015;
+      ctx.fillStyle = `rgba(255,${140 + (p.s * 15 | 0)},60,${Math.max(0, p.a)})`; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill(); });
+    parts = parts.filter(p => p.y > -10 && p.a > 0).slice(0, target);
+    requestAnimationFrame(tick);
+  }
+  if (!REDUCED) requestAnimationFrame(tick);
+})();
+
+setSet("real");
+</script>
