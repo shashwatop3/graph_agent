@@ -127,3 +127,25 @@ def test_a_game_with_a_horizon_ends_early_once_every_fire_is_out():
     sim.step({0})  # out on day 0, before it spreads
     sim.step()  # its arrival on day 1 does not land: field 0 no longer burns
     assert sim.finished
+
+
+def test_fire_can_arrive_one_step_weaker_than_the_field_it_comes_from():
+    rules = FireRules(**{**LINEAR.__dict__, "arrive": "source"})
+    sim = FireSim(hand_world(chain([1, 1]), fires=((0, 3.0),), n_agents=3), rules)
+    sim.step()  # day 0: field 0, at 3, sets fire towards field 1
+    report = sim.step()  # day 1: it arrives one step weaker than it set out: 3 - 1 = 2
+    assert [(i.field_id, i.intensity) for i in report.ignited] == [(1, 2.0)]
+
+
+def test_a_linear_fire_is_reported_every_day_it_burns_and_the_day_it_goes_out():
+    from graph_agent.packs.ringfire.sim.game import Game
+
+    game = Game(hand_world(chain([1, 1]), fires=((0, 2.0),), n_agents=3), LINEAR)
+    day0 = game.step()  # the start fire, burning on
+    day1 = game.step({0})  # watered 3 -> 2: still there
+    day2 = game.step({0})  # 2 -> 1
+    day3 = game.step({0})  # 1 -> 0: out
+    assert [(e.field_id, e.put_out) for e in day0.evidence if e.field_id == 0] == [(0, False)]
+    assert [(e.field_id, e.put_out) for e in day1.evidence if e.field_id == 0] == [(0, False)]
+    assert [(e.field_id, e.put_out) for e in day2.evidence if e.field_id == 0] == [(0, False)]
+    assert [(e.field_id, e.put_out) for e in day3.evidence if e.field_id == 0] == [(0, True)]

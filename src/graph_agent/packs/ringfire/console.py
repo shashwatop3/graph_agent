@@ -11,7 +11,7 @@ from graph_agent.harness.llm import ModelClient
 from .adapter import ARRIVAL, TEMPLATES
 from .benchmark.experiment import Knobs, make_scenario
 from .pack import CATALOGUE, build_runtime, team_for
-from .sim.scenario import RulesSpec
+from .sim.scenario import ClaimSpec, RulesSpec, Scenario, SendSpec
 from .standin import honest_agent
 
 # fire arrives at 1, grows or falls by 1 a day up to 5, a field 2 days at 5 is lost; water is free
@@ -59,15 +59,28 @@ class RingFireConsole:
         )
         quorum = options.get("quorum")
         scenario = make_scenario(knobs, int(options.get("seed", 1)))
+        if options.get("liars"):
+            _choose_liars(scenario, [int(a) for a in str(options["liars"]).split(",")], knobs)
         if options.get("fire", "linear") == "linear":
-            scenario["rules"] = {**scenario.get("rules", {}), **LINEAR_RULES}
+            rules: RulesSpec = {**LINEAR_RULES}
+            if "cap" in options:
+                rules["max_intensity"] = float(options["cap"])
+            if "lost_after" in options:
+                rules["lost_after"] = int(options["lost_after"])
+            if options.get("water") is not None:
+                rules["water_per_agent"] = int(options["water"])
+            if options.get("arrive") in ("step", "source"):
+                rules["arrive"] = options["arrive"]
+            scenario["rules"] = {**scenario.get("rules", {}), **rules}
             # the first fire starts strong enough to spread before its owner can put it out
             scenario["world"] = {
                 **scenario["world"],
-                "initial_intensity": LINEAR_START,
+                "initial_intensity": float(options.get("start", LINEAR_START)),
                 # fire put out can come round the ring again, so the game has a fixed length
                 "horizon": int(options.get("days", LINEAR_DAYS)),
             }
+            if options.get("keep_lying", False):
+                _keep_lying(scenario, int(options.get("days", LINEAR_DAYS)))
         return team_for(
             scenario,
             quorum=None if quorum is None else int(quorum),
@@ -108,3 +121,37 @@ class RingFireConsole:
 
 
 RINGFIRE = RingFireConsole()
+
+
+def _keep_lying(scenario: Scenario, days: int) -> None:
+    """Each false-alarm imposter lies again every other day, to each ring neighbour, about that
+    neighbour's own field: "fire reaches your field tomorrow". Believed, it costs a watering."""
+    n = scenario["world"].get("n_agents", 8)
+    per = scenario["world"].get("fields_per_agent", 1)
+    liars = [i["agent"] for i in scenario.get("imposters", []) if i["behaviour"] == "false_alarm"]
+    sends = scenario.setdefault("sends", [])
+    for day in range(1, days - 1, 2):
+        for liar in liars:
+            for neighbour in ((liar - 1) % n, (liar + 1) % n):
+                if neighbour in liars:
+                    continue
+                claim: ClaimSpec = {"field_id": neighbour * per, "day": day + 1}
+                sends.append({"day": day, "sender": liar, "receiver": neighbour, "claim": claim})
+
+
+def _choose_liars(scenario: Scenario, liars: list[int], knobs: Knobs) -> None:
+    """Make exactly these agents the imposters, with the scenario's usual opening lie: fire "will
+    reach" a field on the far side of the ring, earlier than it could, told to each neighbour."""
+    n = scenario["world"].get("n_agents", 8)
+    scenario["imposters"] = [{"agent": a, "behaviour": knobs.behaviour} for a in liars]
+    if knobs.behaviour != "false_alarm":
+        scenario["sends"] = []
+        return
+    n_fields = n * scenario["world"].get("fields_per_agent", 1)
+    sends: list[SendSpec] = []
+    for liar in liars:
+        for neighbour in ((liar - 1) % n, (liar + 1) % n):
+            if neighbour not in liars:
+                claim: ClaimSpec = {"field_id": n_fields // 2, "day": max(1, n_fields // 4)}
+                sends.append({"day": 1, "sender": liar, "receiver": neighbour, "claim": claim})
+    scenario["sends"] = sends

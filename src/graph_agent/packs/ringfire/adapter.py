@@ -309,7 +309,7 @@ def agents_with_expired_claims(
             continue
         if _find_live(store, viewer, belief.subject, belief.value, "observed") is not None:
             continue
-        if _stopped_on_the_way(store, viewer, belief.subject, belief.value):
+        if stopped_on_the_way(store, viewer, belief.subject, belief.value):
             continue  # a fair forecast: the fire was put out before it could get there
         for sender in _senders(store, viewer, belief.id, blame, routes):
             found.setdefault(
@@ -318,18 +318,22 @@ def agents_with_expired_claims(
     return sorted(found.items())
 
 
-def _stopped_on_the_way(store: Store, viewer: str, subject: str, day: int) -> bool:
-    """Has the viewer seen a fire put out (linear fire) at a field upstream of `subject`, on or
-    before `day`? Then a claim that fire would reach `subject` on `day` may have been a fair
-    forecast that the watering stopped, not a lie. Upstream: a path on the map leads from it."""
+def stopped_on_the_way(store: Store, viewer: str, subject: str, day: int) -> bool:
+    """Has the viewer seen a fire put out (linear fire) that would have reached `subject` exactly
+    on `day`? A fire put out at G on day e, with a path of k days from G to `subject`, would have
+    arrived on e + k. Then a claim that fire reaches `subject` on `day` was a fair forecast that the
+    watering stopped, not a lie. Any other put-out says nothing about this claim: on a ring every
+    field is downstream of every other."""
     for observation in store.observations(viewer, 0):
         payload = observation.payload
         if observation.kind != "evidence" or not payload.get("put_out"):
             continue
         source = field_id(payload["field_id"])
-        if payload["day"] <= day and source != subject:
-            if store.shortest_distance(source, subject) is not None:
-                return True
+        if source == subject:
+            continue
+        distance = store.shortest_distance(source, subject)
+        if distance is not None and payload["day"] + distance == day:
+            return True
     return False
 
 
@@ -443,24 +447,24 @@ def _linear_role_card(
     end: str,
     goal: str,
 ) -> str:
-    """The role card for the linear fire: strength rises or falls by a fixed step a day."""
+    """Who the agent is, what it is trying to do, and the rules of the linear fire. The tools and
+    the agent's situation are separate sections of its context."""
     step, cap, lost_after = linear
     return (
-        f"You are {agent}, keeper of one segment of a ring of {n_agents} segments. Your fields: "
-        f"{own}. Fire spreads clockwise, one field per day, and can sometimes jump ahead along "
-        f"paths nobody knows about. Fire arrives at strength {step:g}. Each day a burning field "
-        f"grows by {step:g} if you do not water it and falls by {step:g} if you do; at 0 it is "
-        f"out and the field is saved. Strength never goes above {cap:g}, and a field that stays "
-        f"at {cap:g} for {lost_after} days is lost. Watering on the day fire arrives puts it out "
-        f"at once. A fire put out stops spreading. Water is unlimited, but you are scored on "
-        f"water used on fire and water wasted: watering when no fire is at or arriving at your "
-        f"fields is wasted.{regrow}{lightning}{end} Some agents lie{goal}. Messages show the "
-        f"route they travelled.\n"
-        f"Each turn, first decide about water: call the act tool with type 'water' or type "
-        f"'wait'. Its reply tells you what happened to your fields today. Only then tell your "
-        f"neighbours what you know about when fire reaches fields (send), including what just "
-        f"happened at yours. You can also build a link to an agent you trust, with act type "
-        f"'link', to skip an agent you no longer trust. To record a conclusion with "
-        f"assert_belief, use predicate 'fire.arrival_day', subject a field such as 'F3', and "
-        f"value the day number. Then reply with one short sentence."
+        f"You are {agent}, one of {n_agents} keepers on a ring of fields. You keep {own}.\n"
+        f"Your goal: keep your fields from burning, and spend water only where there is fire. "
+        f"You are scored on damage to your fields (fire strength on each night they burn), on "
+        f"water used on fire, and on water wasted (watering with no fire at or arriving at your "
+        f"fields).\n"
+        f"The fire: it spreads clockwise along the paths on the map, one field per day, and can "
+        f"jump ahead along paths nobody knows about. It arrives at strength {step:g}. A burning "
+        f"field grows by {step:g} a day unless watered, and falls by {step:g} a day when watered; "
+        f"at 0 it is out. Watering on the day fire arrives puts it out at once. A field at "
+        f"{cap:g} for {lost_after} days is lost. A burning field keeps sending fire to the next "
+        f"field every day; a fire put out stops spreading.{regrow}{lightning}{end}\n"
+        f"Others: you only see fire at your own fields and at fields you have been told about. "
+        f"Everything else you learn from messages. Some agents lie{goal}. A message carries the "
+        f"route it travelled, and one that passed through an agent you no longer trust is not "
+        f"believed, even if it started with someone honest. You can talk only to agents you are "
+        f"linked to, at most 3 at a time; they too have at most 3 links."
     )

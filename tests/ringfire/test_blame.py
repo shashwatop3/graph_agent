@@ -213,3 +213,125 @@ def test_an_agent_must_decide_about_water_before_it_sends():
         pytest.skip("A0 holds no belief on day 0 in this scenario")
     with pytest.raises(ValueError, match="first decide about water"):
         rt.transport.send("A0", "A1", belief, 0)
+
+
+def test_imposters_that_keep_lying_lie_about_their_neighbours_own_fields():
+    team = PACK.team("ringfire", {"seed": 1, "keep_lying": True})
+    sends = team.settings.extra["scenario"]["sends"]
+    later = [s for s in sends if s["day"] > 1]
+    assert later
+    assert all(s["claim"]["field_id"] == s["receiver"] for s in later)
+    assert all(s["claim"]["day"] == s["day"] + 1 for s in later)
+
+
+def test_a_burning_field_wakes_its_keeper_in_wake_mode():
+    team = PACK.team("ringfire", {"seed": 1, "wake": True})
+    session = PACK.start(team, PACK.stand_in(team), MemoryStore(), EventLog(), {})
+    session.runtime.start()
+    pack = session.runtime.pack
+    burning = [f.owner for f in pack.game.sim.fields if f.state.value == "burning"]
+    assert burning and all(pack.needs_turn(f"A{a}", 0) for a in burning)
+
+
+# ---- finding other agents (the linear game) ------------------------------------------------------
+
+
+def started(**options):
+    team = PACK.team("ringfire", {"seed": 3, "liars": "5,7", **options})
+    session = PACK.start(team, PACK.stand_in(team), MemoryStore(), EventLog(), {})
+    session.runtime.start()
+    return team, session.runtime
+
+
+def test_the_liars_can_be_chosen():
+    team, _ = started()
+    assert {n.id for n in team.nodes if "imposter" in n.label} == {"A5", "A7"}
+
+
+def test_an_agent_can_look_up_the_others_and_see_whom_it_is_linked_to():
+    team, rt = started()
+    tool = rt.tools_for(next(n for n in team.nodes if n.id == "A6"))[0]
+    text = tool.handler({})
+    assert text.splitlines()[0] == "You are A6. Linked to: A5, A7"
+    assert "A4: keeps F4 · 2 step(s) round the ring · not linked · trusted" in text
+    assert tool.handler({"field": "F4"}).splitlines()[1].startswith("A4: keeps F4")
+
+
+def test_nobody_is_told_whom_to_link_to_in_the_linear_game():
+    team, rt = started()
+    rt.distrust("A6", [("A5", "lied"), ("A7", "lied")], 1)
+    context = rt.pack.context_for(6, 1, 4000)
+    assert 'act(type="link"' not in context
+    assert "find_agents" in context  # the role card says the tool exists, not what to do with it
+
+
+def test_the_benchmark_game_keeps_its_link_hints_and_has_no_directory():
+    team, rt = started(fire="binary")
+    assert all(not n.tools for n in team.nodes)
+    rt.distrust("A6", [("A5", "lied")], 1)
+    assert 'act(type="link", target="A4")' in rt.pack.context_for(6, 1, 4000)
+
+
+def test_liars_are_still_caught_when_fires_are_being_put_out_all_round_the_ring():
+    team = PACK.team("ringfire", {"seed": 16, "liars": "5,7", "keep_lying": True, "extra_links": 0})
+    session = PACK.start(team, PACK.stand_in(team), MemoryStore(), EventLog(), {})
+    session.runtime.run()
+    score = session.score()
+    assert score["liars_caught"] >= 2  # A6, A4 and A0 hear the lies straight from A5 and A7
+    assert score["honest_blamed_ever"] == 0
+
+
+# ---- building a bigger network: at most 3 links, and a track record per source ------------------
+
+
+def act(rt, owner, kind, target):
+    from graph_agent.core.model import Action
+
+    return rt.pack.execute(
+        Action(id=f"X-{owner}-{kind}-{target}", owner=owner, type=kind, target=target)
+    )
+
+
+def test_an_agent_can_link_to_a_third_agent_but_not_a_fourth():
+    _, rt = started(extra_links=0)
+    assert act(rt, "A6", "link", "A4") == "you are now linked to A4"
+    with pytest.raises(ValueError, match="already talk to 3"):
+        act(rt, "A6", "link", "A0")
+
+
+def test_a_link_needs_a_free_place_on_both_sides():
+    _, rt = started(extra_links=0)
+    act(rt, "A2", "link", "A4")  # A4 now talks to A3, A5 and A2
+    with pytest.raises(ValueError, match="A4 already talks to 3"):
+        act(rt, "A6", "link", "A4")
+
+
+def test_unlinking_makes_room_and_cuts_the_liar_off():
+    _, rt = started(extra_links=0)
+    act(rt, "A6", "link", "A4")
+    assert act(rt, "A6", "unlink", "A7") == "you are no longer linked to A7"
+    assert act(rt, "A6", "link", "A0") == "you are now linked to A0"
+    assert sorted(rt.network.neighbours("A6")) == ["A0", "A4", "A5"]
+
+
+def test_scripted_lies_do_not_reach_an_agent_that_unlinked_the_liar():
+    team = PACK.team("ringfire", {"seed": 16, "liars": "5,7", "keep_lying": True, "extra_links": 0})
+    session = PACK.start(team, PACK.stand_in(team), MemoryStore(), EventLog(), {})
+    rt = session.runtime
+    rt.start()
+    act(rt, "A6", "unlink", "A5")
+    act(rt, "A6", "unlink", "A7")
+    while not rt.finished():
+        rt.step()
+    told_a6 = [e for e in rt.log.events if e.kind == "message" and e.data["receiver"] == "A6"]
+    assert not any(e.data["sender"] in ("A5", "A7") for e in told_a6)
+
+
+def test_the_track_record_credits_where_a_claim_started_not_who_relayed_it():
+    team = PACK.team("ringfire", {"seed": 16, "liars": "5,7", "keep_lying": True, "extra_links": 0})
+    session = PACK.start(team, PACK.stand_in(team), MemoryStore(), EventLog(), {})
+    rt = session.runtime
+    rt.run()
+    record = rt.pack.track_record(6, rt.tick)
+    assert record.get("A5", (0, 0))[1] > 0 or record.get("A7", (0, 0))[1] > 0  # their own lies
+    assert all(wrong == 0 for a, (_, wrong) in record.items() if a not in ("A5", "A7"))

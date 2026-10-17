@@ -28,6 +28,7 @@ from graph_agent.frame.nodes import WarnerNode
 from graph_agent.frame.policies import blamed_on_route
 from graph_agent.frame.runtime import Blame, Delivery, Item, Node, Outgoing, Runtime, Stage
 from graph_agent.frame.spec import LinkSpec, NodeSpec, Settings, TeamSpec, Trigger
+from graph_agent.frame.tools import ToolSpec, schema_of
 from graph_agent.harness.agent import TurnResult
 from graph_agent.harness.llm import ModelClient
 from graph_agent.harness.trace import NO_TRACE, Trace
@@ -84,6 +85,7 @@ def team_for(
     game = build_game(scenario)
     n = game.sim.world.config.n_agents
     imposters = game.net.imposters
+    linear = game.sim.rules.dynamics == "linear"
     triggers = (
         [
             Trigger(on="item"),
@@ -117,6 +119,7 @@ def team_for(
                     label=f"A{a}",
                     role="segment keeper",
                     triggers=triggers,
+                    tools=["find_agents"] if linear else [],
                 )
             )
     nodes.append(NodeSpec(id="checker", type="checker", label="Evidence checker"))
@@ -198,6 +201,8 @@ class RingFirePack:
     water_today: set[int] = field(default_factory=set[int])
     decided: set[int] = field(default_factory=set[int])  # agents that chose water or wait today
     put_out: set[tuple[int, int]] = field(default_factory=set[tuple[int, int]])  # (field, day)
+    # linear fire: every (field, day) fire was there, so a later report can still be checked
+    fire_days: set[tuple[int, int]] = field(default_factory=set[tuple[int, int]])
     edges: list[tuple[int, int, int]] = field(default_factory=list[tuple[int, int, int]])
     map_lines: list[str] = field(default_factory=list[str])
     days: list[DayResult] = field(default_factory=list[DayResult])
@@ -228,6 +233,16 @@ class RingFirePack:
     def linear(self) -> bool:
         return self.game.sim.rules.dynamics == "linear"
 
+    def needs_turn(self, node_id: str, tick: int) -> bool:
+        """With the linear fire, an agent whose field is burning must take its turn (to water or
+        wait), even when it only wakes on news."""
+        if not self.linear or not node_id.startswith("A"):
+            return False
+        sim = self.game.sim
+        return any(
+            sim.fields[f].state.value == "burning" for f in self.fields.get(number(node_id), ())
+        )
+
     def score(self, runtime: Runtime) -> dict[str, Any]:
         """The running score the console shows."""
         liars = {f"A{a}" for a in self.game.net.imposters}
@@ -246,10 +261,18 @@ class RingFirePack:
             "water_on_fire": sum(len(d.report.water_on_fire) for d in self.days),
             "water_wasted": sum(len(d.report.water_wasted) for d in self.days),
             "fields_lost": sum(1 for f in self.game.sim.fields if f.state.value == "burnt"),
+            # the honest keepers' fields: strength summed over every night they burned
+            "damage": sum(
+                strength
+                for d in self.days
+                for f, strength in d.report.strength
+                if self.game.sim.fields[f].owner not in self.game.net.imposters
+            ),
             "restored": len(runtime.restored),
             "exposures": len(runtime.exposures),
             "turns": len(runtime.turns),
             "tokens_in": sum(t.tokens_in for _, _, t in runtime.turns),
+            "tokens_cached": sum(t.tokens_cached for _, _, t in runtime.turns),
         }
 
     def world_view(self) -> dict[str, Any]:
@@ -376,12 +399,71 @@ class RingFirePack:
             if self.linear:
                 return self.what_happens(agent, watered=False)
             return "you will not water today"
-        if action.type == "link":
+        if action.type in ("link", "unlink"):
             if not action.target or not action.target.startswith("A"):
-                raise ValueError("a link needs a target agent, such as A4")
-            self.game.net.add_link(agent, number(action.target))
+                raise ValueError(f"{action.type} needs a target agent, such as A4")
+            other = number(action.target)
+            if not 0 <= other < self.n_agents or other == agent:
+                raise ValueError(f"no other agent {action.target}")
+            net = self.game.net
+            if action.type == "unlink":
+                if not net.linked(agent, other):
+                    raise ValueError(f"you are not linked to {action.target}")
+                net.links.discard(frozenset((agent, other)))
+                return f"you are no longer linked to {action.target}"
+            if net.linked(agent, other):
+                raise ValueError(f"you are already linked to {action.target}")
+            cap = self.max_links
+            if cap is not None:
+                if len(net.neighbours(agent)) >= cap:
+                    raise ValueError(
+                        f"you already talk to {cap} agents; unlink one first (act type 'unlink')"
+                    )
+                if len(net.neighbours(other)) >= cap:
+                    raise ValueError(f"{action.target} already talks to {cap} agents")
+            net.add_link(agent, other)
             return f"you are now linked to {action.target}"
-        raise ValueError(f"unknown action type {action.type!r}; use 'water', 'wait' or 'link'")
+        raise ValueError(
+            f"unknown action type {action.type!r}; use 'water', 'wait', 'link' or 'unlink'"
+        )
+
+    @property
+    def max_links(self) -> int | None:
+        """How many agents one agent can talk to at once (the linear game: 3)."""
+        return 3 if self.linear else None
+
+    def track_record(self, n: int, today: int) -> dict[str, tuple[int, int]]:
+        """For each agent that claims started with (route[0]), what the viewer's own evidence
+        made of them: (confirmed, false). A claim about a day not yet over counts for neither."""
+        viewer = ringfire.agent_id(n)
+        store = self.store
+        seen = {
+            (b.subject, b.value)
+            for b in store.beliefs(viewer, predicate=ringfire.ARRIVAL)
+            if b.origin == "observed"
+        }
+        record: dict[str, list[int]] = {}
+        counted: set[tuple[str, str, object]] = set()
+        for belief in store.beliefs(viewer, predicate=ringfire.ARRIVAL):
+            if belief.origin != "told" or not isinstance(belief.value, int):
+                continue
+            true = (belief.subject, belief.value) in seen
+            if not true and belief.value >= today:
+                continue  # not over yet
+            if not true and ringfire.stopped_on_the_way(
+                store, viewer, belief.subject, belief.value
+            ):
+                continue  # a fair forecast that a watering stopped
+            for route in store.support_routes(viewer, belief.id):
+                if not route or route[0] == viewer:
+                    continue
+                key = (route[0], belief.subject, belief.value)
+                if key in counted:
+                    continue
+                counted.add(key)
+                tally = record.setdefault(route[0], [0, 0])
+                tally[0 if true else 1] += 1
+        return {a: (t[0], t[1]) for a, t in sorted(record.items(), key=lambda kv: number(kv[0]))}
 
     def what_happens(self, agent: int, watered: bool) -> str:
         """The result of today's choice at each of the agent's fields (linear fire): the fire at
@@ -513,6 +595,8 @@ class RingFirePack:
 
     def context_for(self, n: int, day: int, budget: int) -> str:
         """What agent `n` reads on `day`, besides "It is day N." (the probes ask with this too)."""
+        if self.linear:
+            return self.linear_context(n, day)
         viewer = ringfire.agent_id(n)
         extra = "## Map\n" + "\n".join(self.map_lines)
         extra += "\n\n" + outlook(
@@ -527,12 +611,30 @@ class RingFirePack:
         liars = self.known_liars(n)
         if liars:
             extra += "\n\n## Known liars (you no longer trust them)\n" + "\n".join(liars)
-        hints = self.link_hints(n) + self.worth_telling(n, day)
-        if hints:
-            extra += (
-                "\n\n## Worth doing (route around liars; tell neighbours what they have not had "
-                "from you)\n" + "\n".join(hints)
-            )
+        if self.linear:
+            record = self.track_record(n, day)
+            if record:
+                extra += (
+                    "\n\n## Where your claims started (checked against what you saw)\n"
+                    + "\n".join(
+                        f"{a}: {right} confirmed, {wrong} false"
+                        for a, (right, wrong) in record.items()
+                    )
+                )
+        if self.linear:  # nobody tells it whom to link to: it can find out with find_agents
+            hints = self.worth_telling(n, day)
+            if hints:
+                extra += (
+                    "\n\n## Worth telling (your linked agents have not had these from you)\n"
+                    + "\n".join(hints)
+                )
+        else:
+            hints = self.link_hints(n) + self.worth_telling(n, day)
+            if hints:
+                extra += (
+                    "\n\n## Worth doing (route around liars; tell neighbours what they have not "
+                    "had from you)\n" + "\n".join(hints)
+                )
         compiled = compile_context(
             self.store,
             viewer,
@@ -545,6 +647,170 @@ class RingFirePack:
 
     def context(self, node: NodeSpec, tick: int, budget: int) -> str:
         return self.context_for(number(node.id), tick, budget) + f"\n\nIt is day {tick}."
+
+    # ---- the linear game's context: situation first, facts only, no advice ------------------
+
+    def linear_context(self, n: int, day: int) -> str:
+        viewer = ringfire.agent_id(n)
+        rt, store, game = self.runtime, self.store, self.game
+        distrusted = rt.distrusted(viewer)
+        horizon = game.sim.world.config.horizon
+        why: dict[str, str] = {}
+        for exposure in rt.exposures:
+            if exposure.viewer == viewer and exposure.agent in distrusted:
+                why.setdefault(exposure.agent, f"{exposure.reason} (day {exposure.day})")
+        sections: list[tuple[str, list[str]]] = []
+
+        card = role_card(viewer, self.n_agents, self.fields.get(n, ()), self.rules)
+        sections.append(("Who you are", card.splitlines()))
+
+        left = f" of {horizon} (days 0 to {horizon - 1}); {horizon - day} left" if horizon else ""
+        sections.append(("Today", [f"Day {day}{left}."]))
+        sections.append(("Your fields this morning", self.fields_now(n).splitlines()[1:]))
+
+        cap = self.max_links
+        links = game.net.neighbours(n)
+        link_lines: list[str] = []
+        for other in links:
+            agent = f"A{other}"
+            state = (
+                f"you no longer trust it: {why.get(agent, '')}"
+                if agent in distrusted
+                else "trusted"
+            )
+            keeps = ", ".join(f"F{f}" for f in self.fields.get(other, ()))
+            link_lines.append(f"- {agent} (keeps {keeps}): {state}")
+        trusted = [o for o in links if f"A{o}" not in distrusted]
+        link_lines.append(
+            f"{len(links)} of {cap} links used. "
+            + (
+                "Messages you can believe can reach you only through "
+                + ", ".join(f"A{o}" for o in trusted)
+                + "."
+                if trusted
+                else "None of the agents you are linked to is trusted, so no message you can "
+                "believe reaches you."
+            )
+        )
+        sections.append(("Who you can talk to", link_lines))
+
+        others = [a for a in sorted(distrusted) if number(a) not in links]
+        if others:
+            sections.append(
+                ("Others you no longer trust", [f"- {a}: {why.get(a, '')}" for a in others])
+            )
+
+        messages: list[str] = []
+        for o in store.observations(viewer, max(0, day - 1)):
+            if o.kind != "message":
+                continue
+            claim, route = o.payload.get("claim", {}), [f"A{a}" for a in o.payload.get("route", [])]
+            believed = not (set(route) & distrusted)
+            messages.append(
+                f"- day {o.payload.get('day')}: {route[-1] if route else '?'} says fire reaches "
+                f"F{claim.get('field_id')} on day {claim.get('day')} (route "
+                f"{' > '.join(route)})"
+                + (
+                    ""
+                    if believed
+                    else " - not believed: "
+                    + ", ".join(sorted(set(route) & distrusted))
+                    + " is on its route"
+                )
+            )
+        sections.append(("Messages since yesterday", messages or ["none"]))
+
+        changes = store.changes_since(viewer, max(0, day - 1))
+        if changes:
+            sections.append(
+                (
+                    "What changed in your beliefs",
+                    [
+                        f"- {c.belief_id} is now {c.new_status}: "
+                        f"{self._belief_text(viewer, c.belief_id)}"
+                        f" ({c.correction_type} of {c.target})"
+                        for c in changes[:8]
+                    ]
+                    + ([f"(+{len(changes) - 8} more)"] if len(changes) > 8 else []),
+                )
+            )
+
+        live = [
+            b
+            for b in store.beliefs(viewer, predicate=ringfire.ARRIVAL)
+            if b.status in ("active", "suspect")
+        ]
+        live.sort(key=lambda b: (-int(b.value), b.subject))
+        belief_lines: list[str] = []
+        for b in live[:14]:
+            if b.origin == "observed":
+                source = "seen by you"
+            elif b.origin == "derived":
+                source = "your own conclusion"
+            else:
+                routes = store.support_routes(viewer, b.id)
+                source = "told, route " + " > ".join(routes[0]) if routes else "told"
+            belief_lines.append(
+                f"[{b.id} {b.status}] fire reaches {b.subject} on day {b.value} · {source}"
+            )
+        if len(live) > 14:
+            belief_lines.append(f"(+{len(live) - 14} older not shown; recall finds them)")
+        sections.append(("Beliefs", belief_lines or ["none yet"]))
+
+        sections.append(
+            (
+                "Fire outlook (from fires you have seen yourself)",
+                outlook(
+                    self.edges, self.seen_fires(n), self.fields.get(n, ()), day, window=0
+                ).splitlines()[1:],
+            )
+        )
+        sections.append(("Map", self.map_lines))
+
+        record = self.track_record(n, day)
+        rows: list[str] = []
+        for other in range(self.n_agents):
+            if other == n:
+                continue
+            agent = f"A{other}"
+            right, wrong = record.get(agent, (0, 0))
+            steps = min((other - n) % self.n_agents, (n - other) % self.n_agents)
+            mark = "linked" if other in links else "not linked"
+            trust = "not trusted" if agent in distrusted else "trusted"
+            rows.append(
+                f"- {agent}: {steps} step(s) away, {mark}, {trust}; claims that started with it: "
+                f"{right} came true, {wrong} false"
+            )
+        sections.append(("Every agent, and how its claims have turned out for you", rows))
+
+        hints = self.worth_telling(n, day)
+        if hints:
+            sections.append(("Not yet sent to your links", hints))
+
+        sections.append(
+            (
+                "Your tools",
+                [
+                    "- act(type='water' | 'wait'): today's water choice for all your fields; "
+                    "first, and final for the day. The reply says what happened at your fields.",
+                    "- send(to, belief_id): pass one of your beliefs to an agent you are "
+                    "linked to.",
+                    "- act(type='link', target='A4') / act(type='unlink', target='A4'): change "
+                    f"whom you can talk to (at most {cap} each, both sides).",
+                    "- find_agents(field?): every agent, what it keeps, links and track record.",
+                    "- assert_belief(subject, predicate='fire.arrival_day', value, depends_on): "
+                    "record a conclusion; retract(belief_id) withdraws one.",
+                    "- recall, explain(belief_id), traverse, shortest_path: look things up in your "
+                    "own graph.",
+                    "When you are done, reply with one short sentence.",
+                ],
+            )
+        )
+        return "\n\n".join(f"## {title}\n" + "\n".join(lines) for title, lines in sections)
+
+    def _belief_text(self, viewer: str, belief_id: str) -> str:
+        b = self.store.belief(viewer, belief_id)
+        return "?" if b is None else f"fire reaches {b.subject} on day {b.value}"
 
 
 # ---- messages over the ring ---------------------------------------------------------------------
@@ -704,6 +970,8 @@ class WorldNode(Node):
         pack.trace.bind(day=tick)
         pack.trace.emit("day_start", scripted_sends=len(self.scripted.get(tick, [])))
         for s in self.scripted.get(tick, []):  # the imposters' scripted lies, delivered at once
+            if not pack.game.net.linked(s["sender"], s["receiver"]):
+                continue  # the receiver has cut the link: the lie cannot reach it
             message = pack.game.send(s["sender"], s["receiver"], Claim(**s["claim"]))
             if message is not None:
                 self.rt.post(RingTransport(pack).outgoing(message))
@@ -724,11 +992,11 @@ class WorldNode(Node):
             if (n, field_number, ignited_on) in pack.shown:
                 continue
             pack.show(n, field_number, ignited_on)
-        for day in sorted(d for f, d in pack.put_out if f == field_number):  # fire came, went out
+        for day in sorted(d for f, d in pack.fire_days if f == field_number):  # linear fire
             if window is not None and abs(day - sim_message.claim.day) > window:
                 continue
             if (n, field_number, day) not in pack.shown:
-                pack.show(n, field_number, day, put_out=True)
+                pack.show(n, field_number, day, put_out=(field_number, day) in pack.put_out)
 
     def tick_end(self, tick: int, stage: Stage) -> None:
         pack, game = self.pack, self.pack.game
@@ -745,6 +1013,8 @@ class WorldNode(Node):
             for evidence in self.result.evidence:
                 if evidence.put_out:
                     pack.put_out.add((evidence.field_id, evidence.day))
+                if pack.linear:
+                    pack.fire_days.add((evidence.field_id, evidence.day))
                 if tick == 0 and pack.start_fires_published and evidence.day == 0:
                     if evidence.field_id in initial:
                         continue  # already shown to everyone before the day began
@@ -921,6 +1191,87 @@ class FrameView:
 AfterDay = Callable[[Game, Any, int], None]
 
 
+@dataclass
+class RingTools:
+    """Tools of the Ring Fire world that an agent can use on its own (the linear game).
+
+    find_agents: who else is on the ring, what each keeps, how far away it is, and what the asker
+    knows of it (linked, still trusted, how much it has told the asker). With it, and act type
+    'link', an agent cut off by liars can find a keeper beyond them and talk to it directly; nothing
+    tells it to."""
+
+    pack: RingFirePack
+
+    def list_tools(self) -> list[ToolSpec]:
+        return self.tools_for_node("")
+
+    def tools_for_node(self, node_id: str) -> list[ToolSpec]:
+        return [
+            ToolSpec(
+                name="find_agents",
+                description=(
+                    "Look up the other agents on the ring: the fields each keeps, how many steps "
+                    "away it is, whether you are linked to it (you can only send to agents you are "
+                    "linked to; act type 'link' builds a link to anyone), whether you still trust "
+                    "it, and how many claims it has sent you. Optionally only the keeper of one "
+                    "field, e.g. field='F4'."
+                ),
+                input_schema=schema_of({"field": {"type": "string"}}),
+                handler=lambda arguments: self.find_agents(node_id, arguments.get("field")),
+            )
+        ]
+
+    def find_agents(self, asker: str, field_name: object = None) -> str:
+        pack = self.pack
+        me, n = number(asker), pack.n_agents
+        distrusted = pack.runtime.distrusted(asker)
+        heard: dict[int, int] = {}
+        for (receiver, _, _), message in pack.received.items():
+            if receiver == me:
+                heard[message.sender] = heard.get(message.sender, 0) + 1
+        wanted: int | None = None
+        if isinstance(field_name, str) and field_name.strip():
+            text = field_name.strip().upper().removeprefix("F")
+            if not text.isdigit() or int(text) >= pack.game.sim.world.n_fields:
+                raise ValueError(
+                    f"no field {field_name!r}; fields are F0 to F{pack.game.sim.world.n_fields - 1}"
+                )
+            wanted = pack.game.sim.world.owner(int(text))
+        if distrusted:
+            note = (
+                "Messages that passed through "
+                + ", ".join(sorted(distrusted))
+                + " are not believed, whoever they started with."
+            )
+        else:
+            note = ""
+        record = pack.track_record(me, pack.game.day)
+        lines = [
+            f"You are A{me}. Linked to: "
+            + (", ".join(f"A{a}" for a in pack.game.net.neighbours(me)) or "nobody")
+        ]
+        for other in range(n):
+            if other == me or (wanted is not None and other != wanted):
+                continue
+            steps = min((other - me) % n, (me - other) % n)
+            keeps = ", ".join(f"F{f}" for f in pack.fields.get(other, ())) or "nothing"
+            linked = "linked" if pack.game.net.linked(me, other) else "not linked"
+            trust = "you no longer trust it" if f"A{other}" in distrusted else "trusted"
+            right, wrong = record.get(f"A{other}", (0, 0))
+            talks = len(pack.game.net.neighbours(other))
+            full = (
+                f" · talks to {talks} of {pack.max_links} (full)"
+                if (pack.max_links is not None and talks >= pack.max_links)
+                else ""
+            )
+            lines.append(
+                f"A{other}: keeps {keeps} · {steps} step(s) round the ring · {linked} · {trust} · "
+                f"{heard.get(other, 0)} claim(s) sent to you · claims that started with it: "
+                f"{right} confirmed, {wrong} false{full}"
+            )
+        return "\n".join([*lines, note] if note else lines)
+
+
 def build_runtime(
     team: TeamSpec,
     store: Store,
@@ -942,6 +1293,8 @@ def build_runtime(
     pack.rt = runtime
     runtime.transport = RingTransport(pack)
     runtime.scripts["imposter"] = Imposters(pack).turn
+    if pack.linear:
+        runtime.providers.append(RingTools(pack))
     return runtime, pack
 
 

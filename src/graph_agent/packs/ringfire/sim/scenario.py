@@ -58,6 +58,7 @@ class RulesSpec(TypedDict, total=False):
     dynamics: Literal["binary", "linear"]
     step: float
     lost_after: int
+    arrive: Literal["step", "source"]
 
 
 class ImposterSpec(TypedDict):

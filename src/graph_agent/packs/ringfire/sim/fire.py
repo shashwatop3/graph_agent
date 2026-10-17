@@ -51,6 +51,9 @@ class FireRules:
     dynamics: Literal["binary", "linear"] = "binary"
     step: float = 1.0  # linear: an arriving fire's strength, and the daily rise or fall
     lost_after: int = 2  # linear: days at max_intensity before the field is lost
+    # linear: fire arrives at strength `step` ("step"), or one step weaker than the field it
+    # came from ("source"), so a strong fire next door is a strong fire on arrival
+    arrive: Literal["step", "source"] = "step"
 
     def __post_init__(self):
         if self.water_cooldown < 0:
@@ -169,9 +172,15 @@ class FireSim:
         arrival = self._landing(field_id, day)
         if arrival is None:
             return FieldDay(field_id, 0.0, 0.0, "quiet")
+        strength = rules.step
+        if rules.arrive == "source" and arrival.edge is not None:
+            strength = max(rules.step, (arrival.intensity or 0.0) - rules.step)
         if watered:
-            return FieldDay(field_id, 0.0, 0.0, "put_out", arrival)
-        return FieldDay(field_id, 0.0, rules.step, "arrived", arrival)
+            after = max(0.0, strength - rules.step)
+            if after == 0:
+                return FieldDay(field_id, 0.0, 0.0, "put_out", arrival)
+            return FieldDay(field_id, 0.0, after, "arrived", arrival)  # weakened, but it caught
+        return FieldDay(field_id, 0.0, strength, "arrived", arrival)
 
     def _landing(self, field_id: int, day: int) -> "Ignition | None":
         """The fire that reaches this field today, if any: an arrival from a field that was still

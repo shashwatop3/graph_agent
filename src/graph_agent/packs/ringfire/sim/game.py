@@ -80,10 +80,18 @@ class Game:
             Evidence(day, f, self._owner(f), intensity, self.audience(f, day))
             for f, intensity in ignitions
         ]
-        if self.sim.rules.dynamics == "linear":  # fire came, and was put out: that is news too
+        if self.sim.rules.dynamics == "linear":
+            # A linear fire burns for days, so "fire at F on day d" is news every day it is there:
+            # a fire burning on, and a fire put out today (on arrival, or watered down to 0).
+            new = {f for f, _ in ignitions}
+            evidence += [
+                Evidence(day, f, self._owner(f), strength, self.audience(f, day))
+                for f, strength in report.strength
+                if f not in new
+            ]
             evidence += [
                 Evidence(day, f, self._owner(f), 0.0, self.audience(f, day), put_out=True)
-                for f in report.hit_while_watered
+                for f in (*report.hit_while_watered, *report.extinguished)
             ]
         return DayResult(report, tuple(evidence))
 
