@@ -65,6 +65,7 @@ class TurnResult:
     steps: int = 0
     hit_step_cap: bool = False  # still calling tools when it ran out of steps
     tokens_in: int = 0
+    tokens_cached: int = 0  # of tokens_in, read from the provider's prompt cache
     tokens_out: int = 0
 
 
@@ -93,6 +94,7 @@ def run_turn(
         result.steps += 1
         # tokens are the provider's count when it gives one, else an estimate of what was sent
         result.tokens_in += reply.tokens_in or estimate_tokens(context)
+        result.tokens_cached += reply.tokens_cached
         result.tokens_out += reply.tokens_out
         if not reply.tool_calls:
             result.final_text = reply.text

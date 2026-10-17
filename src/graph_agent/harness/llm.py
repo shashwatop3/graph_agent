@@ -15,7 +15,7 @@ import urllib.request
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import NotRequired, Protocol, TypedDict
+from typing import NotRequired, Protocol, TypedDict, cast
 
 from pydantic import BaseModel, TypeAdapter
 
@@ -60,6 +60,7 @@ class ModelReply:
     tokens_in: int = 0
     tokens_out: int = 0
     stop_reason: str = ""  # why it stopped; "max_tokens" or "length" means it was cut off
+    tokens_cached: int = 0  # of tokens_in, how many were read from the provider's prompt cache
 
 
 class ModelClient(Protocol):
@@ -266,8 +267,10 @@ class _AnthropicBlock(BaseModel):
 
 
 class _AnthropicUsage(BaseModel):
-    input_tokens: int = 0
+    input_tokens: int = 0  # not counting what was read from or written to the prompt cache
     output_tokens: int = 0
+    cache_read_input_tokens: int | None = 0
+    cache_creation_input_tokens: int | None = 0
 
 
 class _AnthropicResponse(BaseModel):
@@ -293,7 +296,13 @@ class AnthropicClient:
         timeout: float = 120,
         base_url: str = "https://api.anthropic.com/v1",
         workspace_id: str = "",  # needed only for a key that is not scoped to one workspace
+        prompt_cache: bool = True,
     ):
+        # Prompt caching: the tools and the conversation so far are marked as cacheable, so the
+        # next model step of the same turn (and every agent's identical tools) is read from the
+        # cache at a fraction of the price. A prompt shorter than the model's minimum is simply
+        # not cached.
+        self.prompt_cache = prompt_cache
         self.workspace_id = workspace_id
         self.model = model
         self.api_key = api_key
@@ -371,13 +380,38 @@ class AnthropicClient:
                 }
                 for t in tools
             ]
+        if self.prompt_cache:
+            _mark_cacheable(body)
         response = _AnthropicResponse.model_validate(self._post(body))
+        usage = response.usage
+        read = usage.cache_read_input_tokens or 0
+        written = usage.cache_creation_input_tokens or 0
         return ModelReply(
             text="".join(b.text for b in response.content if b.type == "text"),
             tool_calls=[
                 ToolCall(b.name, b.input, b.id) for b in response.content if b.type == "tool_use"
             ],
-            tokens_in=response.usage.input_tokens,
-            tokens_out=response.usage.output_tokens,
+            tokens_in=usage.input_tokens + read + written,
+            tokens_out=usage.output_tokens,
             stop_reason=response.stop_reason or "",
+            tokens_cached=read,
         )
+
+
+def _mark_cacheable(body: dict[str, object]) -> None:
+    """Put cache breakpoints on the last tool and the last message block (Anthropic caches the
+    prefix up to each breakpoint: tools, then system, then messages)."""
+    ephemeral = {"type": "ephemeral"}
+    tools = body.get("tools")
+    if isinstance(tools, list) and tools:
+        last_tool = cast(dict[str, object], tools[-1])
+        last_tool["cache_control"] = ephemeral
+    messages = body.get("messages")
+    if not isinstance(messages, list) or not messages:
+        return
+    last = cast(dict[str, object], messages[-1])
+    content = last.get("content")
+    if isinstance(content, str):
+        last["content"] = [{"type": "text", "text": content, "cache_control": ephemeral}]
+    elif isinstance(content, list) and content:
+        cast(dict[str, object], content[-1])["cache_control"] = ephemeral
