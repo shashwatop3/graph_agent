@@ -222,7 +222,7 @@ def run(mode: str, accounts: Accounts, polls: int = 5) -> Runtime:
     setup.approvals = mode  # type: ignore[assignment]
     holder: dict[str, Runtime] = {}
     rt, _ = build_apps(
-        setup,
+        team_of(setup, connections()),
         connections(),
         model(holder),
         MemoryStore(),

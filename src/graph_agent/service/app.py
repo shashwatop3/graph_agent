@@ -16,6 +16,7 @@
                                          run live, with timings, when the store is FalkorDB)
     POST /api/spaces/{id}/approvals/{proposal}  {approved: true|false}
     GET  /api/runs                       recorded runs to replay from the model cache
+    /api/connections, /api/packs/{pack}/setup   your apps and your agents (service/connections.py)
 
 Local only by default: it binds 127.0.0.1, and a real model run spends from the key in .env.
 """
@@ -31,6 +32,7 @@ from pydantic import BaseModel, ValidationError
 
 from ..frame.nodes import catalogue_info
 from ..frame.spec import TeamSpec
+from .connections import router as connections_router
 from .registry import PACKS, pack_named
 from .spaces import ROOT, Spaces
 
@@ -309,6 +311,8 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
             raise HTTPException(400, str(error)) from error
         space.play()
         return space.summary()
+
+    app.include_router(connections_router())
 
     # ---- the console ----------------------------------------------------------------------------
 

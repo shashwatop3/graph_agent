@@ -29,7 +29,7 @@ from graph_agent.frame.spec import TeamSpec
 from graph_agent.harness.llm import ModelClient
 
 from .pack import AppsPack
-from .setup import Setup, problems, team_of, things_of
+from .setup import THINGS, Setup, problems
 
 ROOT = Path(__file__).resolve().parents[4]
 CONNECTIONS = ROOT / "connections.json"
@@ -83,23 +83,21 @@ def load_setup(path: str | Path = AGENTS) -> Setup:
 
 
 def build_apps(
-    setup: Setup,
+    team: TeamSpec,
     connections: Sequence[Connection],
     client: ModelClient | None,
     store: Store,
     log: EventLog | None = None,
     *,
-    team: TeamSpec | None = None,
     servers: Mapping[str, Any] | None = None,
     today: date | None = None,
 ) -> tuple[Runtime, AppsPack]:
-    """The team on its connections, ready to run. `team`: run this team (one edited on the
-    canvas) instead of the one the setup makes. `servers`: connection name -> a server to use
-    instead of starting it (tests)."""
-    team = team or team_of(setup, connections)
+    """The team (team_of a setup, or one edited on the canvas) on its connections, ready to run.
+    `servers`: connection name -> a server to use instead of starting it (tests)."""
+    things = team.settings.extra.get("things") or THINGS
     trusted = [feed.name for c in connections for feed in c.feeds if feed.trusted]
     me = next((resolve(feed.me) for c in connections for feed in c.feeds if feed.me), "")
-    pack = AppsPack(things_of(setup), trusted, me)
+    pack = AppsPack(things, trusted, me)
     runtime = Runtime(team, pack, store, client, log=log)
     pack.setup(runtime)
     attach(runtime, list(connections), servers, today)

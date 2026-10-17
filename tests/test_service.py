@@ -25,7 +25,7 @@ def run_to_end(client, space_id):
 
 def test_the_page_can_load_any_listed_pack(client):
     packs = {p["name"]: p for p in client.get("/api/packs").json()}
-    assert set(packs) == {"life", "offsite", "ringfire", "hualien"}
+    assert set(packs) == {"life", "offsite", "ringfire", "hualien", "apps"}
     assert {o["key"] for o in packs["life"]["options"]} == {"approvals", "extraction", "week"}
     assert packs["ringfire"]["options"] == []
     nodes = {
