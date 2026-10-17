@@ -135,7 +135,7 @@ function Bubble({ dir, e }: { dir: "in" | "out" | "item"; e: RunEvent }) {
       <span className="who" title={other}>{other.slice(0, 3)}</span>
       <div className={`bub ${e.believed ? "" : "false"}`}>
         {dir === "out" && <><b>to {other}</b> · </>}
-        {str(e.subject)} {str(e.predicate)} = {str(e.value)}
+        {e.text ? str(e.text) : `${str(e.subject)} ${str(e.predicate)} = ${str(e.value)}${e.detail ? `, ${str(e.detail)}` : ""}`}
         {!e.believed && <> <span className="tag" style={c("var(--lie)")}>not believed</span></>}
         <small>{route.length > 1 ? `relayed ${route.join(" → ")}` : "first-hand"}</small>
       </div>

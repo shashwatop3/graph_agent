@@ -76,6 +76,8 @@ class Outgoing:
     value: Any
     source_belief: str | None = None  # the sender's belief it came from
     payload: Any = None  # whatever the pack's transport needs to record it
+    detail: str = ""  # anything more the message says, in words, for the log and the console
+    text: str = ""  # the message exactly as its receiver reads it, if the pack words it
 
 
 @dataclass
@@ -605,6 +607,8 @@ class Runtime:
             value=message.value,
             believed=belief is not None,
             belief=belief.id if belief is not None else None,
+            **({"detail": message.detail} if message.detail else {}),
+            **({"text": message.text} if message.text else {}),
         )
         self.wake(message.receiver, "message")
         for node in self.nodes.values():

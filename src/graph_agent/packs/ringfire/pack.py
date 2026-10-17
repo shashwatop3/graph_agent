@@ -730,18 +730,15 @@ class RingFirePack:
                 continue
             claim, route = o.payload.get("claim", {}), [f"A{a}" for a in o.payload.get("route", [])]
             believed = not (set(route) & distrusted)
-            strength = claim.get("strength")
-            how = (
-                ""
-                if strength is None
-                else " and it was put out"
-                if strength == 0
-                else f" at strength {strength:g}"
+            words = message_words(
+                route[-1] if route else "?",
+                int(claim.get("field_id", -1)),
+                int(claim.get("day", -1)),
+                claim.get("strength"),
+                route,
             )
             messages.append(
-                f"- day {o.payload.get('day')}: {route[-1] if route else '?'} says fire reaches "
-                f"F{claim.get('field_id')} on day {claim.get('day')}{how} (route "
-                f"{' > '.join(route)})"
+                f"- day {o.payload.get('day')}: {words}"
                 + (
                     ""
                     if believed
@@ -783,7 +780,7 @@ class RingFirePack:
                 routes = store.support_routes(viewer, b.id)
                 source = "told, route " + " > ".join(routes[0]) if routes else "told"
             belief_lines.append(
-                f"[{b.id} {b.status}] fire reaches {b.subject} on day {b.value} · {source}"
+                f"[{b.id} {b.status}] fire at {b.subject} on day {b.value} · {source}"
             )
         if len(live) > 14:
             belief_lines.append(f"(+{len(live) - 14} older not shown; recall finds them)")
@@ -955,10 +952,30 @@ class RingFirePack:
 
     def _belief_text(self, viewer: str, belief_id: str) -> str:
         b = self.store.belief(viewer, belief_id)
-        return "?" if b is None else f"fire reaches {b.subject} on day {b.value}"
+        return "?" if b is None else f"fire at {b.subject} on day {b.value}"
 
 
 # ---- messages over the ring ---------------------------------------------------------------------
+
+
+def message_words(
+    sender: str, field_number: int, day: int, strength: float | None, route: list[str]
+) -> str:
+    """A report as its receiver reads it (the console shows these same words)."""
+    how = (
+        ""
+        if strength is None
+        else " and it was put out"
+        if strength == 0
+        else f" at strength {strength:g}"
+    )
+    return f"{sender} says fire at F{field_number} on day {day}{how} (route {' > '.join(route)})"
+
+
+def _strength_words(strength: float | None) -> str:
+    if strength is None:
+        return ""
+    return "put out that day" if strength == 0 else f"at strength {strength:g}"
 
 
 def _claim_payload(claim: Claim) -> ringfire.ClaimPayload:
@@ -1000,6 +1017,14 @@ class RingTransport:
             predicate=ringfire.ARRIVAL,
             value=message.claim.day,
             payload=message,
+            detail=_strength_words(message.claim.strength),
+            text=message_words(
+                f"A{message.sender}",
+                message.claim.field_id,
+                message.claim.day,
+                message.claim.strength,
+                [f"A{a}" for a in message.route],
+            ),
         )
 
     def send(self, sender: str, receiver: str, belief: Belief, tick: int) -> Outgoing | None:

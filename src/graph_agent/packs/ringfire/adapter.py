@@ -464,6 +464,8 @@ def _linear_role_card(
         f"at 0 it is out. Watering on the day fire arrives puts it out at once. A field at "
         f"{cap:g} for {lost_after} days is lost. A burning field keeps sending fire to the next "
         f"field every day; a fire put out stops spreading.{regrow}{lightning}{end}\n"
+        f'A report "fire at F3 on day 5" means there was fire at F3 that day (it arrived, it '
+        f"burned on, or it was put out); it says how strong it was, or that it was put out.\n"
         f"Others: you only see fire at your own fields and at fields you have been told about. "
         f"Everything else you learn from messages. Some agents lie{goal}. A message carries the "
         f"route it travelled, and one that passed through an agent you no longer trust is not "
