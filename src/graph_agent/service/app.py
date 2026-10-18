@@ -21,7 +21,8 @@
 Local only by default: it binds 127.0.0.1, and a real model run spends from the key in .env.
 Hosted (GRAPH_AGENT_PUBLIC_URL set): people sign in with Google first (auth.py, users.py). Each
 person keeps at most LIVE_EACH runs (a new one closes their oldest) and plays one at a time; runs
-older than OLDEST are closed; the store is the in-memory one. DELETE /api/me deletes the account.
+older than OLDEST are closed; a run's graph (FalkorDB, nothing on disk) is dropped with it.
+DELETE /api/me deletes the account.
 """
 
 import asyncio
@@ -72,7 +73,6 @@ class CreateSpace(BaseModel):
     team: dict[str, Any]
     name: str = ""
     model: str = "stand-in"
-    store: str = "memory"
     options: dict[str, str] = {}
 
 
@@ -205,8 +205,6 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
 
     @app.post("/api/spaces")
     def create_space(body: CreateSpace, user: User = You) -> dict[str, Any]:
-        if hosted() and body.store != "memory":
-            raise HTTPException(400, "this console keeps runs in memory only (store: memory)")
         make_room(user)
         try:
             team = TeamSpec.model_validate(body.team)
@@ -215,9 +213,9 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
                 team,
                 name=body.name,
                 model=body.model,
-                store=body.store,
                 options=body.options,
                 owner=user.id,
+                keep=not hosted(),  # a hosted console drops a run's graph with the run
                 cache=user.folder / "runs" / "cache",  # local: the repository's runs/cache
                 key=own_key(user),
             )

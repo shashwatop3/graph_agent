@@ -2,7 +2,7 @@
 
 A space is one team running on the frame: its runtime, its store, its world (whatever the pack
 simulates), and a lock, since the HTTP server reads it from other threads while it runs. A space
-is created from a team file (what the canvas drew) and options: which model, the store, whether
+is created from a team file (what the canvas drew) and options: which model, whether
 outward actions wait for a person.
 
 Models: "stand-in" (the pack's scripted team: free, deterministic) or a real model name (needs
@@ -28,7 +28,6 @@ from ..frame.runtime import Runtime
 from ..frame.spec import TeamSpec
 from ..harness.llm import AnthropicClient, CachedClient, ModelClient
 from ..stores.falkor import FalkorStore
-from ..stores.memory import MemoryStore
 
 ROOT = Path(__file__).resolve().parents[3]  # the repository: .env and runs/ live here
 
@@ -438,18 +437,14 @@ class Spaces:
         *,
         name: str = "",
         model: str = "stand-in",
-        store: str = "memory",
         options: dict[str, str] | None = None,
         owner: str = "local",
+        keep: bool = True,  # leave the run's graph in FalkorDB when the run is deleted
         cache: Path = ROOT / "runs" / "cache",
         key: str | None = None,
     ) -> Space:
         space_id = uuid.uuid4().hex[:8]
-        the_store: Store = (
-            FalkorStore(graph_name=f"space_{space_id}", keep=True)
-            if store == "falkor"
-            else MemoryStore()
-        )
+        the_store: Store = FalkorStore(graph_name=f"space_{space_id}", keep=keep)
         client = make_client(model, pack, team, cache, key)
         session = pack.start(team, client, the_store, EventLog(), options or {})
         space = Space(space_id, pack.name, name or team.name, model, session, the_store, owner)

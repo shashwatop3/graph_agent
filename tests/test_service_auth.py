@@ -343,8 +343,6 @@ def test_each_person_keeps_a_few_runs_and_plays_one_at_a_time(hosted):  # noqa: 
     assert [s["id"] for s in client.get("/api/spaces").json()] == made[-service.LIVE_EACH :]
     assert other.post("/api/spaces", json={"pack": "life", "team": team}).is_success
     assert len(client.get("/api/spaces").json()) == service.LIVE_EACH  # not counted against you
-    falkor = client.post("/api/spaces", json={"pack": "life", "team": team, "store": "falkor"})
-    assert falkor.status_code == 400
 
 
 def test_a_second_run_of_yours_cannot_play_while_one_does(hosted):  # noqa: ANN001
