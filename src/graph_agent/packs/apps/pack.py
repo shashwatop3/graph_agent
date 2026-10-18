@@ -64,7 +64,9 @@ def vocabulary(things: dict[str, list[str]]) -> dict[str, str]:
 class AppsPack(BasePack):
     name = "apps"
 
-    def __init__(self, things: dict[str, list[str]], trusted: list[str], me: str = ""):
+    def __init__(
+        self, things: dict[str, list[str]], trusted: list[str], me: str = "", reading: str = ""
+    ):
         templates = vocabulary(things)
         predicates = {name: Predicate(name=name) for name in templates}
         # a subject has many plans: a new one does not retire the last
@@ -73,6 +75,7 @@ class AppsPack(BasePack):
         self.prompt = SYSTEM_PROMPT
         self.things = things
         self.me = me.lower()
+        self.reading = reading  # the team's own notes on how to read its items
         self.stamps: dict[int, float] = {}  # tick -> when it began (real time)
         self.extract_tokens = [0, 0]  # in, out
         self.sections = [self._team, self._unsent, self._actions]
@@ -113,8 +116,9 @@ class AppsPack(BasePack):
         predicates = "\n".join(
             f"- {name}: {line}" for name, line in self.templates.items() if name != PLAN
         )
+        notes = f"How to read these items: {self.reading}\n\n" if self.reading else ""
         text = (
-            f"Kinds of thing: {kinds}\n\nThings so far:\n{known or '(none)'}\n\n"
+            f"{notes}Kinds of thing: {kinds}\n\nThings so far:\n{known or '(none)'}\n\n"
             f"Predicates:\n{predicates}\n\nItem ({item.kind}) from {item.payload.get('from')} to "
             f"{item.payload.get('to')}\nSubject: {item.payload.get('subject')}\n\n"
             f"{item.payload.get('body')}"

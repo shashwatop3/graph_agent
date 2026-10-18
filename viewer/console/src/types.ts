@@ -252,6 +252,7 @@ export interface StreamPeek {
  * of all of them. */
 export interface SetupView {
   teams: { id: string; name: string }[];
+  examples?: { id: string; name: string }[]; // the teams to start from
   team: string | null;
   setup: AppsSetup;
   saved: boolean;

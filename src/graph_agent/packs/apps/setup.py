@@ -26,7 +26,8 @@ That is the whole file. `team_of` turns it into a team (spec.py) the console sho
     each, "auto" runs them.
 
 `things` adds kinds of thing and what can be said about them (`{"Invoice": ["due", "amount"]}`)
-to the ready-made ones (THINGS).
+to the ready-made ones (THINGS); `reading` says how to read what comes in (how to name the things
+an item is about, so that two sources' reports of one thing meet).
 
 `streams` are live data on the open internet that need no account: `{"preset": "usgs-quakes"}`
 (public_streams.py), with filters of yours added (`"keep": {"title": "Taiwan"}`), or a stream
@@ -91,6 +92,9 @@ class Setup(Strict):
     polls: int = 24  # how many times the feeds are read before the run stops
     streams: list[dict[str, Any]] = Field(default_factory=list[dict[str, Any]])
     pace: int | None = None  # seconds between two polls when played (None: 30 with streams)
+    # how to read what comes in, for the model that lists each item's claims: how to name the
+    # things it is about, so two sources' reports of one thing meet ("a quake: q-<place>-<date>")
+    reading: str = ""
 
 
 def things_of(setup: Setup) -> dict[str, list[str]]:
@@ -230,7 +234,11 @@ def team_of(setup: Setup, connections: Sequence[Connection]) -> TeamSpec:
             approvals=setup.approvals,
             pace=pace,
             # the streams go with the team, so one edited on the canvas still reads them
-            extra={"things": things_of(setup), **({"streams": setup.streams} if live else {})},
+            extra={
+                "things": things_of(setup),
+                **({"streams": setup.streams} if live else {}),
+                **({"reading": setup.reading} if setup.reading else {}),
+            },
         ),
         nodes=[*streams, router, *agents, NodeSpec(id="checker", type="checker", label="Checker")],
         links=links,

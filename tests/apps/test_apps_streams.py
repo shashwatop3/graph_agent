@@ -14,8 +14,8 @@ from graph_agent.harness.llm import ChatMessage, ModelReply, ScriptedModel  # no
 from graph_agent.packs.apps.console import AppsConsole  # noqa: E402
 from graph_agent.packs.apps.pack import EXTRACT_PROMPT  # noqa: E402
 from graph_agent.packs.apps.public_streams import PUBLIC, TOPICS  # noqa: E402
-from graph_agent.packs.apps.run import build_apps  # noqa: E402
-from graph_agent.packs.apps.setup import Setup, problems, team_of  # noqa: E402
+from graph_agent.packs.apps.run import QUAKE_DESK, build_apps  # noqa: E402
+from graph_agent.packs.apps.setup import Setup, problems, streams_of, team_of  # noqa: E402
 from graph_agent.stores.memory import MemoryStore  # noqa: E402
 
 DESK = {
@@ -179,3 +179,96 @@ def test_the_console_names_a_forbidden_stream_among_the_problems(tmp_path: Any):
     saved = console.save_setup(DESK)
     assert saved["problems"] == ["stream bluesky-posts: no websockets here"]
     assert console.setup_view(saved["team"])["problems"] == saved["problems"]
+
+
+# ---- the quake desk: the example on live data ------------------------------------------------
+
+
+def test_the_quake_desk_example_is_a_whole_team_with_no_problems():
+    setup = Setup.model_validate(QUAKE_DESK)
+    assert problems(setup, []) == []
+    team = team_of(setup, [])
+    feeds = sorted(n.id for n in team.nodes if n.type == "stream")
+    assert feeds == [
+        "bluesky-posts-feed",
+        "emsc-quakes-feed",
+        "gdacs-alerts-feed",
+        "usgs-quakes-feed",
+    ]
+    assert team.node("router").config["fallback"] == "rumours"  # posts about no quake
+    assert team.settings.extra["reading"].startswith("Each quake is one thing")
+    assert {s.name: s.trusted for s in streams_of(setup.streams)} == {
+        "usgs-quakes": True,
+        "emsc-quakes": True,
+        "gdacs-alerts": True,
+        "bluesky-posts": False,  # a post is a claim
+    }
+
+
+def test_the_console_offers_the_examples_and_never_saves_over_one(tmp_path: Any):
+    console = AppsConsole(tmp_path / "teams", tmp_path / "connections.json")
+    view = console.setup_view("quake-desk")
+    assert view["team"] is None and view["setup"]["name"] == "Quake desk"
+    assert view["examples"] == [
+        {"id": "example", "name": "My assistant"},
+        {"id": "quake-desk", "name": "Quake desk"},
+    ]
+    assert "quake-desk" in [t.name for t in console.templates()]
+    saved = console.save_setup(view["setup"], team="quake-desk")
+    assert saved["team"] == "my-quake-desk"  # a team of your own, from the example
+    assert console.setup("quake-desk").name == "Quake desk"
+
+
+AGENCY = {
+    "features": [
+        {
+            "id": "us7000abcd",
+            "properties": {"title": "M 6.1 - Hualien, Taiwan", "mag": 6.1, "status": "reviewed"},
+        }
+    ]
+}
+POSTS = [{"id": "p1", "author": "Loud", "text": "MASSIVE 7.4 earthquake just hit Hualien!!"}]
+
+
+def desk_reader() -> ScriptedModel:
+    """Reads both items about the same quake, as the team's notes ask; the agents are done."""
+
+    def policy(system: str, messages: list[ChatMessage], tools: list[Any]) -> ModelReply:
+        if system != EXTRACT_PROMPT:
+            return ModelReply(text="done")
+        text = str(messages[-1]["content"])
+        assert text.startswith("How to read these items: Each quake is one thing")
+        mag = 6.1 if "properties.mag: 6.1" in text else 7.4 if "7.4" in text else None
+        if mag is None:
+            return ModelReply(text="{}")
+        quake = [["q-hualien-2026-10-18", "Quake", "Hualien quake"]]
+        claims = [["q-hualien-2026-10-18", "quake.magnitude", mag]]
+        reply = {"new_entities": quake, "about": [quake[0][0]], "claims": claims}
+        return ModelReply(text=json.dumps(reply))
+
+    return ScriptedModel(policy, model="desk-test")
+
+
+def test_on_the_quake_desk_a_poster_who_contradicts_the_agency_is_caught():
+    # the desk, offline: the agency's page, and the posts as a page of their own
+    posts = {"name": "posts", "url": "https://posts.example/new.json", "id": "id",
+             "sender": "author", "fields": ["text"]}  # fmt: skip
+    setup = Setup.model_validate({**QUAKE_DESK, "streams": [posts, {"preset": "usgs-quakes"}]})
+
+    def page(url: str, headers: dict[str, str]) -> str:
+        return json.dumps(POSTS if "posts.example" in url else AGENCY)
+
+    rt, _ = build_apps(team_of(setup, []), [], desk_reader(), MemoryStore(), pages=page)
+    try:
+        rt.start()
+        rt.step()
+        rt.step()
+    finally:
+        rt.close()
+    assert rt.owners("q-hualien-2026-10-18") == ["seismic"]
+    (fact,) = [
+        b for b in rt.store.beliefs("seismic", predicate="quake.magnitude") if b.status == "active"
+    ]
+    assert (fact.value, fact.origin) == (6.1, "observed")  # the agency's figure stands
+    assert "loud" in rt.distrusted("seismic")  # the poster, caught contradicting it
+    assert "loud" in rt.distrusted("rumours")  # and quarantined for the whole team

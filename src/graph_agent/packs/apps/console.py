@@ -30,7 +30,7 @@ from graph_agent.frame.streams import LiveStream, Stream
 from graph_agent.harness.llm import ModelClient
 
 from .pack import vocabulary
-from .run import CONNECTIONS, EXAMPLE_AGENTS, ROOT, TEAMS, build_apps, load_setup
+from .run import CONNECTIONS, EXAMPLES, ROOT, TEAMS, build_apps, load_setup
 from .setup import Setup, problems, streams_of, team_of, things_of
 
 
@@ -91,16 +91,17 @@ class AppsConsole:
         return sorted(f.stem for f in self.teams_dir.glob("*.json"))
 
     def setup(self, name: str = "example") -> Setup:
-        """One of your teams, or the example ("example", or a team not saved)."""
-        if name != "example" and self._file(name).exists():
+        """One of your teams, or an example (one of EXAMPLES; a team not saved: "example")."""
+        if name not in EXAMPLES and self._file(name).exists():
             return load_setup(self._file(name))
-        return Setup.model_validate(EXAMPLE_AGENTS)
+        return Setup.model_validate(EXAMPLES.get(name, EXAMPLES["example"]))
 
     def new_id(self, name: str) -> str:
         """A file name for a new team called `name`, not yet taken ("Uni deadlines" ->
         "uni-deadlines", then "uni-deadlines-2")."""
         base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "team"
-        base = "my-team" if base == "example" else base
+        if base in EXAMPLES:  # an example's name is the example's, not a team's
+            base = "my-team" if base == "example" else f"my-{base}"
         taken = set(self.saved())
         found, n = base, 2
         while found in taken:
@@ -114,6 +115,13 @@ class AppsConsole:
             found.append(Template(team, setup.name, f"Yours: {len(setup.agents)} agents"))
         found.append(
             Template("example", "Example: inbox, calendar, people, tasks", "A team to start from")
+        )
+        found.append(
+            Template(
+                "quake-desk",
+                "Example: a quake desk on live public data",
+                "Three agencies and the posts people make: no account needed",
+            )
         )
         return found
 
@@ -195,18 +203,21 @@ class AppsConsole:
     # ---- the setup form -----------------------------------------------------------------------
 
     def setup_view(self, team: str | None = None) -> dict[str, Any]:
-        """Your teams, and one of them as the form shows it: `team` ("example": the example),
-        else your first, else the example (not saved: `team` is None in the answer)."""
+        """Your teams, and one of them as the form shows it: `team` (one of EXAMPLES: that
+        example), else your first, else the example (not saved: `team` is None in the answer).
+        `examples` are the teams to start from."""
         teams = self.saved()
+        example = "example"
         if team is None:
             team = teams[0] if teams else None
-        elif team == "example":
-            team = None
+        elif team in EXAMPLES:
+            team, example = None, team
         elif team not in teams:
             raise ValueError(f"no team {team!r}")
-        setup = self.setup(team or "example")
+        setup = self.setup(team or example)
         return {
             "teams": [{"id": t, "name": self.setup(t).name} for t in teams],
+            "examples": [{"id": e, "name": str(EXAMPLES[e]["name"])} for e in EXAMPLES],
             "team": team,
             "setup": setup.model_dump(mode="json"),
             "saved": team is not None,
@@ -226,8 +237,8 @@ class AppsConsole:
             wrong = [f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in error.errors()]
             return {"problems": wrong, "team": team}
         if write:
-            # the example is never saved over: saving it makes a team of your own
-            team = team if team not in (None, "example") else self.new_id(setup.name)
+            # an example is never saved over: saving it makes a team of your own
+            team = team if team is not None and team not in EXAMPLES else self.new_id(setup.name)
             self.teams_dir.mkdir(parents=True, exist_ok=True)
             self._file(team).write_text(
                 setup.model_dump_json(indent=2, exclude_defaults=True) + "\n"

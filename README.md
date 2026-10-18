@@ -86,20 +86,27 @@ Then pick "Real mailbox" in the console, leave "Outward actions" on "Record only
 
 ## Your own agents on your own apps
 
-Open the console's **My apps** page. In three steps:
+Open the console's **My apps** page. In four steps:
 
 1. **Your apps.** Add Gmail and Calendar or Todoist from a preset, or any MCP server (a command
    to start, or a URL). Press **Test**: it starts the server, lists its tools (which ones only read,
    which ask you first) and reads each feed once, showing a sign-in link if the server wants one.
    Secrets never go in the page: an app names them (`$TODOIST_API_KEY`) and you put the values in
    `.env`. Saved to `connections.json` (git-ignored).
-2. **Your agents.** Each one is a name, its job in your words, the kinds of thing it looks after
+2. **Live data.** Streams of public data that need no account: quakes (USGS, EMSC, Japan's agency),
+   disaster and weather alerts, flood warnings, status pages, security advisories, Bluesky posts,
+   Wikipedia edits, news (18 in all, `packs/apps/public_streams.py`), or any page, websocket or
+   event stream you describe by its paths (`frame/streams.py`). Each gets filters of yours (a field
+   and a regex) and **Peek** shows what the team would read. An agency's record is evidence; a post
+   is a claim from a poster who can be caught lying. A team with streams reads them every 30
+   seconds, for 24 polls unless you say otherwise.
+3. **Your agents.** Each one is a name, its job in your words, the kinds of thing it looks after
    (events, promises, bills, your own kinds) and the app tools it may use. Tick "carries out" for
    an agent that acts on the team's plans: it reads no mail. Problems are named as you type. You
-   can keep several teams on the same apps: **+ New team** on top starts one (blank, or from the
-   example), and each is saved to `my-teams/<team>.json` (git-ignored); the streams, router,
+   can keep several teams on the same apps: **+ New team** on top starts one (blank, or from an
+   example: your mail and tasks, or a quake desk on live data alone), and each is saved to `my-teams/<team>.json` (git-ignored); the streams, router,
    checker, links and safety settings are made from it (`packs/apps/setup.py`).
-3. **Run it** with a real model, outward actions on "Record only" to start.
+4. **Run it** with a real model, outward actions on "Record only" to start.
 
 Without the page: `uv run python -m graph_agent.packs.apps.run example` writes both files to start
 from, and `... apps.run check [team]` connects each app, lists its tools and checks the teams (free: no

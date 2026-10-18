@@ -30,6 +30,7 @@ export function AppsView({ onRun, hosted }: Props) {
   const [appsProblem, setAppsProblem] = useState("");
   // ---- your teams, and the one open ----
   const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
+  const [examples, setExamples] = useState<{ id: string; name: string }[]>([]); // teams to start from
   const [teamId, setTeamId] = useState<string | null>(null); // null: not saved yet
   const [leaving, setLeaving] = useState<(() => void) | null>(null); // asked to discard changes
   // ---- its agents ----
@@ -60,6 +61,7 @@ export function AppsView({ onRun, hosted }: Props) {
 
   function show(v: SetupView) {
     setTeams(v.teams);
+    setExamples(v.examples ?? []);
     setTeamId(v.team);
     setSetup(v.setup);
     setKinds(v.kinds);
@@ -79,15 +81,15 @@ export function AppsView({ onRun, hosted }: Props) {
     else then();
   }
 
-  function newTeam(fromExample: boolean) {
+  /** A new team: from one of the examples (by its id), or blank (null). */
+  function newTeam(example: string | null) {
     leave(() => {
-      api.setup("apps", "example").then((v) => {
+      api.setup("apps", example ?? "example").then((v) => {
         show(v);
         setTeamId(null);
         setSaved(false);
         const blank: AppsSetup = { name: "New team", agents: [{ name: "inbox", job: "", looks_after: [], apps: [] }] };
-        if (fromExample) changeSetup({ ...v.setup, name: "My assistant" });
-        else changeSetup(blank);
+        changeSetup(example ? v.setup : blank);
       }).catch((e: Error) => setProblems([e.message]));
     });
   }
@@ -216,8 +218,10 @@ export function AppsView({ onRun, hosted }: Props) {
             )}
           </div>
           <div className="row-btns">
-            <button className="btn" onClick={() => newTeam(false)}>+ New team</button>
-            <button className="btn" onClick={() => newTeam(true)}>+ New from the example</button>
+            <button className="btn" onClick={() => newTeam(null)}>+ New team</button>
+            {examples.map((e) => (
+              <button key={e.id} className="btn" onClick={() => newTeam(e.id)}>+ New from the example: {e.name}</button>
+            ))}
             {teamId && <button className="btn danger" onClick={() => void deleteTeam()}>Delete this team</button>}
           </div>
           {leaving && (
