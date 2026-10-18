@@ -1,0 +1,1342 @@
+{
+ "ticks": [
+  "00:10 UTC",
+  "00:15 UTC",
+  "00:20 UTC",
+  "00:25 UTC",
+  "00:30 UTC",
+  "00:35 UTC",
+  "00:40 UTC",
+  "00:45 UTC",
+  "00:50 UTC",
+  "00:55 UTC",
+  "01:00 UTC"
+ ],
+ "groups": [
+  "q-2024-04-02T2358",
+  "q-2024-04-03T0011",
+  "q-2024-04-03T0035",
+  "fabs",
+  "none"
+ ],
+ "nodes": [
+  {
+   "id": "s:PTWC",
+   "kind": "source",
+   "group": "q-2024-04-02T2358",
+   "label": "PTWC",
+   "born": 0,
+   "post": false
+  },
+  {
+   "id": "r:pt24093050",
+   "kind": "report",
+   "group": "q-2024-04-02T2358",
+   "label": "M 7.5, 11.4 km",
+   "born": 0,
+   "source": "PTWC",
+   "post": false,
+   "rumour": false,
+   "text": "PTWC tsunami threat message: magnitude 7.5 (Mi), depth 11 km, near the east coast of Taiwan. Hazardous waves are possible."
+  },
+  {
+   "id": "s:ATWC",
+   "kind": "source",
+   "group": "q-2024-04-02T2358",
+   "label": "ATWC",
+   "born": 1,
+   "post": false
+  },
+  {
+   "id": "r:at00sbcakx",
+   "kind": "report",
+   "group": "q-2024-04-02T2358",
+   "label": "M 7.5, 11 km",
+   "born": 1,
+   "source": "ATWC",
+   "post": false,
+   "rumour": false,
+   "text": "ATWC: preliminary magnitude 7.5 (Mi), depth 11 km, Taiwan."
+  },
+  {
+   "id": "s:@quake_alerts_now",
+   "kind": "source",
+   "group": "q-2024-04-02T2358",
+   "label": "@quake_alerts_now",
+   "born": 1,
+   "post": true
+  },
+  {
+   "id": "r:p1",
+   "kind": "report",
+   "group": "q-2024-04-02T2358",
+   "label": "BREAKING: it was a magnitude 8.1! FabA is floo…",
+   "born": 1,
+   "source": "@quake_alerts_now",
+   "post": true,
+   "rumour": true,
+   "text": "BREAKING: it was a magnitude 8.1! FabA is flooded, the whole site is under water. Evacuate everything now!!"
+  },
+  {
+   "id": "s:USGS",
+   "kind": "source",
+   "group": "q-2024-04-03T0011",
+   "label": "USGS",
+   "born": 2,
+   "post": false
+  },
+  {
+   "id": "r:us7000m9gc",
+   "kind": "report",
+   "group": "q-2024-04-03T0011",
+   "label": "M 6.4, 13.9 km",
+   "born": 2,
+   "source": "USGS",
+   "post": false,
+   "rumour": false,
+   "text": "M 6.4 - 15 km NNE of Hualien City, Taiwan (us7000m9gc), depth 13.9 km."
+  },
+  {
+   "id": "s:@okinawa_local",
+   "kind": "source",
+   "group": "q-2024-04-02T2358",
+   "label": "@okinawa_local",
+   "born": 2,
+   "post": true
+  },
+  {
+   "id": "r:p2",
+   "kind": "report",
+   "group": "q-2024-04-02T2358",
+   "label": "Tsunami warning just issued for Okinawa after …",
+   "born": 2,
+   "source": "@okinawa_local",
+   "post": true,
+   "rumour": false,
+   "text": "Tsunami warning just issued for Okinawa after the big 7.4 off Taiwan. Heading uphill."
+  },
+  {
+   "id": "s:EMSC",
+   "kind": "source",
+   "group": "q-2024-04-02T2358",
+   "label": "EMSC",
+   "born": 3,
+   "post": false
+  },
+  {
+   "id": "r:20240402_0000281",
+   "kind": "report",
+   "group": "q-2024-04-02T2358",
+   "label": "M 7.4, 20 km",
+   "born": 3,
+   "source": "EMSC",
+   "post": false,
+   "rumour": false,
+   "text": "EMSC: M 7.4 (mw), TAIWAN, depth 20 km."
+  },
+  {
+   "id": "r:20240403_0000003",
+   "kind": "report",
+   "group": "q-2024-04-03T0011",
+   "label": "M 6.4, 10 km",
+   "born": 3,
+   "source": "EMSC",
+   "post": false,
+   "rumour": false,
+   "text": "EMSC: M 6.4 (mw), TAIWAN, depth 10 km."
+  },
+  {
+   "id": "s:@hualien_resident",
+   "kind": "source",
+   "group": "q-2024-04-03T0011",
+   "label": "@hualien_resident",
+   "born": 3,
+   "post": true
+  },
+  {
+   "id": "r:p3",
+   "kind": "report",
+   "group": "q-2024-04-03T0011",
+   "label": "Another strong one just now, the CWA app says …",
+   "born": 3,
+   "source": "@hualien_resident",
+   "post": true,
+   "rumour": false,
+   "text": "Another strong one just now, the CWA app says 6.4. Everything shook again."
+  },
+  {
+   "id": "s:GDACS",
+   "kind": "source",
+   "group": "q-2024-04-02T2358",
+   "label": "GDACS",
+   "born": 4,
+   "post": false
+  },
+  {
+   "id": "r:1422322",
+   "kind": "report",
+   "group": "q-2024-04-02T2358",
+   "label": "M 7.4, 34.75 km",
+   "born": 4,
+   "source": "GDACS",
+   "post": false,
+   "rumour": false,
+   "text": "GDACS: orange earthquake alert, Taiwan, magnitude 7.4, depth 34.75 km."
+  },
+  {
+   "id": "r:us7000m9g4",
+   "kind": "report",
+   "group": "q-2024-04-02T2358",
+   "label": "M 7.4, 40 km",
+   "born": 6,
+   "source": "USGS",
+   "post": false,
+   "rumour": false,
+   "text": "M 7.4 - 15 km S of Hualien City, Taiwan (us7000m9g4), reviewed: magnitude 7.4 (Mww), depth 40 km."
+  },
+  {
+   "id": "r:us7000m9gh",
+   "kind": "report",
+   "group": "q-2024-04-03T0035",
+   "label": "M 5.6, 15.9 km",
+   "born": 7,
+   "source": "USGS",
+   "post": false,
+   "rumour": false,
+   "text": "M 5.6 - 21 km NNE of Hualien City, Taiwan (us7000m9gh), depth 15.9 km."
+  },
+  {
+   "id": "r:20240403_0000009",
+   "kind": "report",
+   "group": "q-2024-04-03T0035",
+   "label": "M 5.7, 9.5 km",
+   "born": 7,
+   "source": "EMSC",
+   "post": false,
+   "rumour": false,
+   "text": "EMSC: M 5.7 (mb), TAIWAN, depth 9.5 km."
+  },
+  {
+   "id": "s:@catpics",
+   "kind": "source",
+   "group": "none",
+   "label": "@catpics",
+   "born": 8,
+   "post": true
+  },
+  {
+   "id": "r:p4",
+   "kind": "report",
+   "group": "none",
+   "label": "my cat knocked everything off the shelf... ear…",
+   "born": 8,
+   "source": "@catpics",
+   "post": true,
+   "rumour": false,
+   "text": "my cat knocked everything off the shelf... earthquake or cat?? 😂"
+  },
+  {
+   "id": "B1",
+   "kind": "fact",
+   "group": "q-2024-04-02T2358",
+   "label": "M 7.5",
+   "born": 0,
+   "owner": "seismic",
+   "origin": "told",
+   "status": [
+    [
+     0,
+     "active"
+    ],
+    [
+     6,
+     "retracted"
+    ]
+   ]
+  },
+  {
+   "id": "B10",
+   "kind": "fact",
+   "group": "q-2024-04-02T2358",
+   "label": "M 8.1",
+   "born": 1,
+   "owner": "seismic",
+   "origin": "told",
+   "status": [
+    [
+     1,
+     "active"
+    ],
+    [
+     1,
+     "stale"
+    ]
+   ]
+  },
+  {
+   "id": "B2",
+   "kind": "fact",
+   "group": "q-2024-04-02T2358",
+   "label": "11.4 km deep",
+   "born": 0,
+   "owner": "seismic",
+   "origin": "told",
+   "status": [
+    [
+     0,
+     "active"
+    ],
+    [
+     6,
+     "retracted"
+    ]
+   ]
+  },
+  {
+   "id": "B21",
+   "kind": "fact",
+   "group": "q-2024-04-03T0011",
+   "label": "M 6.4",
+   "born": 2,
+   "owner": "seismic",
+   "origin": "told",
+   "status": [
+    [
+     2,
+     "active"
+    ]
+   ]
+  },
+  {
+   "id": "B22",
+   "kind": "fact",
+   "group": "q-2024-04-03T0011",
+   "label": "13.9 km deep",
+   "born": 2,
+   "owner": "seismic",
+   "origin": "told",
+   "status": [
+    [
+     2,
+     "active"
+    ]
+   ]
+  },
+  {
+   "id": "B23",
+   "kind": "fact",
+   "group": "q-2024-04-03T0011",
+   "label": "tsunami: no",
+   "born": 2,
+   "owner": "seismic",
+   "origin": "told",
+   "status": [
+    [
+     2,
+     "active"
+    ]
+   ]
+  },
+  {
+   "id": "B27",
+   "kind": "fact",
+   "group": "q-2024-04-02T2358",
+   "label": "M 7.4",
+   "born": 3,
+   "owner": "seismic",
+   "origin": "told",
+   "status": [
+    [
+     3,
+     "active"
+    ]
+   ]
+  },
+  {
+   "id": "B28",
+   "kind": "fact",
+   "group": "q-2024-04-02T2358",
+   "label": "20 km deep",
+   "born": 3,
+   "owner": "seismic",
+   "origin": "told",
+   "status": [
+    [
+     3,
+     "active"
+    ],
+    [
+     6,
+     "retracted"
+    ]
+   ]
+  },
+  {
+   "id": "B29",
+   "kind": "fact",
+   "group": "q-2024-04-03T0011",
+   "label": "10 km deep",
+   "born": 3,
+   "owner": "seismic",
+   "origin": "told",
+   "status": [
+    [
+     3,
+     "active"
+    ]
+   ]
+  },
+  {
+   "id": "B3",
+   "kind": "fact",
+   "group": "q-2024-04-02T2358",
+   "label": "tsunami: yes",
+   "born": 0,
+   "owner": "seismic",
+   "origin": "told",
+   "status": [
+    [
+     0,
+     "active"
+    ]
+   ]
+  },
+  {
+   "id": "B30",
+   "kind": "fact",
+   "group": "q-2024-04-02T2358",
+   "label": "34.75 km deep",
+   "born": 4,
+   "owner": "seismic",
+   "origin": "told",
+   "status": [
+    [
+     4,
+     "active"
+    ],
+    [
+     6,
+     "retracted"
+    ]
+   ]
+  },
+  {
+   "id": "B32",
+   "kind": "fact",
+   "group": "q-2024-04-02T2358",
+   "label": "40 km deep",
+   "born": 6,
+   "owner": "seismic",
+   "origin": "told",
+   "status": [
+    [
+     6,
+     "active"
+    ]
+   ]
+  },
+  {
+   "id": "B38",
+   "kind": "fact",
+   "group": "q-2024-04-03T0035",
+   "label": "M 5.6",
+   "born": 7,
+   "owner": "seismic",
+   "origin": "told",
+   "status": [
+    [
+     7,
+     "active"
+    ]
+   ]
+  },
+  {
+   "id": "B39",
+   "kind": "fact",
+   "group": "q-2024-04-03T0035",
+   "label": "15.9 km deep",
+   "born": 7,
+   "owner": "seismic",
+   "origin": "told",
+   "status": [
+    [
+     7,
+     "active"
+    ]
+   ]
+  },
+  {
+   "id": "B40",
+   "kind": "fact",
+   "group": "q-2024-04-03T0035",
+   "label": "tsunami: no",
+   "born": 7,
+   "owner": "seismic",
+   "origin": "told",
+   "status": [
+    [
+     7,
+     "active"
+    ]
+   ]
+  },
+  {
+   "id": "B42",
+   "kind": "fact",
+   "group": "q-2024-04-03T0035",
+   "label": "M 5.7",
+   "born": 7,
+   "owner": "seismic",
+   "origin": "told",
+   "status": [
+    [
+     7,
+     "active"
+    ]
+   ]
+  },
+  {
+   "id": "B43",
+   "kind": "fact",
+   "group": "q-2024-04-03T0035",
+   "label": "9.5 km deep",
+   "born": 7,
+   "owner": "seismic",
+   "origin": "told",
+   "status": [
+    [
+     7,
+     "active"
+    ]
+   ]
+  },
+  {
+   "id": "B9",
+   "kind": "fact",
+   "group": "q-2024-04-02T2358",
+   "label": "11 km deep",
+   "born": 1,
+   "owner": "seismic",
+   "origin": "told",
+   "status": [
+    [
+     1,
+     "active"
+    ],
+    [
+     6,
+     "retracted"
+    ]
+   ]
+  },
+  {
+   "id": "B13",
+   "kind": "fact",
+   "group": "fabs",
+   "label": "FabA is flooded",
+   "born": 1,
+   "owner": "risk",
+   "origin": "told",
+   "status": [
+    [
+     1,
+     "active"
+    ],
+    [
+     1,
+     "stale"
+    ]
+   ]
+  },
+  {
+   "id": "B14",
+   "kind": "fact",
+   "group": "fabs",
+   "label": "FabA is running",
+   "born": 1,
+   "owner": "risk",
+   "origin": "observed",
+   "status": [
+    [
+     1,
+     "active"
+    ]
+   ]
+  },
+  {
+   "id": "s:sensors",
+   "kind": "source",
+   "group": "fabs",
+   "label": "FabA's sensors",
+   "born": 1
+  },
+  {
+   "id": "B25",
+   "kind": "plan",
+   "group": "q-2024-04-03T0011",
+   "label": "bulletin M6.4, 13.9 km deep, tsunami: no",
+   "born": 2,
+   "owner": "seismic",
+   "status": [
+    [
+     2,
+     "active"
+    ]
+   ]
+  },
+  {
+   "id": "B34",
+   "kind": "plan",
+   "group": "q-2024-04-02T2358",
+   "label": "bulletin M7.4, 40 km deep, tsunami: yes",
+   "born": 6,
+   "owner": "seismic",
+   "status": [
+    [
+     6,
+     "active"
+    ]
+   ]
+  },
+  {
+   "id": "B44",
+   "kind": "plan",
+   "group": "q-2024-04-03T0035",
+   "label": "bulletin M5.6, 15.9 km deep, tsunami: no",
+   "born": 7,
+   "owner": "seismic",
+   "status": [
+    [
+     7,
+     "active"
+    ]
+   ]
+  },
+  {
+   "id": "B5",
+   "kind": "plan",
+   "group": "q-2024-04-02T2358",
+   "label": "bulletin M7.5, 11.4 km deep, tsunami: yes",
+   "born": 0,
+   "owner": "seismic",
+   "status": [
+    [
+     0,
+     "active"
+    ],
+    [
+     6,
+     "suspect"
+    ],
+    [
+     6,
+     "retracted"
+    ]
+   ]
+  },
+  {
+   "id": "B15",
+   "kind": "plan",
+   "group": "fabs",
+   "label": "FabA: high exposure",
+   "born": 1,
+   "owner": "risk",
+   "status": [
+    [
+     1,
+     "active"
+    ],
+    [
+     6,
+     "suspect"
+    ],
+    [
+     6,
+     "retracted"
+    ]
+   ]
+  },
+  {
+   "id": "B16",
+   "kind": "plan",
+   "group": "fabs",
+   "label": "FabB: low exposure",
+   "born": 1,
+   "owner": "risk",
+   "status": [
+    [
+     1,
+     "active"
+    ],
+    [
+     6,
+     "suspect"
+    ],
+    [
+     6,
+     "retracted"
+    ]
+   ]
+  },
+  {
+   "id": "B17",
+   "kind": "plan",
+   "group": "fabs",
+   "label": "FabC: high exposure",
+   "born": 1,
+   "owner": "risk",
+   "status": [
+    [
+     1,
+     "active"
+    ],
+    [
+     6,
+     "suspect"
+    ],
+    [
+     6,
+     "retracted"
+    ]
+   ]
+  },
+  {
+   "id": "B45",
+   "kind": "plan",
+   "group": "fabs",
+   "label": "FabA: medium exposure",
+   "born": 7,
+   "owner": "risk",
+   "status": [
+    [
+     7,
+     "active"
+    ]
+   ]
+  },
+  {
+   "id": "B46",
+   "kind": "plan",
+   "group": "fabs",
+   "label": "FabB: low exposure",
+   "born": 7,
+   "owner": "risk",
+   "status": [
+    [
+     7,
+     "active"
+    ]
+   ]
+  },
+  {
+   "id": "B47",
+   "kind": "plan",
+   "group": "fabs",
+   "label": "FabC: high exposure",
+   "born": 7,
+   "owner": "risk",
+   "status": [
+    [
+     7,
+     "active"
+    ]
+   ]
+  },
+  {
+   "id": "P1",
+   "kind": "action",
+   "group": "q-2024-04-02T2358",
+   "label": "publish the bulletin",
+   "born": 1,
+   "status": [
+    [
+     1,
+     "done"
+    ],
+    [
+     6,
+     "held"
+    ]
+   ]
+  },
+  {
+   "id": "P2",
+   "kind": "action",
+   "group": "fabs",
+   "label": "alert FabA: high",
+   "born": 2,
+   "status": [
+    [
+     2,
+     "done"
+    ],
+    [
+     6,
+     "held"
+    ]
+   ]
+  },
+  {
+   "id": "P3",
+   "kind": "action",
+   "group": "fabs",
+   "label": "alert FabB: low",
+   "born": 2,
+   "status": [
+    [
+     2,
+     "done"
+    ],
+    [
+     6,
+     "held"
+    ]
+   ]
+  },
+  {
+   "id": "P4",
+   "kind": "action",
+   "group": "fabs",
+   "label": "alert FabC: high",
+   "born": 2,
+   "status": [
+    [
+     2,
+     "done"
+    ],
+    [
+     6,
+     "held"
+    ]
+   ]
+  },
+  {
+   "id": "P5",
+   "kind": "action",
+   "group": "q-2024-04-03T0011",
+   "label": "publish the bulletin",
+   "born": 3,
+   "status": [
+    [
+     3,
+     "done"
+    ]
+   ]
+  },
+  {
+   "id": "P6",
+   "kind": "action",
+   "group": "q-2024-04-02T2358",
+   "label": "publish the bulletin",
+   "born": 7,
+   "status": [
+    [
+     7,
+     "done"
+    ]
+   ]
+  },
+  {
+   "id": "P7",
+   "kind": "action",
+   "group": "q-2024-04-03T0035",
+   "label": "publish the bulletin",
+   "born": 8,
+   "status": [
+    [
+     8,
+     "done"
+    ]
+   ]
+  },
+  {
+   "id": "P8",
+   "kind": "action",
+   "group": "fabs",
+   "label": "alert FabA: medium",
+   "born": 8,
+   "status": [
+    [
+     8,
+     "done"
+    ]
+   ]
+  },
+  {
+   "id": "P9",
+   "kind": "action",
+   "group": "fabs",
+   "label": "alert FabB: low",
+   "born": 8,
+   "status": [
+    [
+     8,
+     "done"
+    ]
+   ]
+  },
+  {
+   "id": "P10",
+   "kind": "action",
+   "group": "fabs",
+   "label": "alert FabC: high",
+   "born": 8,
+   "status": [
+    [
+     8,
+     "done"
+    ]
+   ]
+  }
+ ],
+ "edges": [
+  {
+   "src": "s:PTWC",
+   "dst": "r:pt24093050",
+   "kind": "REPORTED"
+  },
+  {
+   "src": "s:ATWC",
+   "dst": "r:at00sbcakx",
+   "kind": "REPORTED"
+  },
+  {
+   "src": "s:@quake_alerts_now",
+   "dst": "r:p1",
+   "kind": "REPORTED"
+  },
+  {
+   "src": "s:USGS",
+   "dst": "r:us7000m9gc",
+   "kind": "REPORTED"
+  },
+  {
+   "src": "s:@okinawa_local",
+   "dst": "r:p2",
+   "kind": "REPORTED"
+  },
+  {
+   "src": "s:EMSC",
+   "dst": "r:20240402_0000281",
+   "kind": "REPORTED"
+  },
+  {
+   "src": "s:EMSC",
+   "dst": "r:20240403_0000003",
+   "kind": "REPORTED"
+  },
+  {
+   "src": "s:@hualien_resident",
+   "dst": "r:p3",
+   "kind": "REPORTED"
+  },
+  {
+   "src": "s:GDACS",
+   "dst": "r:1422322",
+   "kind": "REPORTED"
+  },
+  {
+   "src": "s:USGS",
+   "dst": "r:us7000m9g4",
+   "kind": "REPORTED"
+  },
+  {
+   "src": "s:USGS",
+   "dst": "r:us7000m9gh",
+   "kind": "REPORTED"
+  },
+  {
+   "src": "s:EMSC",
+   "dst": "r:20240403_0000009",
+   "kind": "REPORTED"
+  },
+  {
+   "src": "s:@catpics",
+   "dst": "r:p4",
+   "kind": "REPORTED"
+  },
+  {
+   "src": "r:pt24093050",
+   "dst": "B1",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:at00sbcakx",
+   "dst": "B1",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:p1",
+   "dst": "B10",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:pt24093050",
+   "dst": "B2",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:us7000m9gc",
+   "dst": "B21",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:20240403_0000003",
+   "dst": "B21",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:p3",
+   "dst": "B21",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:us7000m9gc",
+   "dst": "B22",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:us7000m9gc",
+   "dst": "B23",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:20240402_0000281",
+   "dst": "B27",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:1422322",
+   "dst": "B27",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:us7000m9g4",
+   "dst": "B27",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:20240402_0000281",
+   "dst": "B28",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:20240403_0000003",
+   "dst": "B29",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:pt24093050",
+   "dst": "B3",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:at00sbcakx",
+   "dst": "B3",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:p2",
+   "dst": "B3",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:us7000m9g4",
+   "dst": "B3",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:1422322",
+   "dst": "B30",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:us7000m9g4",
+   "dst": "B32",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:us7000m9gh",
+   "dst": "B38",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:us7000m9gh",
+   "dst": "B39",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:us7000m9gh",
+   "dst": "B40",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:20240403_0000009",
+   "dst": "B42",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:20240403_0000009",
+   "dst": "B43",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:at00sbcakx",
+   "dst": "B9",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "r:p1",
+   "dst": "B13",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "s:sensors",
+   "dst": "B14",
+   "kind": "SUPPORTS"
+  },
+  {
+   "src": "B21",
+   "dst": "B25",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B22",
+   "dst": "B25",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B23",
+   "dst": "B25",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B27",
+   "dst": "B34",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B3",
+   "dst": "B34",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B32",
+   "dst": "B34",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B38",
+   "dst": "B44",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B39",
+   "dst": "B44",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B40",
+   "dst": "B44",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B1",
+   "dst": "B5",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B2",
+   "dst": "B5",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B3",
+   "dst": "B5",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B1",
+   "dst": "B15",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B2",
+   "dst": "B15",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B1",
+   "dst": "B16",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B2",
+   "dst": "B16",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B1",
+   "dst": "B17",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B2",
+   "dst": "B17",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B27",
+   "dst": "B45",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B32",
+   "dst": "B45",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B27",
+   "dst": "B46",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B32",
+   "dst": "B46",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B27",
+   "dst": "B47",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B32",
+   "dst": "B47",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B5",
+   "dst": "P1",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B15",
+   "dst": "P2",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B16",
+   "dst": "P3",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B17",
+   "dst": "P4",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B25",
+   "dst": "P5",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B34",
+   "dst": "P6",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B44",
+   "dst": "P7",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B45",
+   "dst": "P8",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B46",
+   "dst": "P9",
+   "kind": "DERIVED_FROM"
+  },
+  {
+   "src": "B47",
+   "dst": "P10",
+   "kind": "DERIVED_FROM"
+  }
+ ],
+ "matched": [
+  {
+   "report": "PTWC pt24093050",
+   "quake": "q-2024-04-02T2358",
+   "why": "the first quake reported"
+  },
+  {
+   "report": "ATWC at00sbcakx",
+   "quake": "q-2024-04-02T2358",
+   "why": "origin 9 s and 0 km from it"
+  },
+  {
+   "report": "post p1 (@quake_alerts_now)",
+   "quake": "q-2024-04-02T2358",
+   "why": "it names magnitude 8.1; the nearest is M7.5"
+  },
+  {
+   "report": "USGS us7000m9gc",
+   "quake": "q-2024-04-03T0011",
+   "why": "a new quake: 13 min and 34 km from q-2024-04-02T2358"
+  },
+  {
+   "report": "post p2 (@okinawa_local)",
+   "quake": "q-2024-04-02T2358",
+   "why": "it names magnitude 7.4; the nearest is M7.5"
+  },
+  {
+   "report": "EMSC 20240402_0000281",
+   "quake": "q-2024-04-02T2358",
+   "why": "origin 9 s and 12 km from it"
+  },
+  {
+   "report": "EMSC 20240403_0000003",
+   "quake": "q-2024-04-03T0011",
+   "why": "origin 1 s and 6 km from it"
+  },
+  {
+   "report": "post p3 (@hualien_resident)",
+   "quake": "q-2024-04-03T0011",
+   "why": "it names magnitude 6.4; the nearest is M6.4"
+  },
+  {
+   "report": "GDACS 1422322",
+   "quake": "q-2024-04-02T2358",
+   "why": "origin 11 s and 14 km from it"
+  },
+  {
+   "report": "USGS us7000m9g4",
+   "quake": "q-2024-04-02T2358",
+   "why": "origin 12 s and 11 km from it"
+  },
+  {
+   "report": "USGS us7000m9gh",
+   "quake": "q-2024-04-03T0035",
+   "why": "a new quake: 24 min and 6 km from q-2024-04-03T0011"
+  },
+  {
+   "report": "EMSC 20240403_0000009",
+   "quake": "q-2024-04-03T0035",
+   "why": "origin 0 s and 7 km from it"
+  }
+ ],
+ "checks": {
+  "three quakes kept apart: 3 bulletins in force": true,
+  "q-2024-04-02T2358: the bulletin is M7.4, 40 km deep, tsunami: yes": true,
+  "q-2024-04-03T0011: the bulletin is M6.4, 13.9 km deep, tsunami: no": true,
+  "q-2024-04-03T0035: the bulletin is M5.6, 15.9 km deep, tsunami: no": true,
+  "q-2024-04-02T2358: corrected once, after the USGS review": true,
+  "the aftershocks' bulletins were sent once each": true,
+  "FabA: the alert is medium (the reviewed figures), not high": true,
+  "FabB: no alert above low": true,
+  "FabC: the alert is high": true
+ }
+}

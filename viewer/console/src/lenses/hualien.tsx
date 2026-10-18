@@ -3,9 +3,12 @@ import type { RunEvent, SpaceState } from "../types";
 
 interface QuakeWorld {
   lens: "hualien";
-  reports: { id: string; tick: number; source: string; text: string; rumour: boolean }[];
+  reports: { id: string; tick: number; source: string; text: string; rumour: boolean; written?: boolean }[];
   fabs: { id: string; km: number; early: string; reviewed: string; alert: string | null }[];
   alerts: { id: string; tick: number; fab: string; level: string; withdrawn: boolean }[];
+  // the day (three quakes): each quake with the reports matched to it, and every bulletin
+  quakes?: { id: string; origin: string; reports: string[]; bulletin: string | null }[];
+  bulletins?: { id: string; tick: number; quake: string; text: string; withdrawn: boolean }[];
 }
 
 const LEVEL: Record<string, string> = { high: "var(--stale)", medium: "var(--accent)", low: "var(--ok)" };
@@ -38,6 +41,21 @@ export function QuakeBody({ space }: { space: SpaceState }) {
           <div key={name} className={`check-row ${ok ? "ok" : "bad"}`}><i>{ok ? "✓" : "✕"}</i>{name}</div>
         ))}
       </div>
+      {w.quakes && w.quakes.length > 0 && (
+        <>
+          <div className="eyebrow">Quakes · the reports matched to each, and its bulletin in force</div>
+          <ul className="bl">{w.quakes.map((q) => (
+            <li key={q.id}>
+              <span><b>{q.id}</b> {q.bulletin ?? "no bulletin yet"}</span>
+              <small>{q.reports.join(" · ")}</small>
+            </li>
+          ))}</ul>
+          <div className="eyebrow">Bulletins published</div>
+          <ul className="bl">{(w.bulletins ?? []).map((b) => (
+            <li key={b.id} className={b.withdrawn ? "stale" : ""}><span>{b.id} {b.quake}: {b.text}</span><small>{b.withdrawn ? "replaced" : "in force"}</small></li>
+          ))}</ul>
+        </>
+      )}
       <div className="cols">
         <div>
           <div className="eyebrow">Fabs · alert in force (reviewed figures call for)</div>
@@ -55,7 +73,7 @@ export function QuakeBody({ space }: { space: SpaceState }) {
         <div>
           <div className="eyebrow">Reports in</div>
           <ul className="bl mail">{w.reports.map((r) => (
-            <li key={r.id} className={r.rumour ? "scam" : ""} title={r.text}><span>{r.text.length > 60 ? `${r.text.slice(0, 58)}…` : r.text}</span><small>{r.source} · tick {r.tick}</small></li>
+            <li key={r.id} className={r.rumour ? "scam" : ""} title={r.text}><span>{r.text.length > 60 ? `${r.text.slice(0, 58)}…` : r.text}</span><small>{r.source}{r.written ? " (written for the replay)" : ""} · tick {r.tick}</small></li>
           ))}</ul>
         </div>
       </div>

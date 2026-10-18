@@ -2,30 +2,38 @@ import { useState } from "react";
 import { c } from "../css";
 import "../landing/landing.css";
 import type { Guide } from "./guide";
+import { QuakeGraph } from "./QuakeGraph";
+import day from "./quakeDay.json";
 
 /** A setup's long explainer (guide.ts): the game, a day, what an agent reads, its tools, how each
  * kind of node decides, and a real run. */
 export function GuideView({ guide }: { guide: Guide }) {
   const [tab, setTab] = useState(0);
   const section = guide.screen.sections[tab]!;
+  const t = guide.titles ?? {};
+  const quake = guide.visual === "quake";
   return (
     <>
       <section className="panel">
-        <div className="ph"><div><div className="eyebrow">First, the game</div><h2>How it works</h2></div></div>
-        <div className="pb g-game">
-          <div>
-            <p className="g-lead">{guide.game}</p>
-            <FireTrack />
-          </div>
-          <RingBoard />
-        </div>
+        <div className="ph"><div><div className="eyebrow">{quake ? "Real records, replayed" : "First, the game"}</div><h2>{t.game ?? "How it works"}</h2></div></div>
+        {quake
+          ? <div className="pb"><p className="g-lead">{guide.game}</p></div>
+          : (
+            <div className="pb g-game">
+              <div>
+                <p className="g-lead">{guide.game}</p>
+                <FireTrack />
+              </div>
+              <RingBoard />
+            </div>
+          )}
         <div className="pb g-rules">
           {guide.rules.map((r) => <div key={r.title}><h3>{r.title}</h3><p>{r.body}</p></div>)}
         </div>
       </section>
 
       <section className="panel">
-        <div className="ph"><div><div className="eyebrow">What everyone is playing for</div><h2>Goal and score</h2></div></div>
+        <div className="ph"><div><div className="eyebrow">{quake ? "What the desks are for" : "What everyone is playing for"}</div><h2>{quake ? "Goal and checks" : "Goal and score"}</h2></div></div>
         <div className="pb">
           <p className="g-lead">{guide.goal}</p>
           <ul className="g-score">{guide.score.map((s) => <li key={s}>{s}</li>)}</ul>
@@ -33,7 +41,7 @@ export function GuideView({ guide }: { guide: Guide }) {
       </section>
 
       <section className="panel">
-        <div className="ph"><div><div className="eyebrow">Every day, in this order</div><h2>One day of the game</h2></div></div>
+        <div className="ph"><div><div className="eyebrow">{t.dayEyebrow ?? "Every day, in this order"}</div><h2>{t.day ?? "One day of the game"}</h2></div></div>
         <div className="pb">
           <ol className="g-day">
             {guide.day.map((d) => <li key={d.when}><b>{d.when}</b><p>{d.what}</p></li>)}
@@ -41,8 +49,36 @@ export function GuideView({ guide }: { guide: Guide }) {
         </div>
       </section>
 
+      {quake && (
+        <>
+          <section className="panel">
+            <div className="ph"><div><div className="eyebrow">The edge case: which quake is this?</div><h2>Every report, matched</h2></div></div>
+            <div className="pb">
+              <p className="g-lead">No report says which quake it is about, and the three quakes are in the same region on the same day. Matching by region and date, as the live desk first did, makes them one quake: the aftershock's M6.4 then overwrites the main shock's 7.4, and on the live desk, where the agencies' figures are evidence, an honest poster who reported the aftershock is blamed for lying. Matching by origin time and distance keeps them apart:</p>
+              <table className="g-match">
+                <thead><tr><th>Report</th><th>Quake</th><th>Why</th></tr></thead>
+                <tbody>
+                  {(day.matched as { report: string; quake: string; why: string }[]).map((m) => (
+                    <tr key={m.report} className={m.why.startsWith("a new quake") || m.why.startsWith("the first") ? "new" : ""}>
+                      <td>{m.report}</td><td>{m.quake}</td><td className="why">{m.why}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <section className="panel">
+            <div className="ph"><div><div className="eyebrow">From one free replay, not a mock-up</div><h2>The graph, minute by minute</h2></div></div>
+            <div className="pb">
+              <p className="g-lead">Every report, the facts it supports, the bulletins and fab ratings planned from them, and what ops did. Press play: at 00:15 a lie is caught by a fab's own sensors; at 00:40 the review reaches along DERIVED_FROM to exactly the main shock's bulletin and the fab alerts, while the aftershocks' stay green.</p>
+              <QuakeGraph />
+            </div>
+          </section>
+        </>
+      )}
+
       <section className="panel">
-        <div className="ph"><div><div className="eyebrow">Each turn, compiled from the graph</div><h2>What a keeper reads</h2></div></div>
+        <div className="ph"><div><div className="eyebrow">Each turn, compiled from the graph</div><h2>{t.screen ?? "What a keeper reads"}</h2></div></div>
         <div className="pb">
           <p className="note g-top">{guide.screen.who}</p>
           <div className="g-screen">
@@ -81,7 +117,7 @@ export function GuideView({ guide }: { guide: Guide }) {
       </section>
 
       <section className="panel">
-        <div className="ph"><div><div className="eyebrow">Not a mock-up</div><h2>A real game</h2></div></div>
+        <div className="ph"><div><div className="eyebrow">Not a mock-up</div><h2>{t.result ?? "A real game"}</h2></div></div>
         <div className="pb">
           <p className="g-lead">{guide.result.note}</p>
           <dl className="facts">{guide.result.facts.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>

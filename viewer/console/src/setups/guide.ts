@@ -4,6 +4,8 @@
  * (adapter.role_card and the context sections), captured from a free stand-in game, seed 1. */
 
 export interface Guide {
+  visual: "fire" | "quake"; // the drawings that go with it
+  titles?: { game?: string; rules?: string; day?: string; dayEyebrow?: string; screen?: string; result?: string };
   game: string; // the game in a paragraph
   rules: { title: string; body: string }[];
   goal: string;
@@ -16,6 +18,7 @@ export interface Guide {
 }
 
 export const FIRE_GUIDE: Guide = {
+  visual: "fire",
   game:
     "Eight fields lie on a ring, F0 to F7, and each has a keeper, A0 to A7. Fire spreads clockwise, one field a day. " +
     "A keeper can water only its own field and sees fire only there, so the only way to know a fire is coming is to be told. " +
@@ -181,6 +184,142 @@ F1: F0 was burning at strength 1 on day 1 (checked by you); fire takes
       ["Water wasted", "0"],
       ["Fields lost", "0"],
       ["Honest fields unburnt at the end", "3 of 6"],
+    ],
+  },
+};
+
+export const QUAKE_GUIDE: Guide = {
+  visual: "quake",
+  titles: { game: "What this replays", day: "The replay, as it reached the desk", dayEyebrow: "Five-minute steps, 00:10 to 01:00 UTC", screen: "What the seismic desk reads", result: "The free replay's result" },
+  game:
+    "At 23:58 UTC on 2 April 2024 a magnitude 7.4 earthquake struck 15 km south of Hualien City, Taiwan. Within the hour " +
+    "two strong aftershocks followed, and five sources reported them, each its own way and with its own id. This replays " +
+    "the first hour from the agencies' archived records. Three desks keep one record per quake, publish a bulletin " +
+    "for each, and rate three fabs nearby. The early figures turn out wrong, and four posts arrive, one of them a lie.",
+  rules: [
+    { title: "USGS", body: "The most authoritative: its reviewed solution counts over everyone's. Here it reports the M6.4 aftershock at 00:20 and reviews the main shock to M7.4 at 40 km at 00:40." },
+    { title: "PTWC and ATWC", body: "The tsunami warning centres are first, at 00:09 and 00:11, with M7.5 at 11 km and a tsunami threat. Their figures are early estimates, later revised, but not lies." },
+    { title: "EMSC", body: "The European centre: 7.4 at 20 km for the main shock, and 5.7 where USGS says 5.6 for the second aftershock. As authoritative as the warning centres, so where they disagree, the desk keeps what it had." },
+    { title: "GDACS", body: "An orange alert built from others' figures: 7.4 at 34.75 km. The least authoritative agency." },
+    { title: "Posts", body: "Four posts, written for the replay because Bluesky's archive needs an account to search. One claims M8.1 and a flooded fab, one passes on the tsunami warning, one reports the aftershock, one is a joke." },
+    { title: "Which quake?", body: "No report says which quake it is about. A report is the same quake as one already known when the origin times are within 2 minutes and the epicentres within 60 km. A post is about the quake whose magnitude it names." },
+  ],
+  goal:
+    "The team's goal: one record per real quake, a bulletin for each at the figures that count, fab alerts at the level those figures call for, and when a figure is revised, every bulletin and alert built on it redone, and nothing else.",
+  score: [
+    "Three quakes kept apart, three bulletins in force",
+    "Each bulletin at the reviewed figures (M7.4 at 40 km; M6.4 at 13.9 km; M5.6 at 15.9 km)",
+    "The main shock's bulletin corrected once, after the review; the aftershocks' sent once each",
+    "Each fab's alert at the level the reviewed figures give (FabA falls from high to medium)",
+    "Only the lying account distrusted: no agency, and no honest poster",
+  ],
+  day: [
+    { when: "00:10", what: "PTWC: M7.5, 11.4 km, tsunami threat. A new quake, q-2024-04-02T2358. Seismic plans its bulletin and sends risk the figures." },
+    { when: "00:15", what: "ATWC agrees (9 s, 0 km apart: the same quake). Ops publishes the first bulletin; risk rates the fabs from the 7.5 (FabA high). A post claims M8.1 and that FabA is flooded: risk checks FabA's sensors, which say running, and the whole team stops trusting the account." },
+    { when: "00:20", what: "USGS: M6.4, 13 minutes later and 34 km away: a new quake, with its own bulletin. Ops sends the fab alerts. A post passes on the tsunami warning: it names 7.4, so it joins the main shock." },
+    { when: "00:25", what: "EMSC: 7.4 at 20 km for the main shock, 6.4 for the aftershock. The desk keeps its first figure until a more authoritative source settles it. A post reports the 6.4." },
+    { when: "00:30", what: "GDACS: an orange alert, 7.4 at 34.75 km. It joins the main shock's 7.4, now with two routes." },
+    { when: "00:40", what: "USGS reviews the main shock: M7.4, 40 km. The 7.5 and four depths are retired. Their bulletin and the three fab ratings turn suspect; ops holds what it did on them." },
+    { when: "00:45", what: "A new main-shock bulletin is published, and risk rates the fabs again from 7.4 at 40 km. A third quake: 24 minutes after the M6.4 and only 6 km from it, so it is another quake." },
+    { when: "00:50", what: "Ops sends the new fab alerts (FabA medium) and the third quake's bulletin. A joke post names no quake and is about nothing." },
+  ],
+  screen: {
+    who: "seismic at 00:45 in the free stand-in replay: the real context the pack built for it, shortened only where marked …",
+    sections: [
+      {
+        name: "Role",
+        why: "Who the desk is, its goal, the quakes it looks after (made as reports were matched), and the order of authority it applies.",
+        text: `You are seismic: seismic desk: every quake's figures, and its bulletin.
+Each quake is its own entity, matched from what the agencies report. For each
+one, keep the magnitude, depth and tsunami threat that count: when sources
+disagree, the most authoritative one counts, and a post never does. Plan its
+bulletin (quake.bulletin on the quake, value like 'M7.4, 40 km deep,
+tsunami: yes'), depends_on the magnitude, depth and tsunami beliefs you used,
+and send it to ops. When one of them changes, retract the bulletin and plan a
+new one. Send risk the magnitude and depth of the strongest quake.
+You look after: q-2024-04-02T2358, q-2024-04-03T0011, q-2024-04-03T0035.
+Sources, most authoritative first: USGS (reviewed solutions); EMSC, PTWC and
+ATWC (…early solutions); GDACS (alerts made from others' figures); anyone
+else, such as an account that posts.`,
+      },
+      {
+        name: "What changed",
+        why: "The USGS review, as the graph recorded it: each retired figure with the reason, and the bulletin that rested on the 7.5 turned suspect, one step from the cause.",
+        text: `## Changed since last turn
+[B1 RETRACTED] q-2024-04-02T2358 has magnitude 7.5   you withdrew it:
+  (USGS revised it: now q-2024-04-02T2358 has magnitude 7.4 (us7000m9g4))
+[B2 RETRACTED] q-2024-04-02T2358 was 11.4 km deep   (USGS revised it …)
+[B28 RETRACTED] q-2024-04-02T2358 was 20.0 km deep   (USGS revised it …)
+[B30 RETRACTED] q-2024-04-02T2358 was 34.75 km deep   (USGS revised it …)
+[B9 RETRACTED] q-2024-04-02T2358 was 11.0 km deep   (USGS revised it …)
+[B5 SUSPECT] q-2024-04-02T2358 bulletin: M7.5, 11.4 km deep, tsunami: yes
+  depends on something that changed, 1 step(s) from the cause: retraction
+  of B1 (USGS revised it: now … magnitude 7.4 (us7000m9g4))
+[B5 RETRACTED] … bulletin: M7.5 …   (a figure it rested on was revised)`,
+      },
+      {
+        name: "Inbox",
+        why: "The reports that reached it since its last turn, each with the agency's own id.",
+        text: `## Inbox
+- O19 tick 6 message from USGS: "M 7.4 - 15 km S of Hualien City, Taiwan
+  (us7000m9g4), reviewed: magnitude 7.4 (Mww), depth 40 km."
+- O23 tick 7 message from USGS: "M 5.6 - 21 km NNE of Hualien City, Taiwan
+  (us7000m9gh), depth 15.9 km."
+- O24 tick 7 message from EMSC: "EMSC: M 5.7 (mb), TAIWAN, depth 9.5 km."`,
+      },
+      {
+        name: "Beliefs",
+        why: "Every live belief, grouped by quake, with how many routes hold it. The main shock's 7.4 is held by three agencies; its tsunami threat by four sources, one of them a post. The aftershocks' bulletins are untouched.",
+        text: `## Beliefs
+[B38 active routes 1] q-2024-04-03T0035 has magnitude 5.6   via USGS
+[B39 active routes 1] q-2024-04-03T0035 was 15.9 km deep   via USGS
+[B42 active routes 1] q-2024-04-03T0035 has magnitude 5.7   via EMSC
+[B32 active routes 1] q-2024-04-02T2358 was 40.0 km deep   via USGS
+[B34 active routes 0] q-2024-04-02T2358 bulletin: M7.4, 40 km deep,
+                      tsunami: yes   derived by you
+[B31 active routes 1] q-2024-04-02T2358 GDACS alert: orange   via GDACS
+[B27 active routes 3] q-2024-04-02T2358 has magnitude 7.4   via EMSC | via GDACS
+[B3 active routes 4] q-2024-04-02T2358 tsunami threat: yes
+                      via @okinawa_local | via ATWC
+[B21 active routes 3] q-2024-04-03T0011 has magnitude 6.4
+                      via @hualien_resident | via EMSC
+[B25 active routes 0] q-2024-04-03T0011 bulletin: M6.4, 13.9 km deep,
+                      tsunami: no   derived by you
+…`,
+      },
+      {
+        name: "Team",
+        why: "Whom it can send beliefs to. It reads no fab, and it cannot act: only ops can.",
+        text: `## Your team (you can send them beliefs)
+- ops: operations: publishes the quakes' bulletins and alerts the fabs
+- risk: risk desk: how exposed each fab is
+
+It is 00:45 UTC on 3 April 2024 (tick 7).`,
+      },
+    ],
+  },
+  tools: [
+    { call: "assert_belief(subject, predicate, value, depends_on)", does: "Seismic plans a bulletin and risk a fab's exposure this way, naming the beliefs they rest on: that is what DERIVED_FROM records." },
+    { call: "retract(belief_id) · send(to, belief_id)", does: "Withdraw a plan whose basis changed; pass a belief to a teammate (a new Observation, one hop longer)." },
+    { call: "exposure_rule(fab, magnitude, depth_km)", does: "Risk: how exposed a fab is, from distance and depth (a shallow quake shakes harder)." },
+    { call: "fab_status(fab)", does: "Risk: the fab's own sensors. A checking tool: what it reads is evidence, so a claim it contradicts is refuted." },
+    { call: "bulletin_send · fab_alert", does: "Ops only: publish a quake's bulletin, alert a fab. Outward, so each names what it rests on and is held when that changes." },
+    { call: "bulletins · fab_alerts · recall · explain", does: "What is in force now, and look-ups in the desk's own part of the graph." },
+  ],
+  minds: [
+    { who: "Seismic desk", colour: "var(--water)", how: ["Free stand-in: for each quake, takes the magnitude, depth and tsunami threat from the most authoritative source; on a tie, the first one.", "Plans a bulletin from them unless the same one is live; retracts a suspect one first. Sends risk the strongest quake's figures."] },
+    { who: "Risk desk", colour: "var(--accent)", how: ["Checks any claim about a fab with that fab's sensors before anything else.", "Rates each fab with exposure_rule from the figures it was sent, and redoes a rating when it turns suspect."] },
+    { who: "Ops", colour: "var(--gold)", how: ["The only desk that acts: it reads no report, only the plans it is sent.", "Publishes each bulletin and sends each alert once; when one is held, it waits for the new plan and carries that out."] },
+    { who: "Checker", colour: "var(--ok)", how: ["Code, not a model. FabA's sensors say running, which refutes the post that said flooded: its account is blamed, and with team quarantine every desk stops believing it, its M8.1 included."] },
+  ],
+  result: {
+    note: "One free stand-in replay: 9 of 9 checks. The review touched exactly the main shock's bulletin and the three fab alerts that rested on its early figures.",
+    facts: [
+      ["Quakes", "3, kept apart"],
+      ["Bulletins", "4 published: the main shock's twice, each aftershock's once"],
+      ["Held by the review", "1 bulletin, 3 fab alerts"],
+      ["Distrusted", "only @quake_alerts_now, by all three desks"],
+      ["Honest sources blamed", "0"],
     ],
   },
 };

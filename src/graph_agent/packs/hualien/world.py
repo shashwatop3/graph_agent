@@ -90,7 +90,7 @@ REPORTS = [
 
 
 # ---- the day: three real quakes, as the agencies reported them, and four posts ------------------
-"""The "day" team's script: the first 50 minutes after the main shock, 00:10 to 00:55 UTC on
+"""The "day" team's script: the first hour after the main shock, 00:10 to 01:00 UTC on
 3 April 2024, a tick every 5 minutes. Three real quakes (USGS ids, origin times, positions,
 magnitudes and depths as USGS, EMSC, GDACS and the warning centres recorded them, read on
 2026-10-18 from their archives):

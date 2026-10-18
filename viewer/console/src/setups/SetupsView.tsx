@@ -13,9 +13,9 @@ export function SetupsView({ onOpen }: { onOpen: (id: string) => void }) {
   return (
     <div className="setups">
       <section className="setups-hero">
-        <div className="eyebrow">Three ready-made teams</div>
+        <div className="eyebrow">Four ready-made teams</div>
         <h2>Pick a team and watch the graph do the work</h2>
-        <p>Each setup is a full team with its own world: a live feed, a simulation or a scripted week. Two run free with a scripted stand-in; all three can run on a real Claude model with your own key.</p>
+        <p>Each setup is a full team with its own world: a real day replayed, a live feed, a simulation or a scripted week. Three run free with a scripted stand-in; all four can run on a real Claude model with your own key.</p>
       </section>
       <ol className="tutorial">
         <li><h3>Pick a setup</h3><p>Open one below and read its story: what happens, who is on the team, what to watch for. The team diagram is drawn from the team that will run.</p></li>
@@ -31,6 +31,7 @@ export function SetupsView({ onOpen }: { onOpen: (id: string) => void }) {
             <tbody>
               <tr><td><b>Fire sim</b></td><td>Eight keepers warn each other about a spreading fire; two of them lie.</td><td>Traces each warning along its relay route, blames the liar, forgives the honest relays.</td><td>Free (stand-in)</td></tr>
               <tr><td><b>Team offsite</b></td><td>Five desks plan an offsite; the date moves, a guest drops out, a scam arrives.</td><td>One correction reaches exactly the plans built on it. Compare with the shared-notes baseline.</td><td>Free (stand-in)</td></tr>
+              <tr><td><b>Quake replay</b></td><td>The first hour after the 2024 Hualien M7.4, from five sources' real records.</td><td>Keeps three quakes in one place apart; a review reaches exactly the bulletin and alerts built on the early figure.</td><td>Free (stand-in)</td></tr>
               <tr><td><b>Live quake desk</b></td><td>Agencies and Bluesky report the same quakes, live.</td><td>Many reports meet on one quake; revisions supersede; a poster caught exaggerating is distrusted.</td><td>A real model</td></tr>
             </tbody>
           </table>
@@ -86,7 +87,7 @@ export function SetupPage({ id, onBack, onRun }: { id: string; onBack: () => voi
       <div className="setup-cols">
         <div className="setup-main">
           {setup.guide && <GuideView guide={setup.guide} />}
-          <section className="panel">
+          {setup.story.length > 0 && <section className="panel">
             <div className="ph"><div><div className="eyebrow">What happens</div><h2>{setup.guide ? "This game, day by day" : "The story"}</h2></div></div>
             <ol className="story">
               {setup.story.map((step, i) => (
@@ -96,7 +97,7 @@ export function SetupPage({ id, onBack, onRun }: { id: string; onBack: () => voi
                 </li>
               ))}
             </ol>
-          </section>
+          </section>}
           <section className="panel">
             <div className="ph"><div><div className="eyebrow">Drawn from the team that runs</div><h2>The team</h2></div></div>
             <div className="pb">
@@ -116,6 +117,12 @@ export function SetupPage({ id, onBack, onRun }: { id: string; onBack: () => voi
         <aside className="setup-side">
           <RunPanel setup={setup} team={team} onRun={onRun} />
           {setup.id === "quake-desk" && <RightNow />}
+          {setup.id === "quake-desk" && (
+            <section className="panel">
+              <div className="ph"><div><div className="eyebrow">Free, and the same every time</div><h2>A real day, replayed</h2></div></div>
+              <div className="pb"><p className="note">The same desk on the first hour of the 2024 Hualien earthquake, from the agencies' archived records: three quakes, an early figure revised, a post that lies. <a className="linkish" href="#setup/quake-day">Open the replay</a>.</p></div>
+            </section>
+          )}
         </aside>
       </div>
     </div>
@@ -198,7 +205,7 @@ function RightNow() {
 /** A small drawing for each setup: seismic waves, a ring of fields with a fire, a calendar page
  * whose date moves. */
 function Motif({ id }: { id: string }) {
-  if (id === "quake-desk") {
+  if (id.startsWith("quake")) {
     return (
       <svg className="motif" viewBox="0 0 120 80" aria-hidden="true">
         <path d="M4 40 H30 L36 22 L44 60 L52 12 L60 66 L68 28 L74 48 L80 40 H116" fill="none" stroke="var(--c)" strokeWidth="2.4" strokeLinejoin="round" />

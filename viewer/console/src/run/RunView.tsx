@@ -142,7 +142,7 @@ export function RunView({ spaceId, onBack }: { spaceId: string; onBack: () => vo
   return (
     <div className="runview">
       <div className="runhead">
-        <button className="btn" onClick={onBack} aria-label="Back to the canvas">← Canvas</button>
+        <button className="btn" onClick={onBack} aria-label="Back to the setups">← Setups</button>
         <div className="title">
           <div className="eyebrow">
             {space.pack} · {space.model} · {space.store}

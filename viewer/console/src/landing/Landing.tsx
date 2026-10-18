@@ -6,7 +6,7 @@ import "./landing.css";
 const REPO = "https://github.com/shashwatop3/graph_agent";
 
 /** The front page: what Groundwork does, how its agents use the FalkorDB graph, and why that
- * beats a chat log or shared notes, drawn rather than told. Then the three setups to try. */
+ * beats a chat log or shared notes, drawn rather than told. Then the setups to try. */
 export function Landing({ onSetups, onOpen }: { onSetups: () => void; onOpen: (id: string) => void }) {
   return (
     <div className="landing">
@@ -21,7 +21,7 @@ export function Landing({ onSetups, onOpen }: { onSetups: () => void; onOpen: (i
           </p>
           <div className="l-cta">
             <button className="btn primary big" onClick={() => onOpen("fire")}>Try the fire sim, free</button>
-            <button className="btn big" onClick={onSetups}>See the three setups</button>
+            <button className="btn big" onClick={onSetups}>See the four setups</button>
             <a className="linkish" href={REPO} target="_blank" rel="noreferrer">Source on GitHub</a>
           </div>
         </div>
@@ -104,7 +104,7 @@ SET b.support_routes = alive`}
       </section>
 
       <section className="l-section">
-        <Head eyebrow="Try it" title="Three ready-made teams, three things the graph does" />
+        <Head eyebrow="Try it" title="Four ready-made teams to try" />
         <SetupCards onOpen={onOpen} />
         <div className="l-cta center">
           <button className="btn primary big" onClick={onSetups}>How to run them, step by step →</button>

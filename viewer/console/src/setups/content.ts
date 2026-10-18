@@ -3,7 +3,7 @@
  * its page is the team that runs. The words follow the packs' own docstrings: offsite/world.py,
  * ringfire/console.py, apps/run.py (QUAKE_DESK). */
 
-import { FIRE_GUIDE, type Guide } from "./guide";
+import { FIRE_GUIDE, QUAKE_GUIDE, type Guide } from "./guide";
 
 export interface Model { value: string; label: string; note: string }
 
@@ -32,6 +32,34 @@ const SONNET: Model = { value: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", 
 
 export const SETUPS: Setup[] = [
   {
+    id: "quake-day",
+    pack: "hualien",
+    template: "day",
+    title: "Quake replay: Hualien, 3 April 2024",
+    tagline: "The first hour after a real M7.4, from the agencies' own records: three quakes in one place, five sources that disagree, an early figure revised, and a post that lies.",
+    kind: "Real records",
+    colour: "var(--gold)",
+    facts: [["Quakes", "3: M7.4, M6.4, M5.6"], ["Sources", "USGS, EMSC, PTWC, ATWC, GDACS, 4 posts"], ["Length", "00:10 to 01:00 UTC"], ["Model", "free stand-in, or a real one"]],
+    story: [],
+    team: [
+      { node: "Five streams", does: "The warning centres, USGS, EMSC and GDACS, each with its archived figures, and the posts. Each report is matched to its quake by origin time and distance." },
+      { node: "Router", does: "Sends each report to the desk that looks after what it is about: quakes to seismic, fabs to risk." },
+      { node: "Seismic", does: "Keeps every quake's figures by authority, and plans a bulletin for each quake from them." },
+      { node: "Risk", does: "Rates three fabs (invented) from the strongest quake's figures, and checks any claim about a fab with its sensors." },
+      { node: "Ops", does: "The only desk that acts: publishes the bulletins and alerts the fabs, and holds what it did when its basis changes." },
+      { node: "Checker", does: "Code, not a model: refutes what a fab's sensors contradict, and blames the account that said it." },
+    ],
+    watch: [
+      { title: "Three quakes, not one", body: "Open the Memory tab: the main shock and both aftershocks are separate entities, each with its own reports, even though they are in one place within the hour." },
+      { title: "The review at 00:40", body: "Step to 00:40 and watch the held actions: the main shock's bulletin and the three fab alerts, and nothing about the aftershocks." },
+      { title: "Who is blamed", body: "Only the account that claimed a flooded fab. The warning centres were wrong about 7.5 but are not blamed: a revision is not a lie." },
+    ],
+    layout: "flow",
+    models: [STAND_IN, HAIKU, SONNET],
+    options: { approvals: "auto" },
+    guide: QUAKE_GUIDE,
+  },
+  {
     id: "quake-desk",
     pack: "apps",
     template: "quake-desk",
@@ -42,7 +70,7 @@ export const SETUPS: Setup[] = [
     facts: [["Sources", "USGS, EMSC, GDACS, Bluesky"], ["Accounts", "none needed"], ["Length", "24 polls, 30 s apart: 12 min"], ["Model", "a real one (cached)"]],
     story: [
       { when: "Every 30 s", what: "The desk reads four live streams: the USGS and EMSC quake catalogues, the UN and EU's GDACS earthquake alerts, and every public Bluesky post that says quake, earthquake, tremor or tsunami." },
-      { when: "A quake", what: "Each agency reports it its own way: a magnitude, a region, a time. The reader names the quake the same for all of them (q-<region>-<date>), so the reports meet on one thing in the graph.", tone: "evidence" },
+      { when: "A quake", what: "Each agency reports it its own way: a magnitude, a region, a time. The reader names the quake by its origin time (q-2024-04-02T2358), so all the reports of one quake meet on one thing in the graph, and an aftershock in the same place an hour later is a quake of its own.", tone: "evidence" },
       { when: "Minutes later", what: "Figures disagree (one agency says 4.9, another 5.1), and USGS revises itself when a seismologist reviews it. Seismic keeps every figure and which is newer; the reviewed one wins.", tone: "correction" },
       { when: "Meanwhile", what: "People post. Some are right, some exaggerate (\"MASSIVE 7.4!\"). A post is a claim from its poster, never evidence: rumours records it and sends it to seismic to check.", tone: "lie" },
       { when: "Caught", what: "When a poster's claim contradicts an agency, the checker blames the poster, and the whole team stops trusting them: what they said is withdrawn from every agent that heard it.", tone: "lie" },
