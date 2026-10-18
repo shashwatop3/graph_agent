@@ -367,7 +367,7 @@ function KeysPanel({ keys, onChange }: { keys: Keys; onChange: (change: Partial<
         <div className="key-row">
           <code>Google</code>
           <span className="tag" style={c(keys.google ? "var(--ok)" : "var(--stale)")}>{keys.google ? "connected" : "not connected"}</span>
-          <span className="muted grow">Gmail and Calendar, read-only: Cascade can never send, delete or change anything there</span>
+          <span className="muted grow">Gmail and Calendar, read-only: Groundwork can never send, delete or change anything there</span>
           {keys.google
             ? <button className="btn danger" onClick={() => void disconnect()}>Disconnect</button>
             : <a className="btn primary" href="/auth/google">Connect Gmail and Calendar</a>}

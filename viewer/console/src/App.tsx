@@ -5,6 +5,7 @@ import { BuildView } from "./build/BuildView";
 import { RunView } from "./run/RunView";
 import { SetupPage, SetupsView } from "./setups/SetupsView";
 import type { Me, RecordedRun, Summary, TeamSpec } from "./types";
+import logo from "./logo.svg";
 
 type View =
   | { kind: "home" }
@@ -57,7 +58,7 @@ export function App() {
     <div className="wrap">
       <header className="top">
         <div className="brand">
-          <h1>Cascade</h1>
+          <h1><img className="logo" src={logo} alt="" />Groundwork</h1>
           <p>Teams of agents whose only memory is a shared belief graph · one correction reaches everything built on it</p>
         </div>
         <div className="controls">
@@ -92,14 +93,15 @@ function SignIn() {
     <div className="signin">
       <section className="panel">
         <div className="pb">
-          <div className="eyebrow">Cascade</div>
+          <img className="logo big" src={logo} alt="" />
+          <div className="eyebrow">Groundwork</div>
           <h1>Teams of agents with one shared memory</h1>
           <p className="note">
             Build a team, run it on a simulated week or on your own mail and calendar, and see why each agent believes what it does.
-            Signing in tells Cascade only your name and address. Gmail and Calendar are connected later, read-only, if you choose to.
+            Signing in tells Groundwork only your name and address. Gmail and Calendar are connected later, read-only, if you choose to.
           </p>
           <a className="btn primary big" href="/auth/login">Sign in with Google</a>
-          <a className="linkish" href="/privacy">What Cascade keeps, and where your data goes</a>
+          <a className="linkish" href="/privacy">What Groundwork keeps, and where your data goes</a>
         </div>
       </section>
     </div>

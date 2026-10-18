@@ -1,4 +1,4 @@
-# Cascade (the console)
+# Groundwork (the console)
 
 Build a team of agent nodes on a canvas, run it, and watch it the way the Fire game showed Ring
 Fire: a timeline with an activity strip, the team network with a floating card for the open node,

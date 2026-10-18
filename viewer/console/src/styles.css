@@ -431,3 +431,7 @@ details.accounts { margin-top: 14px; border-top: 1px solid var(--line); padding-
   .setup-hero { grid-template-columns: 1fr; }
   .roster li { grid-template-columns: 1fr; gap: 2px; }
 }
+
+/* the logo: beside the name in the header, and larger over the sign-in */
+.logo { width: 28px; height: 28px; margin-right: 10px; vertical-align: -5px; border-radius: 7px; }
+.logo.big { display: block; width: 52px; height: 52px; margin: 0 0 14px; border-radius: 12px; }

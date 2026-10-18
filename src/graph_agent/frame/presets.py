@@ -84,7 +84,7 @@ def shared_google(url: str) -> dict[str, Any]:
         **google,
         "about": (
             "Your Gmail and Calendar, read-only: connect your Google account under Your keys "
-            "(Cascade asks Google only for read-only access)."
+            "(Groundwork asks Google only for read-only access)."
         ),
         "url": url,
         "headers": {"Authorization": "Bearer $GOOGLE_ACCESS_TOKEN"},

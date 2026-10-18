@@ -39,9 +39,9 @@ COPY deploy/start.sh deploy/start.sh
 # /data (the volume) holds everyone's folders and the npm cache. start.sh starts as root only to
 # give a fresh volume (mounted as root's) to the plain user it then runs as. The image has no
 # useradd, so the user is written in by hand.
-RUN echo 'cascade:x:1000:1000::/home/cascade:/bin/sh' >> /etc/passwd \
-    && echo 'cascade:x:1000:' >> /etc/group \
-    && mkdir -p /data /home/cascade && chown cascade:cascade /home/cascade
+RUN echo 'groundwork:x:1000:1000::/home/groundwork:/bin/sh' >> /etc/passwd \
+    && echo 'groundwork:x:1000:' >> /etc/group \
+    && mkdir -p /data /home/groundwork && chown groundwork:groundwork /home/groundwork
 ENV GRAPH_AGENT_DATA=/data NPM_CONFIG_CACHE=/data/npm PORT=8080 \
     FALKORDB_HOST=127.0.0.1 FALKORDB_PORT=16379
 EXPOSE 8080

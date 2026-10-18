@@ -1,6 +1,6 @@
 # Fly.io: one always-on machine with a volume (runs live in memory, files on the volume).
 # Change `app` to a name of yours; see README "Deploying" for the secrets to set first.
-app = "cascade-console"
+app = "groundwork-agents"
 primary_region = "sin"  # Singapore: the nearest to India (Fly has no Mumbai now)
 
 [build]
@@ -10,7 +10,7 @@ primary_region = "sin"  # Singapore: the nearest to India (Fly has no Mumbai now
   WORKSPACE_MCP_URL = "http://127.0.0.1:8000/mcp"
 
 [[mounts]]
-  source = "cascade_data"
+  source = "groundwork_data"
   destination = "/data"
 
 [http_service]

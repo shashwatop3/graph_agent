@@ -10,7 +10,7 @@ import os
 
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>Cascade privacy</title>
+<title>Groundwork privacy</title>
 <style>
   :root {{ --bg: #eef1f3; --ink: #141b24; --muted: #5b6676; }}
   @media (prefers-color-scheme: dark) {{
@@ -21,8 +21,8 @@ PAGE = """<!doctype html>
   h1 {{ font-size: 24px; }} h2 {{ font-size: 17px; margin-top: 24px; }}
   small {{ color: var(--muted); }}
 </style></head><body>
-<h1>Cascade: privacy</h1>
-<p>Cascade runs teams of AI agents on simulated data, or on your own Gmail and Calendar if you
+<h1>Groundwork: privacy</h1>
+<p>Groundwork runs teams of AI agents on simulated data, or on your own Gmail and Calendar if you
 connect them. This page says what it keeps and where your data goes.</p>
 
 <h2>What is kept</h2>
@@ -38,11 +38,11 @@ answers, so that a run made again costs nothing.</li>
 
 <h2>Google data</h2>
 <p>Connecting Gmail and Calendar asks Google for <b>read-only</b> access
-(gmail.readonly, calendar.readonly). Cascade cannot send, delete, label or change anything in
+(gmail.readonly, calendar.readonly). Groundwork cannot send, delete, label or change anything in
 your mail or calendar. Mail and events are read only while a run of yours is going, to give to
 your own agents, and the cache above keeps what they were asked about. They are not used to
 train models, shown to other people, sold, or used for advertising.</p>
-<p>Cascade's use and transfer of information received from Google APIs adheres to the
+<p>Groundwork's use and transfer of information received from Google APIs adheres to the
 <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services
 User Data Policy</a>, including its Limited Use requirements.</p>
 
@@ -55,7 +55,7 @@ else.</p>
 
 <h2>Deleting it</h2>
 <p>Under My apps, Your keys, "Delete my account" removes everything kept for you and revokes
-Cascade's access at Google. You can also revoke that access at any time from
+Groundwork's access at Google. You can also revoke that access at any time from
 <a href="https://myaccount.google.com/permissions">your Google account</a>.</p>
 
 <p><small>Questions: {contact}</small></p>

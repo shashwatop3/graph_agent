@@ -4,8 +4,8 @@
 set -eu
 
 if [ "$(id -u)" = 0 ]; then
-    chown cascade:cascade /data  # a new volume is mounted as root's
-    exec su-exec cascade env HOME=/home/cascade sh "$0"
+    chown groundwork:groundwork /data  # a new volume is mounted as root's
+    exec su-exec groundwork env HOME=/home/groundwork sh "$0"
 fi
 
 # FalkorDB on this machine only, keeping nothing on disk: a hosted run's graph is dropped with the

@@ -1,10 +1,18 @@
-# graph-agent
+<img src="viewer/console/src/logo.svg" alt="" width="56" align="left" />
 
-A domain-agnostic graph layer that keeps the beliefs of several LLM agents consistent when a
-correction arrives, plus a benchmark game (Ring Fire) that runs the same agents on two backends:
-a graph store (FalkorDB) and a relational store (PostgreSQL).
+# Groundwork
 
-Status: stages S0 to S13 built (everything in the plan except a real language model and the runs with it). No real model is connected yet.
+Teams of AI agents whose only memory is a shared belief graph. Every belief records what it rests
+on, so one correction reaches exactly what was built on it, and whoever said something false stops
+being trusted. Live at https://groundwork-agents.fly.dev.
+
+<br clear="left" />
+
+Under it is a domain-agnostic graph layer (this package, `graph-agent`) and a benchmark game, Ring
+Fire, that runs the same agents on two backends: a graph store (FalkorDB) and a relational store
+(PostgreSQL).
+
+The project notes live in the Obsidian vault, reached through the
 `docs` symlink in this folder (not tracked by git).
 
 ## Layout
@@ -154,7 +162,7 @@ one machine: runs live in that machine's memory.
 
 ```bash
 fly launch --no-deploy --copy-config      # pick an app name; then set it as `app` in fly.toml
-fly volumes create cascade_data --size 1
+fly volumes create groundwork_data --size 1
 fly secrets set GRAPH_AGENT_PUBLIC_URL=https://<your app>.fly.dev \
     SECRET_KEY="$(openssl rand -base64 48)" \
     GOOGLE_OAUTH_CLIENT_ID=... GOOGLE_OAUTH_CLIENT_SECRET=... \

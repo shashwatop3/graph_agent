@@ -91,7 +91,7 @@ def test_a_poll_gives_the_newest_oldest_first_then_only_what_is_new_or_changed()
     assert "5.3" in update.payload["body"] and update.id != item.id
     assert live(5) == []  # `every` seconds have not gone: not read
     assert len(pages.asked) == 3
-    assert pages.asked[0][1]["User-Agent"].startswith("cascade-console")
+    assert pages.asked[0][1]["User-Agent"].startswith("groundwork")
 
 
 def test_keep_and_drop_filter_items_and_the_counts_say_so():

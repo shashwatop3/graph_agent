@@ -50,7 +50,7 @@ from pydantic import Field, model_validator
 from .connections import Strict, resolve
 from .runtime import Item, Runtime
 
-USER_AGENT = "cascade-console/0.1 (a team of agents reading public data)"
+USER_AGENT = "groundwork/0.1 (a team of agents reading public data)"
 MAX_BYTES = 6_000_000  # a page larger than this is not read
 BUFFER = 500  # what a websocket keeps between two ticks, at most (the newest)
 

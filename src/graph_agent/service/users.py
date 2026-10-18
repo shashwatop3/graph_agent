@@ -2,8 +2,8 @@
 
 Local is the default and works as before: one person, no sign-in, their files in the repository
 and their secrets in .env. Setting GRAPH_AGENT_PUBLIC_URL (the address people open, e.g.
-https://cascade.fly.dev) switches to hosted: every API call needs a signed-in person, and each
-person has a folder of their own under GRAPH_AGENT_DATA:
+https://groundwork-agents.fly.dev) switches to hosted: every API call needs a signed-in person,
+and each person has a folder of their own under GRAPH_AGENT_DATA:
 
     users/<google id>/user.json        their address and name
     users/<google id>/secrets.json     their keys (Anthropic, Todoist, ...), encrypted
@@ -30,7 +30,7 @@ from cryptography.fernet import Fernet, InvalidToken
 
 from .spaces import ROOT
 
-COOKIE = "cascade_session"
+COOKIE = "groundwork_session"
 SESSION_DAYS = 30
 _ID = re.compile(r"[A-Za-z0-9_-]{1,64}")  # Google's account ids are digits
 
@@ -59,7 +59,7 @@ def hosted() -> bool:
 
 
 def public_origin() -> str:
-    """The origin a hosted page's requests carry ("https://cascade.fly.dev")."""
+    """The origin a hosted page's requests carry ("https://groundwork-agents.fly.dev")."""
     url = urlparse(public_url())
     return f"{url.scheme}://{url.netloc}"
 
