@@ -1,6 +1,6 @@
 """The pack for your own agents on your own apps: the vocabulary comes from your setup.
 
-What a team can say is made from the kinds of thing in the setup (setup.THINGS plus your own):
+What a team can say is made from the kinds of thing in its setup (a personal team's: THINGS):
 "Event": ["starts", "place"] gives the predicates event.starts and event.place. Plans are one
 predicate, plan.do ("plan for {subject}: {value}"), which every outward action can rest on.
 

@@ -78,6 +78,7 @@ EXAMPLE_AGENTS = {
             "carries_out": True,
         },
     ],
+    "things": THINGS,
 }
 
 
@@ -155,7 +156,8 @@ def build_apps(
     `allow`: raises ValueError for a stream this console may not read (hosted: one not on the
     public internet). `servers`: connection name -> a server to use instead of starting it, and
     `pages`: how the streams' pages are read (tests)."""
-    things = team.settings.extra.get("things") or THINGS
+    # a team without the setup's kinds (made on the canvas): a personal team's
+    things = team.settings.extra.get("things", THINGS)
     streams = streams_of(team.settings.extra.get("streams") or [])
     for stream in streams:
         if allow is not None:

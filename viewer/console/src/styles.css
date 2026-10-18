@@ -328,12 +328,20 @@ a.btn { display: inline-flex; align-items: center; text-decoration: none; color:
 .conn .row2, .add-app .row2, .row2.pace { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; }
 .conn .row2 input, .add-app .row2 label { flex: 1 1 140px; min-width: 0; }
 .conn .sub, .add-app .sub { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-.conn .note code { margin-right: 6px; }
+.conn .note code { margin-right: 6px; overflow-wrap: anywhere; }
 .conn label.most input { width: 6em; }
 .peek { display: grid; gap: 4px; }
 .peek .bl li.peek-item { display: block; }
 .peek pre { margin: 4px 0 0; padding: 6px 8px; border-radius: 8px; background: var(--soft); font-family: var(--f-mono); font-size: 10.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 9em; overflow: auto; }
 .add-app .topic { display: grid; gap: 4px; }
+.add-app > summary, details.accounts > summary, .agent details.more > summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+details.add-app[open] > summary, details.accounts[open] > summary { margin-bottom: 4px; }
+details.accounts { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; display: grid; gap: 8px; }
+.agent details.more { display: grid; gap: 6px; }
+.agent details.more[open] { padding-bottom: 4px; }
+.kinds-of .row2 { margin-top: 6px; }
+.kinds-of { display: grid; gap: 4px; }
+.kinds-of .sub { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .agent .row2, .kinds-of .row2 { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; }
 .agent .row2 label { flex: 1 1 160px; }
 .kinds-of .row2 input { flex: 1 1 120px; min-width: 0; }

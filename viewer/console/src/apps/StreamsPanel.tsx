@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { api } from "../api";
 import { c } from "../css";
 import type { PublicStream, StreamEntry, StreamPeek } from "../types";
@@ -7,16 +7,19 @@ interface Props {
   streams: StreamEntry[];
   pace: number | null | undefined; // seconds between two polls (unset: 30 with streams)
   polls: number | undefined; // how many polls a run lasts (unset: 24)
+  accounts: number; // your own accounts connected (shown folded, as `children`)
+  children?: ReactNode;
   onChange: (patch: { streams?: StreamEntry[]; pace?: number | null; polls?: number }) => void;
 }
 
 const nameOf = (e: StreamEntry) => String(e.name ?? e.preset ?? "");
 const HOW: Record<string, string> = { poll: "a page, read every", websocket: "a websocket", events: "an event stream" };
 
-/** Live data on the open internet that this team reads besides its apps: no account, no key.
- * Each stream is one of the public ones (packs/apps/public_streams.py), with filters of yours, or
- * one you describe yourself; Peek reads it for a few seconds and shows what the team would get. */
-export function StreamsPanel({ streams, pace, polls, onChange }: Props) {
+/** What the team reads: live data on the open internet (no account, no key), and, folded under it,
+ * your own accounts (`children`). Each stream is one of the public ones (packs/apps/
+ * public_streams.py), with filters of yours, or one you describe yourself; Peek reads it for a
+ * few seconds and shows what the team would get. */
+export function StreamsPanel({ streams, pace, polls, accounts, children, onChange }: Props) {
   const [topics, setTopics] = useState<{ topic: string; streams: PublicStream[] }[]>([]);
   const [peeks, setPeeks] = useState<Record<string, StreamPeek>>({});
   const [peeking, setPeeking] = useState<string | null>(null);
@@ -49,11 +52,11 @@ export function StreamsPanel({ streams, pace, polls, onChange }: Props) {
   return (
     <section className="panel">
       <div className="ph">
-        <div><div className="eyebrow">Step 2 · {streams.length} {streams.length === 1 ? "stream" : "streams"} · public data, no account needed</div><h2>Live data</h2></div>
+        <div><div className="eyebrow">Step 1 · {streams.length} {streams.length === 1 ? "stream" : "streams"} · {accounts} {accounts === 1 ? "account" : "accounts"}</div><h2>What the team reads</h2></div>
       </div>
       <div className="pb insp">
-        <p className="note">A stream is data anyone can read: quakes, weather alerts, status pages, posts, edits. Its items reach your agents like mail does, through the router to whoever looks after what they are about. An agency's own record (marked <i>trusted</i>) is evidence. A post or an edit is a claim from someone who can be caught lying.</p>
-        {streams.length === 0 && <p className="none">No streams: this team reads only its apps. Add one below.</p>}
+        <p className="note">Live data anyone can read, no account needed. Each item goes to the agent that looks after what it is about. A <i>trusted</i> source (an agency's own record) is evidence; a post is a claim to check.</p>
+        {streams.length === 0 && <p className="none">No live data yet: add a stream below.</p>}
         {streams.map((entry) => {
           const name = nameOf(entry);
           return (
@@ -85,6 +88,7 @@ export function StreamsPanel({ streams, pace, polls, onChange }: Props) {
           onAdd={(entry) => onChange({ streams: [...streams, entry] })}
         />
         {problem && <p className="err">{problem}</p>}
+        {children}
       </div>
     </section>
   );
@@ -101,6 +105,7 @@ function StreamCard({ entry, preset, peek, peeking, onPeek, onChange, onRemove }
   onChange: (patch: StreamEntry) => void;
   onRemove: () => void;
 }) {
+  const [filtering, setFiltering] = useState(false);
   const name = nameOf(entry);
   const kind = String(entry.kind ?? preset?.kind ?? "poll");
   const every = Number(entry.every ?? preset?.every ?? 60);
@@ -114,20 +119,33 @@ function StreamCard({ entry, preset, peek, peeking, onPeek, onChange, onRemove }
     <div className="conn">
       <div className="conn-h">
         <b>{name}</b>
-        <span className="muted">{preset?.label ?? String(entry.url ?? "")}</span>
-        <span className="tag">{HOW[kind]}{kind === "poll" ? ` ${every} s` : ""}</span>
-        {trusted && <span className="tag" style={c("var(--ok)")}>trusted</span>}
         <span className="grow" />
+        <button className="btn" aria-pressed={filtering} onClick={() => setFiltering(!filtering)}>Filter</button>
         <button className="btn" disabled={peeking} onClick={onPeek}>{peeking ? "Reading…" : "Peek"}</button>
         <button className="btn" onClick={onRemove} aria-label={`Remove ${name}`}>Remove</button>
       </div>
+      <div className="conn-h">
+        <span className="muted">{preset?.label ?? String(entry.url ?? "")}</span>
+        <span className="tag">{HOW[kind]}{kind === "poll" ? ` ${every} s` : ""}</span>
+        {trusted && <span className="tag" style={c("var(--ok)")}>trusted</span>}
+      </div>
       {preset?.about && <p className="note">{preset.about}</p>}
-      {preset && Object.keys(preset.keep).length > 0 && (
-        <p className="note">Always kept only: {Object.entries(preset.keep).map(([f, r]) => <code key={f}>{f} ~ {r}</code>)}</p>
+      {!filtering && (Object.keys(keep).length > 0 || Object.keys(drop).length > 0) && (
+        <p className="note">
+          {Object.entries(keep).map(([f, r]) => <code key={`k${f}`}>only {f} ~ {r}</code>)}
+          {Object.entries(drop).map(([f, r]) => <code key={`d${f}`}>not {f} ~ {r}</code>)}
+        </p>
       )}
-      <Filters label="Keep only items where" rules={keep} fields={fields} onChange={(rules) => onChange({ keep: rules })} />
-      <Filters label="Leave out items where" rules={drop} fields={fields} onChange={(rules) => onChange({ drop: rules })} />
-      <label className="most">At most this many items a poll (the newest)<input type="number" min={1} max={50} value={Number(entry.most ?? preset?.most ?? 5)} onChange={(e) => onChange({ most: Number(e.target.value) || 5 })} /></label>
+      {filtering && (
+        <>
+          {preset && Object.keys(preset.keep).length > 0 && (
+            <p className="note">Always kept only: {Object.entries(preset.keep).map(([f, r]) => <code key={f}>{f} ~ {r}</code>)}</p>
+          )}
+          <Filters label="Keep only items where" rules={keep} fields={fields} onChange={(rules) => onChange({ keep: rules })} />
+          <Filters label="Leave out items where" rules={drop} fields={fields} onChange={(rules) => onChange({ drop: rules })} />
+          <label className="most">At most this many items a poll (the newest)<input type="number" min={1} max={50} value={Number(entry.most ?? preset?.most ?? 5)} onChange={(e) => onChange({ most: Number(e.target.value) || 5 })} /></label>
+        </>
+      )}
       {peek && <PeekResult peek={peek} />}
     </div>
   );
@@ -226,8 +244,8 @@ function AddStream({ topics, taken, peek, peeking, onPeek, onAdd }: {
   }
 
   return (
-    <div className="add-app">
-      <div className="eyebrow">Add a stream</div>
+    <details className="add-app" open={taken.length === 0 || undefined}>
+      <summary>+ Add a stream</summary>
       {topics.map((t) => (
         <div key={t.topic} className="topic">
           <div className="sub">{t.topic}</div>
@@ -281,6 +299,6 @@ function AddStream({ topics, taken, peek, peeking, onPeek, onAdd }: {
           {peek && <PeekResult peek={peek} />}
         </div>
       )}
-    </div>
+    </details>
   );
 }

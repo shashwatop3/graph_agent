@@ -25,8 +25,9 @@ That is the whole file. `team_of` turns it into a team (spec.py) the console sho
   * outward actions are only recorded ("shadow") until you say otherwise: "manual" asks you for
     each, "auto" runs them.
 
-`things` adds kinds of thing and what can be said about them (`{"Invoice": ["due", "amount"]}`)
-to the ready-made ones (THINGS); `reading` says how to read what comes in (how to name the things
+`things` are the kinds of thing the team keeps track of and what can be said about each
+(`{"Invoice": ["due", "amount"]}`): its own, none by default (a personal team's are THINGS);
+`reading` says how to read what comes in (how to name the things
 an item is about, so that two sources' reports of one thing meet).
 
 `streams` are live data on the open internet that need no account: `{"preset": "usgs-quakes"}`
@@ -49,7 +50,7 @@ from graph_agent.frame.streams import Stream, stream_of
 
 from .public_streams import PUBLIC
 
-# kinds of thing a personal team tracks, and what can be said about each
+# kinds of thing a personal team (mail, calendar, tasks) tracks, and what can be said about each
 THINGS: dict[str, list[str]] = {
     "Event": ["starts", "ends", "place", "status"],
     "Promise": ["due", "status"],
@@ -98,10 +99,8 @@ class Setup(Strict):
 
 
 def things_of(setup: Setup) -> dict[str, list[str]]:
-    merged = {kind: list(facts) for kind, facts in THINGS.items()}
-    for kind, facts in setup.things.items():
-        merged[kind] = list(dict.fromkeys([*merged.get(kind, []), *facts]))
-    return merged
+    """The kinds of thing the team keeps track of: its own, each fact once."""
+    return {kind: list(dict.fromkeys(facts)) for kind, facts in setup.things.items()}
 
 
 def streams_of(entries: Sequence[dict[str, Any]]) -> list[Stream]:
@@ -153,9 +152,10 @@ def problems(
             found.append(f"agent {agent.name}: say what its job is, in a sentence or two")
         for kind in agent.looks_after:
             if kind not in kinds:
+                known = f", or use one of {', '.join(sorted(kinds))}" if kinds else ""
                 found.append(
-                    f"agent {agent.name}: no kind of thing {kind!r}; add it under things, "
-                    f"or use one of {', '.join(sorted(kinds))}"
+                    f"agent {agent.name}: the team keeps track of no {kind!r}; add it to the "
+                    f"kinds of thing{known}"
                 )
         for peer in agent.talks_to or []:
             if peer not in names:

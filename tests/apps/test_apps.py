@@ -78,8 +78,7 @@ def test_mistakes_are_named_in_words_you_can_act_on():
     wrong = problems(setup, connections(), tools=["google_get_events", "todoist_add-tasks"])
     assert wrong == [
         "agent 'Inbox': use a short lowercase name (letters, digits, -)",
-        "agent money: no kind of thing 'Invoice'; add it under things, or use one of "
-        "Bill, Event, Person, Promise, Task, Trip",
+        "agent money: the team keeps track of no 'Invoice'; add it to the kinds of thing",
         "agent money: talks_to 'bank', who is not an agent",
         "agent 'router': that name is taken; pick another",
         "agent router: no app tool matches 'slack_*'",
@@ -95,8 +94,10 @@ def test_your_own_kinds_of_thing_join_the_vocabulary():
     )
     words = vocabulary(things_of(setup))
     assert words["invoice.due"] == "invoice {subject} due {value}"
-    assert words["event.starts"] == "event {subject} starts {value}"
+    assert "event.starts" not in words  # a team keeps track of its own kinds only
     assert words[PLAN] == "plan for {subject}: {value}"
+    personal = vocabulary(things_of(example()))  # the example's are a personal team's
+    assert personal["event.starts"] == "event {subject} starts {value}"
 
 
 # ---- a run on stand-in servers ---------------------------------------------------------------

@@ -11,9 +11,9 @@ interface Props {
 
 const nameOf = (e: ConnectionEntry) => String(e.name ?? e.preset ?? "");
 
-/** Your own agents on your own apps, in steps: connect your apps (each an MCP server; the secrets
- * stay in .env), pick the live public data the team reads besides (streams: no account needed),
- * then say in a few lines what each agent is for and which apps it may use.
+/** Your own agents, in three steps: what the team reads (live public data, no account needed;
+ * and, folded away, your own accounts: each an MCP server whose secrets stay in .env), then in a
+ * few lines what each agent is for, then run it.
  * The team, its links and its safety settings are made from that (packs/apps/setup.py). You can
  * keep several teams on the same apps (one file each in my-teams/); the bar on top picks one. */
 export function AppsView({ onRun, hosted }: Props) {
@@ -35,7 +35,6 @@ export function AppsView({ onRun, hosted }: Props) {
   const [leaving, setLeaving] = useState<(() => void) | null>(null); // asked to discard changes
   // ---- its agents ----
   const [setup, setSetup] = useState<AppsSetup | null>(null);
-  const [kinds, setKinds] = useState<Record<string, string[]>>({});
   const [problems, setProblems] = useState<string[]>([]);
   const [saved, setSaved] = useState(false);
   const [agentsChanged, setAgentsChanged] = useState(false);
@@ -64,7 +63,6 @@ export function AppsView({ onRun, hosted }: Props) {
     setExamples(v.examples ?? []);
     setTeamId(v.team);
     setSetup(v.setup);
-    setKinds(v.kinds);
     setProblems(v.problems);
     setSaved(v.saved);
     setAgentsChanged(false);
@@ -88,7 +86,7 @@ export function AppsView({ onRun, hosted }: Props) {
         show(v);
         setTeamId(null);
         setSaved(false);
-        const blank: AppsSetup = { name: "New team", agents: [{ name: "inbox", job: "", looks_after: [], apps: [] }] };
+        const blank: AppsSetup = { name: "New team", agents: [{ name: "reader", job: "", looks_after: [], apps: [] }], things: {} };
         changeSetup(example ? v.setup : blank);
       }).catch((e: Error) => setProblems([e.message]));
     });
@@ -204,7 +202,7 @@ export function AppsView({ onRun, hosted }: Props) {
     <div className="apps">
       <section className="panel teams-bar">
         <div className="ph">
-          <div><div className="eyebrow">Your teams · {teams.length} saved · they share the apps below</div><h2>Team</h2></div>
+          <div><div className="eyebrow">Your teams · {teams.length} saved · they share your accounts</div><h2>Team</h2></div>
         </div>
         <div className="pb">
           <div className="team-list">
@@ -236,50 +234,46 @@ export function AppsView({ onRun, hosted }: Props) {
 
       {keys && <KeysPanel keys={keys} onChange={keysChanged} />}
 
-      <section className="panel">
-        <div className="ph">
-          <div><div className="eyebrow">Step 1 · {entries.length} connected · {ready} ready</div><h2>Your apps</h2></div>
-          <button className="btn" disabled={!appsChanged} onClick={() => void saveApps()}>{appsChanged ? "Save apps" : "Saved"}</button>
-        </div>
-        <div className="pb">
-          {hosted
-            ? <p className="note">Each app is an MCP server: it does the sign-in and the API calls. An app names the secrets it needs (like <code>$TODOIST_API_KEY</code>) and you add their values under Your keys, where they are kept encrypted and never shown again.</p>
-            : <p className="note">Each app is an MCP server: it does the sign-in and the API calls. Secrets never go in here: an app names them (like <code>$TODOIST_API_KEY</code>) and you put the values in <code>.env</code> at the project's root.</p>}
-          {entries.length === 0 && <p className="none">No apps yet: add one below.</p>}
-          {entries.map((entry) => {
-            const name = nameOf(entry);
-            const info = infos.find((i) => i.name === name);
-            return (
-              <AppCard
-                key={name}
-                entry={entry}
-                info={info}
-                test={tests[name]}
-                testing={testing === name}
-                where={where}
-                onTest={() => void test(entry)}
-                onChange={(patch) => changeEntry(name, patch)}
-                onRemove={() => changeEntries(entries.filter((e) => nameOf(e) !== name))}
-              />
-            );
-          })}
-          <AddApp presets={presets} taken={entries.map(nameOf)} hosted={hosted} onAdd={(e) => changeEntries([...entries, e])} />
-          {appsProblem && <p className="err">{appsProblem}</p>}
-        </div>
-      </section>
-
       {setup && (
         <StreamsPanel
           streams={setup.streams ?? []}
           pace={setup.pace}
           polls={setup.polls}
+          accounts={entries.length}
           onChange={(patch) => changeSetup({ ...setup, ...patch })}
-        />
+        >
+          <details className="accounts" open={entries.length > 0 || undefined}>
+            <summary>Your own accounts · optional · {entries.length} connected · {ready} ready</summary>
+            {hosted
+              ? <p className="note">Gmail, Calendar, Todoist or any MCP server: it does the sign-in and the API calls. An app names the secrets it needs (like <code>$TODOIST_API_KEY</code>) and you add their values under Your keys, where they are kept encrypted and never shown again.</p>
+              : <p className="note">Gmail, Calendar, Todoist or any MCP server: it does the sign-in and the API calls. Secrets never go in here: an app names them (like <code>$TODOIST_API_KEY</code>) and you put the values in <code>.env</code> at the project's root. Every team shares these.</p>}
+            {entries.map((entry) => {
+              const name = nameOf(entry);
+              const info = infos.find((i) => i.name === name);
+              return (
+                <AppCard
+                  key={name}
+                  entry={entry}
+                  info={info}
+                  test={tests[name]}
+                  testing={testing === name}
+                  where={where}
+                  onTest={() => void test(entry)}
+                  onChange={(patch) => changeEntry(name, patch)}
+                  onRemove={() => changeEntries(entries.filter((e) => nameOf(e) !== name))}
+                />
+              );
+            })}
+            <AddApp presets={presets} taken={entries.map(nameOf)} hosted={hosted} onAdd={(e) => changeEntries([...entries, e])} />
+            {appsChanged && <div><button className="btn" onClick={() => void saveApps()}>Save accounts</button></div>}
+            {appsProblem && <p className="err">{appsProblem}</p>}
+          </details>
+        </StreamsPanel>
       )}
 
       <section className="panel">
         <div className="ph">
-          <div><div className="eyebrow">Step 3 · {setup?.agents.length ?? 0} agents · {saved && teamId ? `my-teams/${teamId}.json` : "not saved yet"}</div><h2>Your agents</h2></div>
+          <div><div className="eyebrow">Step 2 · {setup?.agents.length ?? 0} agents · {saved && teamId ? `my-teams/${teamId}.json` : "not saved yet"}</div><h2>Your agents</h2></div>
           <button className="btn" disabled={!agentsChanged && saved} onClick={() => void saveAgents()}>{agentsChanged || !saved ? "Save team" : "Saved"}</button>
         </div>
         <div className="pb insp">
@@ -287,23 +281,19 @@ export function AppsView({ onRun, hosted }: Props) {
           {setup && (
             <>
               <label>Team name<input value={setup.name} onChange={(e) => changeSetup({ ...setup, name: e.target.value })} /></label>
+              <Kinds things={setup.things ?? {}} onChange={(things) => changeSetup({ ...setup, things })} />
               {setup.agents.map((agent, i) => (
                 <AgentCard
                   key={i}
                   agent={agent}
                   others={setup.agents.filter((_, k) => k !== i).map((a) => a.name)}
-                  kinds={Object.keys(kinds)}
+                  kinds={Object.keys(setup.things ?? {})}
                   apps={appChoices}
                   onChange={(patch) => changeAgent(i, patch)}
                   onRemove={() => changeSetup({ ...setup, agents: setup.agents.filter((_, k) => k !== i) })}
                 />
               ))}
               <div><button className="btn" onClick={addAgent}>+ Add an agent</button></div>
-              <Kinds kinds={kinds} own={setup.things ?? {}} onChange={(things) => {
-                const next = { ...setup, things };
-                changeSetup(next);
-                setKinds((k) => ({ ...k, ...things }));
-              }} />
               {problems.length > 0
                 ? <ul className="bl problems">{problems.map((p) => <li key={p} className="err">{p}</li>)}</ul>
                 : <p className="ok-line">Ready: no problems found.</p>}
@@ -313,7 +303,7 @@ export function AppsView({ onRun, hosted }: Props) {
       </section>
 
       <section className="panel">
-        <div className="ph"><div><div className="eyebrow">Step 4</div><h2>Run it</h2></div></div>
+        <div className="ph"><div><div className="eyebrow">Step 3</div><h2>Run it</h2></div></div>
         <div className="pb insp">
           <label>Model
             <select value={model} onChange={(e) => setModel(e.target.value)}>
@@ -328,7 +318,7 @@ export function AppsView({ onRun, hosted }: Props) {
               <option value="auto">Run at once</option>
             </select>
           </label>
-          <p className="note">A real model reads your mail and streams, so a run spends from {hosted ? "your own Anthropic key (under Your keys)" : <>the key in <code>.env</code></>} (each request is cached, so a rerun is free). Nothing the apps mark as gated runs unless you chose so above; a mail is read as claims to check, never as instructions.</p>
+          <p className="note">A real model reads what comes in, so a run spends from {hosted ? "your own Anthropic key (under Your keys)" : <>the key in <code>.env</code></>} (each request is cached, so a rerun is free). A tool that changes something runs only as chosen above. What an item says is read as claims to check, never as instructions.</p>
           <div><button className="btn primary" disabled={busy || !setup} onClick={() => void run()}>{busy ? "Starting…" : "Save and run"}</button></div>
           {runProblem && <p className="err">{runProblem}</p>}
         </div>
@@ -557,67 +547,86 @@ function AgentCard({ agent, others, kinds, apps, onChange, onRemove }: {
   const everyone = agent.talks_to === null || agent.talks_to === undefined;
   return (
     <fieldset className="agent">
-      <legend>{agent.carries_out ? "does" : "reads"} · {agent.name || "unnamed"}</legend>
+      <legend>{agent.name || "unnamed"}{agent.carries_out ? " · carries out plans" : ""}</legend>
       <div className="row2">
         <label>Name<input value={agent.name} onChange={(e) => onChange({ name: e.target.value })} /></label>
         <button className="btn" onClick={onRemove}>Remove</button>
       </div>
-      <label>Its job, in your words<textarea rows={3} value={agent.job} onChange={(e) => onChange({ job: e.target.value })} placeholder="Watch my calendar and tell the others when plans clash." /></label>
+      <label>Its job, in your words<textarea rows={3} value={agent.job} onChange={(e) => onChange({ job: e.target.value })} placeholder="Keep each quake's magnitude, and say when the agencies disagree." /></label>
       <div className="sub">Looks after</div>
-      <div className="kinds">
-        {kinds.map((k) => (
-          <label key={k} className="check"><input type="checkbox" checked={(agent.looks_after ?? []).includes(k)} onChange={() => onChange({ looks_after: toggle(agent.looks_after ?? [], k) })} /> {k}</label>
-        ))}
-      </div>
-      <div className="sub">May use</div>
-      {apps.length === 0 && <p className="none">Add an app in step 1 first.</p>}
-      {apps.map((app) => (
-        <div key={app.name} className="kinds">
-          <label className="check"><input type="checkbox" checked={given.includes(app.all)} onChange={() => onChange({ apps: toggle(given, app.all) })} /> all of <b>{app.name}</b></label>
-          {!given.includes(app.all) && app.tools.map((t) => (
-            <label key={t.name} className="check"><input type="checkbox" checked={given.includes(t.name)} onChange={() => onChange({ apps: toggle(given, t.name) })} /> {t.name.slice(app.name.length + 1)}{t.outward && <span className="tag" style={c("var(--fire)")}>asks first</span>}</label>
+      {kinds.length === 0
+        ? <small className="muted">Nothing to pick: the team keeps track of no kinds yet. Until then this agent gets what nobody else looks after.</small>
+        : (
+          <div className="kinds">
+            {kinds.map((k) => (
+              <label key={k} className="check"><input type="checkbox" checked={(agent.looks_after ?? []).includes(k)} onChange={() => onChange({ looks_after: toggle(agent.looks_after ?? [], k) })} /> {k}</label>
+            ))}
+          </div>
+        )}
+      {apps.length > 0 && (
+        <>
+          <div className="sub">May use</div>
+          {apps.map((app) => (
+            <div key={app.name} className="kinds">
+              <label className="check"><input type="checkbox" checked={given.includes(app.all)} onChange={() => onChange({ apps: toggle(given, app.all) })} /> all of <b>{app.name}</b></label>
+              {!given.includes(app.all) && app.tools.map((t) => (
+                <label key={t.name} className="check"><input type="checkbox" checked={given.includes(t.name)} onChange={() => onChange({ apps: toggle(given, t.name) })} /> {t.name.slice(app.name.length + 1)}{t.outward && <span className="tag" style={c("var(--fire)")}>asks first</span>}</label>
+              ))}
+              {!given.includes(app.all) && app.tools.length === 0 && <small className="muted">(press Test on {app.name} to pick single tools)</small>}
+            </div>
           ))}
-          {!given.includes(app.all) && app.tools.length === 0 && <small className="muted">(press Test on {app.name} to pick single tools)</small>}
-        </div>
-      ))}
+        </>
+      )}
       {given.filter((g) => !apps.some((a) => a.all === g || a.tools.some((t) => t.name === g))).map((g) => (
         <small key={g} className="muted">also: <code>{g}</code> <button className="chip" onClick={() => onChange({ apps: given.filter((x) => x !== g) })}>remove</button></small>
       ))}
-      <label className="check"><input type="checkbox" checked={!!agent.carries_out} onChange={(e) => onChange({ carries_out: e.target.checked })} /> It carries out the team's plans (it reads no mail; it is woken by what teammates send it)</label>
-      <div className="sub">Talks to</div>
-      <div className="kinds">
-        <label className="check"><input type="checkbox" checked={everyone} onChange={(e) => onChange({ talks_to: e.target.checked ? null : [...others] })} /> everyone</label>
-        {!everyone && others.map((o) => (
-          <label key={o} className="check"><input type="checkbox" checked={(agent.talks_to ?? []).includes(o)} onChange={() => onChange({ talks_to: toggle(agent.talks_to ?? [], o) })} /> {o}</label>
-        ))}
-      </div>
+      <details className="more">
+        <summary>More: who it talks to, whether it acts</summary>
+        <div className="sub">Talks to</div>
+        <div className="kinds">
+          <label className="check"><input type="checkbox" checked={everyone} onChange={(e) => onChange({ talks_to: e.target.checked ? null : [...others] })} /> everyone</label>
+          {!everyone && others.map((o) => (
+            <label key={o} className="check"><input type="checkbox" checked={(agent.talks_to ?? []).includes(o)} onChange={() => onChange({ talks_to: toggle(agent.talks_to ?? [], o) })} /> {o}</label>
+          ))}
+        </div>
+        <label className="check"><input type="checkbox" checked={!!agent.carries_out} onChange={(e) => onChange({ carries_out: e.target.checked })} /> It carries out the team's plans with its tools: it reads nothing that comes in, and is woken by what teammates send it</label>
+      </details>
     </fieldset>
   );
 }
 
 // ---- kinds of thing -----------------------------------------------------------------------------
 
-function Kinds({ kinds, own, onChange }: { kinds: Record<string, string[]>; own: Record<string, string[]>; onChange: (things: Record<string, string[]>) => void }) {
+/** The kinds of thing the team keeps track of, and what can be said about each: what items are
+ * about, so the router knows whose they are. A team has its own (an example brings its own). */
+function Kinds({ things, onChange }: { things: Record<string, string[]>; onChange: (things: Record<string, string[]>) => void }) {
   const [kind, setKind] = useState("");
   const [facts, setFacts] = useState("");
   function add() {
     const name = kind.trim().replace(/^\w/, (x) => x.toUpperCase());
     const list = facts.split(",").map((f) => f.trim().toLowerCase().replace(/\s+/g, "_")).filter(Boolean);
     if (!name || list.length === 0) return;
-    onChange({ ...own, [name]: list });
+    onChange({ ...things, [name]: list });
     setKind(""); setFacts("");
   }
+  const remove = (k: string) => onChange(Object.fromEntries(Object.entries(things).filter(([x]) => x !== k)));
   return (
-    <details className="kinds-of">
-      <summary>Kinds of thing the team tracks ({Object.keys(kinds).length})</summary>
-      <ul className="bl">
-        {Object.entries(kinds).map(([k, f]) => <li key={k}><span><b>{k}</b>: {f.join(", ")}</span>{own[k] && <small>yours</small>}</li>)}
-      </ul>
+    <div className="kinds-of">
+      <div className="sub">What the team keeps track of</div>
+      {Object.keys(things).length === 0
+        ? <small className="muted">Nothing yet. Add the kinds of thing items are about, and what can be said of each: a Quake with magnitude, place, time; an Invoice with due, amount.</small>
+        : (
+          <ul className="bl">
+            {Object.entries(things).map(([k, f]) => (
+              <li key={k}><span><b>{k}</b>: {f.join(", ")}</span><button className="chip" onClick={() => remove(k)}>remove</button></li>
+            ))}
+          </ul>
+        )}
       <div className="row2">
-        <input value={kind} onChange={(e) => setKind(e.target.value)} placeholder="Invoice" aria-label="New kind" />
-        <input value={facts} onChange={(e) => setFacts(e.target.value)} placeholder="due, amount, status" aria-label="What can be said about it" />
-        <button className="btn" onClick={add}>Add</button>
+        <input value={kind} onChange={(e) => setKind(e.target.value)} placeholder="Quake" aria-label="New kind" />
+        <input value={facts} onChange={(e) => setFacts(e.target.value)} placeholder="magnitude, place, time" aria-label="What can be said about it" />
+        <button className="btn" disabled={!kind.trim() || !facts.trim()} onClick={add}>Add</button>
       </div>
-    </details>
+    </div>
   );
 }
