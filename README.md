@@ -125,6 +125,9 @@ Anthropic key, and connects their own Gmail and Calendar (read-only) and apps. S
 - **Gmail and Calendar:** one shared workspace-mcp runs beside the service, in its mode for
   several people. Each request carries that person's own Google access token, made from the
   refresh token kept when they pressed "Connect Gmail and Calendar".
+- **The graph:** FalkorDB runs in the same container, on that machine only. The image is built on
+  the pinned FalkorDB image the tests use. A hosted run's graph is dropped with the run, so
+  nothing of it is written to disk.
 - **Safety:** people may add only the presets, or apps that are public `https` servers. Nobody
   starts a command on the server, and a started server never sees the server's own secrets.
   Each person keeps 3 runs and plays one at a time. "Delete my account" removes everything.
