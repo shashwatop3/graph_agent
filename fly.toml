@@ -1,7 +1,7 @@
 # Fly.io: one always-on machine with a volume (runs live in memory, files on the volume).
 # Change `app` to a name of yours; see README "Deploying" for the secrets to set first.
 app = "cascade-console"
-primary_region = "bom"  # Mumbai
+primary_region = "sin"  # Singapore: the nearest to India (Fly has no Mumbai now)
 
 [build]
   dockerfile = "Dockerfile"
