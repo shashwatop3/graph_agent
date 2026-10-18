@@ -23,11 +23,39 @@ from graph_agent.frame.tools import ToolSpec, schema_of
 from graph_agent.harness.llm import Json
 
 from .adapter import AUTHORITY, EXPOSURE, PREDICATES, TEMPLATES
-from .world import FAB_STATUS, FABS, QUAKE, QuakeWorld, Report, exposure
+from .world import (
+    BULLETIN,
+    FAB_STATUS,
+    FABS,
+    GDACS_ALERT,
+    PLACE,
+    QUAKE,
+    TSUNAMI,
+    QuakeWorld,
+    Report,
+    exposure,
+    tick_time,
+)
 
-ALL_PREDICATES = {**PREDICATES, FAB_STATUS: Predicate(name=FAB_STATUS, single_valued=True)}
-ALL_TEMPLATES = {**TEMPLATES, FAB_STATUS: "{subject} is {value}"}
-PLANS = {EXPOSURE}  # what the risk desk works out and the ops desk acts on
+ALL_PREDICATES = {
+    **PREDICATES,
+    TSUNAMI: Predicate(name=TSUNAMI, single_valued=True),
+    PLACE: Predicate(name=PLACE, single_valued=False),  # each agency words it its own way
+    GDACS_ALERT: Predicate(name=GDACS_ALERT, single_valued=True),
+    BULLETIN: Predicate(name=BULLETIN, single_valued=True),
+    FAB_STATUS: Predicate(name=FAB_STATUS, single_valued=True),
+}
+# the most specific first: a reader of these lines takes the first that fits ("is" fits most)
+ALL_TEMPLATES = {
+    **TEMPLATES,
+    TSUNAMI: "{subject} tsunami threat: {value}",
+    PLACE: "{subject} place: {value}",
+    GDACS_ALERT: "{subject} GDACS alert: {value}",
+    BULLETIN: "{subject} bulletin: {value}",
+    FAB_STATUS: "{subject} is {value}",
+}
+PLANS = {EXPOSURE, BULLETIN}  # what a desk works out and the ops desk acts on
+DAY_FEEDS = ("centres", "usgs", "emsc", "gdacs", "posts")
 
 SYSTEM_PROMPT = (
     "You are one desk in a team that shares a knowledge graph while an earthquake is reported. "
@@ -59,12 +87,33 @@ class QuakePack(BasePack):
 
     def setup(self, rt: Runtime) -> None:
         self.rt = rt
-        rt.ensure_entity(QUAKE, "Quake", name="Hualien earthquake, 2 April 2024 (USGS us7000m9g4)")
+        if self.world.script == "desk":
+            rt.ensure_entity(
+                QUAKE, "Quake", name="Hualien earthquake, 2 April 2024 (USGS us7000m9g4)"
+            )
         for fab, distance in FABS.items():
             rt.ensure_entity(
                 fab, "Fab", name=f"{fab}, {distance} km from the epicentre", distance_km=distance
             )
-        rt.feeds["reports"] = lambda tick: [self.item(r) for r in self.world.reports_due(tick)]
+        if self.world.script == "day":  # the quakes are made as reports of them are matched
+            for feed in DAY_FEEDS:
+                rt.feeds[feed] = self._feed(feed)
+        else:
+            rt.feeds["reports"] = lambda tick: [self.item(r) for r in self.world.reports_due(tick)]
+
+    def _feed(self, feed: str):  # noqa: ANN202
+        def pull(tick: int) -> list[Item]:
+            reports = self.world.reports_due(tick, feed)
+            for report in reports:
+                for entity in report.about:
+                    known = next((k for k in self.world.known if k.id == entity), None)
+                    if known is not None:
+                        self.runtime.ensure_entity(
+                            known.id, "Quake", name=f"quake at {known.origin} UTC"
+                        )
+            return [self.item(r) for r in reports]
+
+        return pull
 
     def item(self, report: Report) -> Item:
         return Item(
@@ -102,6 +151,8 @@ class QuakePack(BasePack):
     # ---- what a node reads ----------------------------------------------------------------------
 
     def clock(self, tick: int) -> str:
+        if self.world.script == "day":
+            return f"It is {tick_time(tick)} on 3 April 2024 (tick {tick})."
         return f"It is tick {tick} after the quake."
 
     def _team(self, node: NodeSpec, tick: int) -> list[tuple[str, list[str]]]:
@@ -121,8 +172,9 @@ class QuakePack(BasePack):
         if owned:
             lines.append(f"You look after: {', '.join(owned)}.")
         lines.append(
-            "Sources, most authoritative first: USGS (reviewed solutions); PTWC and ATWC (the "
-            "tsunami warning centres, early solutions); anyone else."
+            "Sources, most authoritative first: USGS (reviewed solutions); EMSC, PTWC and ATWC "
+            "(the European centre and the tsunami warning centres: early solutions); GDACS "
+            "(alerts made from others' figures); anyone else, such as an account that posts."
         )
         lines.append(
             "Predicates: "
@@ -163,6 +215,20 @@ class QuakeTools:
                 observes=lambda a, r: [(str(a["fab"]), FAB_STATUS, json.loads(r)["status"])],
             ),
             ToolSpec(
+                "bulletins",
+                "The bulletin in force for each quake.",
+                schema_of({}),
+                lambda a: json.dumps(w.bulletins_in_force()),
+            ),
+            ToolSpec(
+                "bulletin_send",
+                "Publish a quake's bulletin (text like 'M7.4, 40 km deep, tsunami: yes'). It "
+                "replaces the quake's bulletin in force.",
+                schema_of({"quake": STRING, "text": STRING}, ["quake", "text"]),
+                self._bulletin,
+                outward=True,
+            ),
+            ToolSpec(
                 "fab_alerts",
                 "The alerts in force at each fab.",
                 schema_of({}),
@@ -187,6 +253,10 @@ class QuakeTools:
             f"{fab} ({FABS[fab]} km away) has {level} exposure at magnitude {a['magnitude']}, "
             + (f"depth {a['depth_km']} km")
         )
+
+    def _bulletin(self, a: dict[str, Any]) -> str:
+        made = self.world.bulletin(str(a["quake"]), str(a["text"]))
+        return f"bulletin {made.id}: {made.quake}: {made.text}"
 
     def _alert(self, a: dict[str, Any]) -> str:
         made = self.world.alert(str(a["fab"]), str(a["level"]).lower())

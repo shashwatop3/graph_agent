@@ -22,7 +22,7 @@ from graph_agent.harness.llm import (
 
 from .adapter import DEPTH, EXPOSURE, MAGNITUDE
 from .pack import ALL_TEMPLATES, rank
-from .world import FAB_STATUS, FABS
+from .world import BULLETIN, FAB_STATUS, FABS, TSUNAMI, bulletin_text
 
 LINE = re.compile(r"^\[(B\d+) (active|suspect) routes \d+ conf [\d.]+\] (.+?)   (.+)$")
 ACTION = re.compile(r"^- (P\d+) (\w+)\((.*?)\) resting on (.*?): (\w+)")
@@ -32,7 +32,7 @@ def _patterns() -> list[tuple[str, re.Pattern[str]]]:
     found: list[tuple[str, re.Pattern[str]]] = []
     for predicate, template in ALL_TEMPLATES.items():
         regex = re.escape(template).replace(r"\{subject\}", r"(?P<subject>\S+)")
-        regex = regex.replace(r"\{value\}", r"(?P<value>\S+)")
+        regex = regex.replace(r"\{value\}", r"(?P<value>.+?)")
         found.append((predicate, re.compile(f"^{regex}$")))
     return found
 
@@ -88,10 +88,19 @@ def acted_on(context: str) -> set[str]:
     return found
 
 
-def best(seen: list[Seen], predicate: str) -> Seen | None:
+def best(seen: list[Seen], predicate: str, subject: str | None = None) -> Seen | None:
     """The live figure from the most authoritative source; none from unknown accounts."""
-    live = [b for b in seen if b.predicate == predicate and b.status == "active" and b.rank > 0]
-    return max(live, key=lambda b: b.rank, default=None)
+    live = [
+        b
+        for b in seen
+        if b.predicate == predicate
+        and b.status == "active"
+        and b.rank > 0
+        and (subject is None or b.subject == subject)
+    ]
+    # equally authoritative figures that disagree: keep the first one, until a more
+    # authoritative source settles it (a desk that flips between them reissues for nothing)
+    return max(live, key=lambda b: (b.rank, -int(b.id[1:])), default=None)
 
 
 Script = Generator[ToolCall, str, None]
@@ -109,6 +118,45 @@ def hazard(context: str) -> Script:
     for predicate in (MAGNITUDE, DEPTH):
         figure = best(seen, predicate)
         if figure is not None:
+            yield call("send", to="risk", belief_id=figure.id)  # a repeat is refused: harmless
+
+
+def seismic(context: str) -> Script:
+    """The day's seismic desk: a bulletin for every quake from the figures that count, redone
+    only when one of them changes; the strongest quake's figures to risk."""
+    seen = beliefs(context)
+    for b in seen:
+        if b.predicate == BULLETIN and b.status == "suspect":
+            yield call("retract", belief_id=b.id, reason="a figure it rested on was revised")
+    quakes = sorted({b.subject for b in seen if b.predicate == MAGNITUDE})
+    strongest: tuple[float, Seen, Seen] | None = None
+    for quake in quakes:
+        magnitude, depth = best(seen, MAGNITUDE, quake), best(seen, DEPTH, quake)
+        tsunami = best(seen, TSUNAMI, quake)
+        if magnitude is None or depth is None or tsunami is None:
+            continue
+        if strongest is None or float(magnitude.value) > strongest[0]:
+            strongest = (float(magnitude.value), magnitude, depth)
+        text = bulletin_text(float(magnitude.value), float(depth.value), tsunami.value == "yes")
+        live = [
+            b
+            for b in seen
+            if b.predicate == BULLETIN and b.subject == quake and b.status == "active"
+        ]
+        if any(b.value == text for b in live):
+            continue
+        for old in live:
+            yield call("retract", belief_id=old.id, reason="replaced")
+        made = yield call(
+            "assert_belief",
+            subject=quake,
+            predicate=BULLETIN,
+            value=text,
+            depends_on=[magnitude.id, depth.id, tsunami.id],
+        )
+        yield call("send", to="ops", belief_id=made.split()[-1])
+    if strongest is not None:
+        for figure in strongest[1:]:
             yield call("send", to="risk", belief_id=figure.id)  # a repeat is refused: harmless
 
 
@@ -150,15 +198,24 @@ def risk(context: str) -> Script:
 def ops(context: str) -> Script:
     done = acted_on(context)
     for b in beliefs(context):
-        if b.predicate == EXPOSURE and b.status == "active" and b.id not in done:
+        if b.status != "active" or b.id in done:
+            continue
+        if b.predicate == EXPOSURE:
             yield call("fab_alert", fab=b.subject, level=b.value, depends_on=[b.id])
+        elif b.predicate == BULLETIN:
+            yield call("bulletin_send", quake=b.subject, text=b.value, depends_on=[b.id])
 
 
 def _nothing(context: str) -> Script:
     yield from ()
 
 
-NODES: dict[str, Callable[[str], Script]] = {"hazard": hazard, "risk": risk, "ops": ops}
+NODES: dict[str, Callable[[str], Script]] = {
+    "hazard": hazard,
+    "seismic": seismic,
+    "risk": risk,
+    "ops": ops,
+}
 
 
 def desk_team() -> ScriptedModel:

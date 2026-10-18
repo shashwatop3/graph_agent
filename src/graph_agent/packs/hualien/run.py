@@ -43,7 +43,7 @@ def build_quake(
     store: Store | None = None,
     log: EventLog | None = None,
 ) -> tuple[Runtime, QuakeWorld]:
-    world = QuakeWorld()
+    world = QuakeWorld(script="day" if team.settings.extra.get("script") == "day" else "desk")
     pack = QuakePack(world)
     runtime = Runtime(team, pack, store or MemoryStore(), client, log=log)
     pack.setup(runtime)

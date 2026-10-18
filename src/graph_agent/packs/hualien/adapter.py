@@ -50,7 +50,7 @@ TEMPLATES = {
 
 # How far to trust a source's figures when two sources disagree: higher wins. A relay (a wire
 # service, a desk) has no authority of its own: it carries a figure, it does not originate one.
-AUTHORITY = {"USGS": 3, "PTWC": 2, "ATWC": 2}
+AUTHORITY = {"USGS": 3, "EMSC": 2, "PTWC": 2, "ATWC": 2, "GDACS": 1}
 
 
 # ---- the map ------------------------------------------------------------------------------------

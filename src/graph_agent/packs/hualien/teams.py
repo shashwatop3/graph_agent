@@ -15,6 +15,8 @@ that can act reads no reports: only the assessments the risk desk sent it.
 
 from graph_agent.frame.spec import LinkSpec, NodeSpec, Settings, TeamSpec, Trigger
 
+from .world import DAY_TICKS
+
 WAKE = [Trigger(on="item"), Trigger(on="message"), Trigger(on="change"), Trigger(on="exposure")]
 
 HAZARD = NodeSpec(
@@ -98,4 +100,94 @@ def desk_team() -> TeamSpec:
     )
 
 
-TEAMS = {"desk": desk_team}
+# ---- the day: three quakes, five sources ---------------------------------------------------------
+
+DAY_FEEDS = {
+    "centres": "Warning centres (PTWC, ATWC)",
+    "usgs": "USGS",
+    "emsc": "EMSC",
+    "gdacs": "GDACS",
+    "posts": "Posts",
+}
+
+SEISMIC = NodeSpec(
+    id="seismic",
+    type="agent",
+    label="Seismic desk",
+    role="seismic desk: every quake's figures, and its bulletin",
+    goals=(
+        "Each quake is its own entity, matched from what the agencies report. For each one, keep "
+        "the magnitude, depth and tsunami threat that count: when sources disagree, the most "
+        "authoritative one counts, and a post never does. Plan its bulletin (quake.bulletin on "
+        "the quake, value like 'M7.4, 40 km deep, tsunami: yes'), depends_on the magnitude, depth "
+        "and tsunami beliefs you used, and send it to ops. When one of them changes, retract the "
+        "bulletin and plan a new one. Send risk the magnitude and depth of the strongest quake."
+    ),
+    triggers=WAKE,
+)
+
+DAY_OPS = NodeSpec(
+    id="ops",
+    type="responder",
+    label="Ops",
+    role="operations: publishes the quakes' bulletins and alerts the fabs",
+    goals=(
+        "Publish each bulletin you are sent (bulletin_send, depends_on the bulletin belief) and "
+        "send each fab the alert its latest assessment calls for (fab_alert, depends_on the "
+        "assessment). Look at bulletins and fab_alerts first so you do nothing twice. When an "
+        "action is HELD because what it rested on changed, wait for the new plan and carry it "
+        "out."
+    ),
+    triggers=[Trigger(on="message"), Trigger(on="change"), Trigger(on="approval")],
+    tools=["bulletins", "bulletin_send", "fab_alerts", "fab_alert"],
+)
+
+
+def day_team() -> TeamSpec:
+    nodes = [
+        *(
+            NodeSpec(
+                id=f"{feed}-feed",
+                type="stream",
+                label=label,
+                config={"feed": feed, "when": "start"},
+            )
+            for feed, label in DAY_FEEDS.items()
+        ),
+        NodeSpec(id="router", type="router", label="Router", config={"fallback": "seismic"}),
+        SEISMIC,
+        RISK,
+        DAY_OPS,
+        NodeSpec(id="checker", type="checker", label="Checker"),
+    ]
+    links = [LinkSpec(kind="feeds", src=f"{feed}-feed", dst="router") for feed in DAY_FEEDS]
+    links += [
+        LinkSpec(kind="owns", src="seismic", dst="type:Quake"),
+        LinkSpec(kind="owns", src="risk", dst="type:Fab"),
+        LinkSpec(kind="talks_to", src="seismic", dst="risk"),
+        LinkSpec(kind="talks_to", src="seismic", dst="ops"),
+        LinkSpec(kind="talks_to", src="risk", dst="ops"),
+        LinkSpec(kind="watches", src="ops", dst="seismic"),
+        LinkSpec(kind="watches", src="ops", dst="risk"),
+    ]
+    return TeamSpec(
+        name="Quake desk: a real day, Hualien, 3 April 2024",
+        pack="hualien",
+        description=(
+            "Three real quakes as five sources reported them in the first hour, and four posts: "
+            "the desk keeps each quake apart, publishes its bulletin, and corrects only what a "
+            "revision touches."
+        ),
+        settings=Settings(
+            ticks=DAY_TICKS,
+            budget=4000,
+            max_steps=16,
+            quarantine="team",
+            extra={"script": "day"},
+        ),
+        nodes=nodes,
+        links=links,
+    )
+
+
+TEAMS = {"desk": desk_team, "day": day_team}

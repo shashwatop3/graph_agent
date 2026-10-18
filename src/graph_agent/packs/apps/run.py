@@ -121,11 +121,13 @@ QUAKE_DESK = {
         },
     ],
     "reading": (
-        "Each quake is one thing of kind Quake, however many sources report it. Name it "
-        "q-<region>-<date> in lowercase (q-hualien-2026-10-18), and use the id in the list of "
-        "things when it is the same quake: the same region within an hour or so, whoever "
-        "reports it. A magnitude is a number; a time is the quake's origin time in ISO 8601, "
-        "UTC. A post that names no quake (a joke, a game) is not about one: reply {}."
+        "Each quake is one thing of kind Quake, however many sources report it. Name it by its "
+        "origin time in UTC, to the minute: q-<YYYY-MM-DD>T<HHMM> (q-2024-04-02T2358). Use an "
+        "id from the list of things when it is the same quake: origin times within 2 minutes "
+        "and epicentres within about 60 km, whoever reports it. A quake in the same region "
+        "later the same day is another quake (an aftershock), with its own id. A magnitude is a "
+        "number; a time is the quake's origin time in ISO 8601, UTC. A post that names no quake "
+        "(a joke, a game) is not about one: reply {}."
     ),
     "polls": 24,
     "pace": 30,

@@ -1,5 +1,6 @@
 """The quake desk in the console: its team, tools, run options and world."""
 
+from collections.abc import Callable
 from typing import Any
 
 from graph_agent.core.store import Store
@@ -19,7 +20,7 @@ from .pack import ALL_TEMPLATES, QuakeTools
 from .run import build_quake, score_quake
 from .standin import desk_team as stand_in_team
 from .teams import TEAMS
-from .world import FABS, QuakeWorld, exposure
+from .world import FABS, QuakeWorld, exposure, tick_time
 
 
 class QuakeConsole:
@@ -75,10 +76,15 @@ class QuakeConsole:
             run = score_quake(runtime, world)
             return {**run.score, "checks": run.checks}
 
-        return Session(runtime, lambda: world_view(world), score, lambda t: f"tick {t}")
+        label: Callable[[int], str] = tick_time if world.script == "day" else _tick
+        return Session(runtime, lambda: world_view(world), score, label)
 
     def recorded(self) -> list[Recorded]:
         return []
+
+
+def _tick(tick: int) -> str:
+    return f"tick {tick}"
 
 
 def world_view(w: QuakeWorld) -> dict[str, Any]:
@@ -86,9 +92,29 @@ def world_view(w: QuakeWorld) -> dict[str, Any]:
     return {
         "lens": "hualien",
         "reports": [
-            {"id": r.id, "tick": r.tick, "source": r.source, "text": r.text, "rumour": r.rumour}
+            {
+                "id": r.id,
+                "tick": r.tick,
+                "source": r.source,
+                "text": r.text,
+                "rumour": r.rumour,
+                "written": r.written,  # a post written for the replay
+                "about": list(r.about),
+            }
             for r in w.delivered
         ],
+        # the day: each quake, the reports matched to it and why, and its bulletin in force
+        "quakes": [
+            {
+                "id": k.id,
+                "origin": k.origin,
+                "reports": list(k.reports),
+                "bulletin": w.bulletins_in_force().get(k.id),
+            }
+            for k in w.known
+        ],
+        "matched": list(w.matched),
+        "bulletins": [vars(b) for b in w.bulletins],
         "fabs": [
             {
                 "id": fab,
