@@ -163,13 +163,18 @@ export function Graph(p: Props) {
         );
       })}
 
-      {/* trust cuts between two nodes of the team, as in the Fire game */}
-      {live?.cuts.map((c, k) => {
-        if (!positions[c.viewer] || !positions[c.agent]) return null;
-        const [x1, y1] = at(c.viewer), [x2, y2] = at(c.agent);
+      {/* trust cuts between two nodes of the team, as in the Fire game: a cross on the link
+          between them, or a faint dashed line between two that do not talk */}
+      {[...new Set((live?.cuts ?? []).map((c) => [c.viewer, c.agent].sort().join("\u0000")))].map((pair) => {
+        const [u, v] = pair.split("\u0000") as [string, string];
+        if (!positions[u] || !positions[v]) return null;
+        const [x1, y1] = at(u), [x2, y2] = at(v);
+        if (!talks.some((l) => (l.src === u && l.dst === v) || (l.src === v && l.dst === u))) {
+          return <line key={`c${pair}`} x1={x1} y1={y1} x2={x2} y2={y2} stroke="var(--stale)" strokeWidth={1} strokeDasharray="4 4" opacity={0.6} />;
+        }
         const mx = (x1 + x2) / 2, my = (y1 + y2) / 2, s = 6;
         return (
-          <path key={`c${k}`} d={`M${mx - s},${my - s} L${mx + s},${my + s} M${mx + s},${my - s} L${mx - s},${my + s}`}
+          <path key={`c${pair}`} d={`M${mx - s},${my - s} L${mx + s},${my + s} M${mx + s},${my - s} L${mx - s},${my + s}`}
             stroke="var(--stale)" strokeWidth={3} strokeLinecap="round" />
         );
       })}
