@@ -171,3 +171,98 @@
 .g-match td:nth-child(2) { font-family: var(--f-mono); font-size: 11.5px; white-space: nowrap; }
 .g-match tr.new td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
 .g-match td.why { color: var(--muted); }
+
+/* ---- explainers in pictures (setups/GuideView, FirePlayback, Visuals) ---- */
+@keyframes g-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes g-pulse { 0%, 100% { box-shadow: 0 0 0 0 transparent; } 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); } }
+.g-hero { display: grid; gap: 14px; padding-top: 16px; }
+.g-lede { margin: 0; font-family: var(--f-display); font-size: clamp(17px, 2vw, 21px); line-height: 1.4; max-width: 62ch; text-wrap: balance; }
+.g-play { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(220px, 1fr); gap: 16px; align-items: center; }
+@media (max-width: 820px) { .g-play { grid-template-columns: minmax(0, 1fr); } }
+.g-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
+.g-play .g-tiles { grid-template-columns: minmax(0, 1fr); }
+.g-tile { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); animation: g-in .5s ease both; }
+.g-tile:nth-child(2) { animation-delay: .08s; } .g-tile:nth-child(3) { animation-delay: .16s; } .g-tile:nth-child(4) { animation-delay: .24s; } .g-tile:nth-child(5) { animation-delay: .32s; } .g-tile:nth-child(6) { animation-delay: .4s; }
+.g-tile b { display: block; font-size: 13px; }
+.g-tile span { font-size: 12px; color: var(--muted); }
+.g-glyph { width: 30px; height: 30px; flex: none; }
+.g-more { margin-top: 12px; }
+.g-more summary { cursor: pointer; font-size: 12.5px; color: var(--accent); }
+.g-more[open] summary { margin-bottom: 10px; }
+.g-turn { display: grid; grid-template-columns: minmax(0, 1.3fr) auto minmax(0, 1fr) auto minmax(0, 1fr); gap: 10px; align-items: stretch; }
+@media (max-width: 760px) { .g-turn { grid-template-columns: minmax(0, 1fr); } .g-arrow { transform: rotate(90deg); justify-self: center; } }
+.g-step { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: grid; gap: 8px; align-content: start; animation: g-pulse 6s ease-in-out infinite; }
+.g-step.s2 { animation-delay: 2s; } .g-step.s3 { animation-delay: 4s; }
+.g-arrow { align-self: center; font-size: 20px; color: var(--muted); }
+.g-mini { display: grid; gap: 4px; }
+.g-mini code { font-family: var(--f-mono); font-size: 11px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 7px; overflow-wrap: anywhere; }
+.g-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.g-chips span { font-family: var(--f-mono); font-size: 11.5px; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--accent); color: var(--accent); }
+.g-chips.out span { border-color: var(--line); color: var(--ink); background: var(--soft); }
+.g-end { display: grid; gap: 14px; padding-top: 16px; }
+.g-minds { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
+.g-minds > div { border: 1px solid var(--line); border-left: 4px solid var(--c); border-radius: 10px; padding: 8px 10px; display: grid; gap: 2px; }
+.g-minds b { color: var(--c); font-size: 13.5px; }
+.g-minds span { font-size: 12.5px; color: var(--muted); }
+.g-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.g-stats > div { border-radius: 12px; background: var(--soft); padding: 10px 12px; display: grid; animation: g-in .6s ease both; }
+.g-stats b { font-family: var(--f-display); font-size: 28px; line-height: 1.1; }
+.g-stats span { font-size: 12px; color: var(--muted); }
+
+/* the fire game on its ring */
+.fp { margin: 0; display: grid; gap: 6px; }
+.fp svg { max-width: 460px; justify-self: center; }
+.fp-link { stroke: var(--line); stroke-width: 1.6; transition: stroke .4s ease; }
+.fp-link.cut { stroke: var(--stale); stroke-dasharray: 3 5; }
+.fp-hidden { fill: none; stroke: var(--fire); stroke-width: 2; stroke-dasharray: 1 5; animation: l-march 1s linear infinite; }
+.fp-msg { fill: var(--accent); }
+.fp-msg.lie { fill: var(--lie); }
+.fp-msg.dropped { opacity: .55; }
+.fp-disc { fill: var(--panel); stroke: var(--ok); stroke-width: 2; transition: stroke .4s ease; }
+.fp-field.liar .fp-disc { stroke: var(--lie); stroke-width: 2.6; }
+.fp-field.off { opacity: .45; }
+.fp-flame { transition: r .6s ease; animation: fp-flicker 1.2s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: center; }
+@keyframes fp-flicker { from { opacity: .75; transform: scale(.94); } to { opacity: 1; transform: scale(1.04); } }
+.fp-name { font-size: 12px; font-weight: 700; fill: var(--ink); }
+.fp-keeper { font-size: 9.5px; fill: var(--muted); }
+.fp-field.liar .fp-keeper { fill: var(--lie); }
+.fp-str { font-size: 11px; font-weight: 700; fill: var(--fire); }
+.fp-drop { fill: var(--water); animation: fp-drop 1.2s ease-in both; }
+@keyframes fp-drop { from { transform: translateY(-14px); opacity: 0; } 60% { opacity: 1; } to { transform: translateY(10px); opacity: 0; } }
+.fp-out { font-size: 9.5px; fill: var(--water); animation: g-in .6s ease both; }
+.fp-day { font-family: var(--f-display); font-size: 26px; font-weight: 700; fill: var(--ink); }
+.fp-sub { font-size: 10.5px; fill: var(--muted); }
+.fp-caption { margin: 0; text-align: center; font-size: 14px; min-height: 2.8em; animation: g-in .5s ease both; }
+.fp-controls { display: flex; gap: 6px; align-items: center; justify-content: center; flex-wrap: wrap; }
+.fp-key { display: flex; gap: 4px 12px; justify-content: center; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+.fp-key i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+.fp-key .k-fire { background: var(--fire); } .fp-key .k-msg { background: var(--accent); } .fp-key .k-lie { background: var(--lie); }
+.fp-key .k-cut { border-radius: 0; height: 0; border-top: 2px dashed var(--stale); width: 14px; } .fp-key .k-drop { background: var(--water); border-radius: 50% 50% 50% 0; }
+@media (prefers-reduced-motion: reduce) { .fp-flame, .fp-drop, .fp-hidden, .g-step, .g-tile, .g-stats > div { animation: none; } }
+
+/* a story, one step at a time */
+.ss { display: grid; gap: 10px; }
+.ss-rail { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0; }
+.ss-rail li { flex: 1 1 90px; border-top: 3px solid var(--line); transition: border-color .3s ease; }
+.ss-rail li.past, .ss-rail li.on { border-color: var(--accent); }
+.ss-rail li.on.correction, .ss-rail li.past.correction { border-color: var(--gold); }
+.ss-rail li.on.lie, .ss-rail li.past.lie { border-color: var(--lie); }
+.ss-rail button { border: 0; background: none; padding: 6px 4px 0; font-size: 11.5px; color: var(--muted); text-align: left; width: 100%; }
+.ss-rail li.on button { color: var(--ink); font-weight: 700; }
+.ss-now { margin: 0; font-size: 15px; line-height: 1.55; min-height: 4.6em; animation: g-in .45s ease both; border-left: 3px solid var(--accent); padding-left: 12px; }
+.ss-now.correction { border-color: var(--gold); } .ss-now.lie { border-color: var(--lie); } .ss-now.evidence { border-color: var(--water); }
+.ss-play { justify-self: start; font-size: 12px; }
+
+/* which quake: reports dropping onto their quake */
+.mt svg { max-width: 760px; }
+.mt-axis { stroke: var(--muted); stroke-width: 1.2; }
+.mt-tick { font-size: 10px; fill: var(--muted); }
+.mt-lane { stroke: var(--line); stroke-dasharray: 2 4; }
+.mt-quake { fill: var(--gold); }
+.mt-label { font-size: 11px; font-weight: 700; fill: var(--ink); }
+.mt-src { font-size: 9.5px; fill: var(--muted); }
+.mt-drop { animation: mt-drop .6s cubic-bezier(.2, .9, .3, 1.2) both; }
+@keyframes mt-drop { from { transform: translateY(-40px); opacity: 0; } to { transform: none; opacity: 1; } }
+.mt-why { margin: 4px 0 0; font-size: 13px; color: var(--muted); min-height: 1.6em; }
+.mt-why b { color: var(--ink); }
+.qg-caption { margin: 0; font-size: 14.5px; min-height: 1.6em; animation: g-in .45s ease both; }

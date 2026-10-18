@@ -4,6 +4,7 @@ import { c } from "../css";
 import type { StreamPeek, TeamSpec } from "../types";
 import { SETUPS, setupById, type Setup } from "./content";
 import { GuideView } from "./GuideView";
+import { StoryStepper } from "./Visuals";
 import { TeamDiagram } from "./TeamDiagram";
 
 type Run = (pack: string, team: TeamSpec, name: string, options: RunOptions) => Promise<void>;
@@ -18,10 +19,10 @@ export function SetupsView({ onOpen }: { onOpen: (id: string) => void }) {
         <p>Each setup is a full team with its own world: a real day replayed, a live feed, a simulation or a scripted week. Three run free with a scripted stand-in; all four can run on a real Claude model with your own key.</p>
       </section>
       <ol className="tutorial">
-        <li><h3>Pick a setup</h3><p>Open one below and read its story: what happens, who is on the team, what to watch for. The team diagram is drawn from the team that will run.</p></li>
-        <li><h3>Choose a model</h3><p><b>Scripted stand-in</b> is free and instant, the same every time. A real model (Haiku or Sonnet) needs your Anthropic key in <a className="linkish" href="#settings">Settings</a>; every request is cached, so a rerun is free.</p></li>
-        <li><h3>Run, then play</h3><p>Press Run. On the timeline, <b>Step ⏵</b> plays one tick, or play to the end. The network shows who told whom: a message not believed is drawn in magenta, a cut trust in red.</p></li>
-        <li><h3>Ask why</h3><p>Click an agent to see what it heard, thought, said and believes. Click one of its beliefs for the why-chain: the observations behind it and the route each took, and open the <b>Memory</b> tab for corrections and what they changed.</p></li>
+        <li><h3>Pick a setup</h3><p>Watch its story play out.</p></li>
+        <li><h3>Choose a model</h3><p><b>Stand-in</b>: free. Claude: your key in <a className="linkish" href="#settings">Settings</a>.</p></li>
+        <li><h3>Run, then play</h3><p><b>Step ⏵</b> a tick at a time, or play to the end.</p></li>
+        <li><h3>Ask why</h3><p>Click an agent, then a belief: its route through the graph.</p></li>
       </ol>
       <section className="panel">
         <div className="ph"><div><div className="eyebrow">At a glance</div><h2>What each one shows</h2></div></div>
@@ -87,32 +88,28 @@ export function SetupPage({ id, onBack, onRun }: { id: string; onBack: () => voi
       <div className="setup-cols">
         <div className="setup-main">
           {setup.guide && <GuideView guide={setup.guide} />}
-          {setup.story.length > 0 && <section className="panel">
-            <div className="ph"><div><div className="eyebrow">What happens</div><h2>{setup.guide ? "This game, day by day" : "The story"}</h2></div></div>
-            <ol className="story">
-              {setup.story.map((step, i) => (
-                <li key={i} className={step.tone ?? ""}>
-                  <span className="when">{step.when}</span>
-                  <p>{step.what}</p>
-                </li>
-              ))}
-            </ol>
+          {setup.story.length > 0 && !setup.guide && <section className="panel">
+            <div className="ph"><div><div className="eyebrow">What happens</div><h2>The story</h2></div></div>
+            <div className="pb"><StoryStepper steps={setup.story} /></div>
           </section>}
           <section className="panel">
             <div className="ph"><div><div className="eyebrow">Drawn from the team that runs</div><h2>The team</h2></div></div>
             <div className="pb">
               {team ? <TeamDiagram team={team} layout={setup.layout} /> : <p className="none">{problem || "Loading the team…"}</p>}
-              <ul className="roster">
-                {setup.team.map((t) => <li key={t.node}><b>{t.node}</b><span>{t.does}</span></li>)}
-              </ul>
+              <details className="g-more">
+                <summary>Who does what</summary>
+                <ul className="roster">
+                  {setup.team.map((t) => <li key={t.node}><b>{t.node}</b><span>{t.does}</span></li>)}
+                </ul>
+              </details>
             </div>
           </section>
-          <section className="panel">
+          {!setup.guide && <section className="panel">
             <div className="ph"><div><div className="eyebrow">While it runs</div><h2>What to watch for</h2></div></div>
             <div className="pb watch">
               {setup.watch.map((w) => <div key={w.title}><h3>{w.title}</h3><p>{w.body}</p></div>)}
             </div>
-          </section>
+          </section>}
         </div>
         <aside className="setup-side">
           <RunPanel setup={setup} team={team} onRun={onRun} />

@@ -1,197 +1,141 @@
 import { useState } from "react";
 import { c } from "../css";
 import "../landing/landing.css";
-import type { Guide } from "./guide";
+import { FirePlayback } from "./FirePlayback";
+import type { Guide, Icon } from "./guide";
 import { QuakeGraph } from "./QuakeGraph";
 import day from "./quakeDay.json";
+import { MatchTimeline } from "./Visuals";
 
-/** A setup's long explainer (guide.ts): the game, a day, what an agent reads, its tools, how each
- * kind of node decides, and a real run. */
+/** A setup's explainer in pictures (guide.ts): the game playing out, the rules as tiles, an
+ * agent's turn in three steps (its real context behind a toggle), who decides what, the result. */
 export function GuideView({ guide }: { guide: Guide }) {
-  const [tab, setTab] = useState(0);
-  const section = guide.screen.sections[tab]!;
-  const t = guide.titles ?? {};
-  const quake = guide.visual === "quake";
+  const fire = guide.visual === "fire";
   return (
     <>
       <section className="panel">
-        <div className="ph"><div><div className="eyebrow">{quake ? "Real records, replayed" : "First, the game"}</div><h2>{t.game ?? "How it works"}</h2></div></div>
-        {quake
-          ? <div className="pb"><p className="g-lead">{guide.game}</p></div>
-          : (
-            <div className="pb g-game">
-              <div>
-                <p className="g-lead">{guide.game}</p>
-                <FireTrack />
-              </div>
-              <RingBoard />
-            </div>
-          )}
-        <div className="pb g-rules">
-          {guide.rules.map((r) => <div key={r.title}><h3>{r.title}</h3><p>{r.body}</p></div>)}
+        <div className="pb g-hero">
+          <p className="g-lede">{guide.lede}</p>
+          {fire
+            ? <div className="g-play"><FirePlayback /><Tiles tiles={guide.tiles} /></div>
+            : <Tiles tiles={guide.tiles} />}
         </div>
       </section>
 
-      <section className="panel">
-        <div className="ph"><div><div className="eyebrow">{quake ? "What the desks are for" : "What everyone is playing for"}</div><h2>{quake ? "Goal and checks" : "Goal and score"}</h2></div></div>
-        <div className="pb">
-          <p className="g-lead">{guide.goal}</p>
-          <ul className="g-score">{guide.score.map((s) => <li key={s}>{s}</li>)}</ul>
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="ph"><div><div className="eyebrow">{t.dayEyebrow ?? "Every day, in this order"}</div><h2>{t.day ?? "One day of the game"}</h2></div></div>
-        <div className="pb">
-          <ol className="g-day">
-            {guide.day.map((d) => <li key={d.when}><b>{d.when}</b><p>{d.what}</p></li>)}
-          </ol>
-        </div>
-      </section>
-
-      {quake && (
+      {!fire && (
         <>
           <section className="panel">
-            <div className="ph"><div><div className="eyebrow">The edge case: which quake is this?</div><h2>Every report, matched</h2></div></div>
+            <div className="ph"><div><div className="eyebrow">No report names its quake</div><h2>Which quake is it?</h2></div></div>
             <div className="pb">
-              <p className="g-lead">No report says which quake it is about, and the three quakes are in the same region on the same day. Matching by region and date, as the live desk first did, makes them one quake: the aftershock's M6.4 then overwrites the main shock's 7.4, and on the live desk, where the agencies' figures are evidence, an honest poster who reported the aftershock is blamed for lying. Matching by origin time and distance keeps them apart:</p>
-              <table className="g-match">
-                <thead><tr><th>Report</th><th>Quake</th><th>Why</th></tr></thead>
-                <tbody>
-                  {(day.matched as { report: string; quake: string; why: string }[]).map((m) => (
-                    <tr key={m.report} className={m.why.startsWith("a new quake") || m.why.startsWith("the first") ? "new" : ""}>
-                      <td>{m.report}</td><td>{m.quake}</td><td className="why">{m.why}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <MatchTimeline />
+              <details className="g-more">
+                <summary>All 13 matches</summary>
+                <table className="g-match">
+                  <tbody>
+                    {(day.matched as { report: string; quake: string; why: string }[]).map((m) => (
+                      <tr key={m.report}><td>{m.report}</td><td>{m.quake}</td><td className="why">{m.why}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </details>
             </div>
           </section>
           <section className="panel">
-            <div className="ph"><div><div className="eyebrow">From one free replay, not a mock-up</div><h2>The graph, minute by minute</h2></div></div>
-            <div className="pb">
-              <p className="g-lead">Every report, the facts it supports, the bulletins and fab ratings planned from them, and what ops did. Press play: at 00:15 a lie is caught by a fab's own sensors; at 00:40 the review reaches along DERIVED_FROM to exactly the main shock's bulletin and the fab alerts, while the aftershocks' stay green.</p>
-              <QuakeGraph />
-            </div>
+            <div className="ph"><div><div className="eyebrow">One free replay, minute by minute</div><h2>The graph</h2></div></div>
+            <div className="pb"><QuakeGraph captions={guide.captions} /></div>
           </section>
         </>
       )}
 
       <section className="panel">
-        <div className="ph"><div><div className="eyebrow">Each turn, compiled from the graph</div><h2>{t.screen ?? "What a keeper reads"}</h2></div></div>
+        <div className="ph"><div><div className="eyebrow">Every turn</div><h2>{fire ? "A keeper's turn" : "A desk's turn"}</h2></div></div>
         <div className="pb">
-          <p className="note g-top">{guide.screen.who}</p>
-          <div className="g-screen">
-            <div className="g-tabs" role="tablist" aria-label="Sections of the context">
-              {guide.screen.sections.map((s, i) => (
-                <button key={s.name} role="tab" aria-selected={i === tab} className={i === tab ? "on" : ""} onClick={() => setTab(i)}>{s.name}</button>
-              ))}
-            </div>
-            <div className="g-pane" role="tabpanel">
-              <p>{section.why}</p>
-              <pre><code>{section.text}</code></pre>
-            </div>
+          <Turn turn={guide.turn} />
+          <details className="g-more">
+            <summary>See the real screen ({guide.screen.who})</summary>
+            <Screen guide={guide} />
+          </details>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="pb g-end">
+          <div className="g-minds">
+            {guide.minds.map((m) => <div key={m.who} style={c(m.colour)}><b>{m.who}</b><span>{m.line}</span></div>)}
           </div>
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="ph"><div><div className="eyebrow">The only way to act or remember</div><h2>Its tools</h2></div></div>
-        <div className="pb">
-          <dl className="g-tools">
-            {guide.tools.map((t) => <div key={t.call}><dt><code>{t.call}</code></dt><dd>{t.does}</dd></div>)}
-          </dl>
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="ph"><div><div className="eyebrow">Who decides what</div><h2>How each one reacts</h2></div></div>
-        <div className="pb g-minds">
-          {guide.minds.map((m) => (
-            <div key={m.who} style={c(m.colour)}>
-              <h3>{m.who}</h3>
-              <ul>{m.how.map((h) => <li key={h}>{h}</li>)}</ul>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="ph"><div><div className="eyebrow">Not a mock-up</div><h2>{t.result ?? "A real game"}</h2></div></div>
-        <div className="pb">
-          <p className="g-lead">{guide.result.note}</p>
-          <dl className="facts">{guide.result.facts.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
+          <div className="g-stats">
+            {guide.result.facts.map(([n, label]) => <div key={label}><b>{n}</b><span>{label}</span></div>)}
+          </div>
         </div>
       </section>
     </>
   );
 }
 
-/** A field's fire strength: it arrives at 1, grows a step a night unless watered, and is lost
- * after two nights at 5. Water takes a step off; on the day it arrives, all of it. */
-function FireTrack() {
-  const steps = [0, 1, 2, 3, 4, 5];
+function Tiles({ tiles }: { tiles: Guide["tiles"] }) {
   return (
-    <svg className="g-track" viewBox="0 0 420 120" role="img" aria-label="Fire strength from 1 to 5: grows by 1 a day, falls by 1 when watered, lost after 2 days at 5">
-      <defs>
-        <marker id="g-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)" /></marker>
-      </defs>
-      {steps.map((s) => {
-        const x = 20 + s * 66;
-        const fill = s === 0 ? "var(--panel)" : `color-mix(in srgb, var(--fire) ${18 + s * 15}%, var(--panel))`;
-        return (
-          <g key={s}>
-            <rect x={x} y={34} width={56} height={34} rx={7} fill={fill} stroke={s === 5 ? "var(--stale)" : "var(--line)"} strokeWidth={s === 5 ? 2 : 1} />
-            <text x={x + 28} y={56} textAnchor="middle" fontSize={13} fill="var(--ink)">{s === 0 ? "out" : s}</text>
-          </g>
-        );
-      })}
-      <path d="M100,30 C140,6 200,6 240,30" fill="none" stroke="var(--fire)" strokeWidth={1.5} markerEnd="url(#g-arr)" />
-      <text x={170} y={12} textAnchor="middle" fontSize={10.5} fill="var(--fire)">+1 a night, unwatered</text>
-      <path d="M240,72 C200,96 140,96 100,72" fill="none" stroke="var(--water)" strokeWidth={1.5} markerEnd="url(#g-arr)" />
-      <text x={170} y={108} textAnchor="middle" fontSize={10.5} fill="var(--water)">−1 a day, watered</text>
-      <text x={76} y={84} textAnchor="middle" fontSize={9.5} fill="var(--muted)">arrives</text>
-      <text x={378} y={84} textAnchor="middle" fontSize={9.5} fill="var(--stale)">2 nights: lost</text>
-    </svg>
+    <div className="g-tiles">
+      {tiles.map((t) => (
+        <div key={t.title} className="g-tile">
+          <Glyph icon={t.icon} rank={t.rank} />
+          <div><b>{t.title}</b><span>{t.line}</span></div>
+        </div>
+      ))}
+    </div>
   );
 }
 
-/** The board of the seed-1 game: eight fields clockwise, the starting fire at F0, the two liars,
- * the one extra link (A1 to A3), and the hidden path F3 to F1 nobody knows of until fire uses it. */
-function RingBoard() {
-  const n = 8, cx = 160, cy = 150, R = 110;
-  const at = (i: number) => {
-    const a = -Math.PI / 2 + (i * 2 * Math.PI) / n;
-    return [cx + R * Math.cos(a), cy + R * Math.sin(a)] as const;
-  };
-  const liars = new Set([2, 4]);
+/** Reads → acts → the graph records it, each step lighting up in turn. */
+function Turn({ turn }: { turn: Guide["turn"] }) {
   return (
-    <svg className="g-ring" viewBox="0 0 320 310" role="img" aria-label="Eight fields on a ring; fire starts at F0; A2 and A4 are liars; A1 and A3 have an extra link">
-      <defs>
-        <marker id="g-cw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--fire)" /></marker>
-      </defs>
-      {Array.from({ length: n }, (_, i) => {
-        const [x1, y1] = at(i), [x2, y2] = at((i + 1) % n);
-        const k = 24 / Math.hypot(x2 - x1, y2 - y1);
-        return <line key={i} x1={x1 + (x2 - x1) * k} y1={y1 + (y2 - y1) * k} x2={x2 - (x2 - x1) * k} y2={y2 - (y2 - y1) * k} stroke="var(--fire)" strokeOpacity={0.55} strokeWidth={1.4} markerEnd="url(#g-cw)" />;
-      })}
-      {(() => { const [x1, y1] = at(1), [x2, y2] = at(3); return <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="var(--accent)" strokeDasharray="5 4" strokeWidth={1.3} />; })()}
-      {(() => { const [x1, y1] = at(3), [x2, y2] = at(1); return <path d={`M${x1 - 16},${y1 - 12} Q${cx - 10},${cy - 10} ${x2 - 20},${y2 + 8}`} fill="none" stroke="var(--fire)" strokeDasharray="1 5" strokeWidth={2} markerEnd="url(#g-cw)" />; })()}
-      <text x={cx - 6} y={cy + 4} textAnchor="middle" fontSize={10} fill="var(--muted)">hidden: F3 → F1</text>
-      {Array.from({ length: n }, (_, i) => {
-        const [x, y] = at(i);
-        const liar = liars.has(i), fire = i === 0;
-        return (
-          <g key={i}>
-            <circle cx={x} cy={y} r={20} fill={fire ? "color-mix(in srgb, var(--fire) 35%, var(--panel))" : "var(--panel)"} stroke={liar ? "var(--lie)" : fire ? "var(--fire)" : "var(--ok)"} strokeWidth={liar ? 2.4 : 1.6} />
-            <text x={x} y={y - 2} textAnchor="middle" fontSize={11} fill="var(--ink)">F{i}</text>
-            <text x={x} y={y + 10} textAnchor="middle" fontSize={9} fill={liar ? "var(--lie)" : "var(--muted)"}>A{i}</text>
-          </g>
-        );
-      })}
-      <g fontSize={10} fill="var(--muted)">
-        <text x={8} y={300}><tspan fill="var(--fire)">●</tspan> fire on day 0 · <tspan fill="var(--lie)">●</tspan> liar · <tspan fill="var(--accent)">- -</tspan> extra link · <tspan fill="var(--fire)">→</tspan> spread</text>
-      </g>
-    </svg>
+    <div className="g-turn">
+      <div className="g-step s1">
+        <div className="eyebrow">1 · reads its graph</div>
+        <div className="g-mini">{turn.reads.map((r) => <code key={r}>{r}</code>)}</div>
+      </div>
+      <span className="g-arrow" aria-hidden="true">→</span>
+      <div className="g-step s2">
+        <div className="eyebrow">2 · acts with tools</div>
+        <div className="g-chips">{turn.acts.map((a) => <span key={a}>{a}</span>)}</div>
+      </div>
+      <span className="g-arrow" aria-hidden="true">→</span>
+      <div className="g-step s3">
+        <div className="eyebrow">3 · the graph records it</div>
+        <div className="g-chips out">{turn.graph.map((g) => <span key={g}>{g}</span>)}</div>
+      </div>
+    </div>
   );
+}
+
+function Screen({ guide }: { guide: Guide }) {
+  const [tab, setTab] = useState(0);
+  const section = guide.screen.sections[tab]!;
+  return (
+    <div className="g-screen">
+      <div className="g-tabs" role="tablist" aria-label="Sections of the context">
+        {guide.screen.sections.map((s, i) => (
+          <button key={s.name} role="tab" aria-selected={i === tab} className={i === tab ? "on" : ""} onClick={() => setTab(i)}>{s.name}</button>
+        ))}
+      </div>
+      <div className="g-pane" role="tabpanel">
+        <p>{section.why}</p>
+        <pre><code>{section.text}</code></pre>
+      </div>
+    </div>
+  );
+}
+
+function Glyph({ icon, rank }: { icon: Icon; rank?: number }) {
+  const body: Record<Icon, JSX.Element> = {
+    fire: <path d="M16 4 C22 11 24 17 20 23 C18 26 14 26 12 23 C9 19 11 15 13 13 C13 16 14 17 15 17 C15 12 14 8 16 4 Z" fill="var(--fire)" />,
+    water: <path d="M16 5 C21 12 23 16 23 19 A7 7 0 0 1 9 19 C9 16 11 12 16 5 Z" fill="var(--water)" />,
+    message: <><circle cx="8" cy="16" r="4" fill="var(--accent)" /><circle cx="24" cy="16" r="4" fill="var(--accent)" opacity=".5" /><path d="M12 16 H20" stroke="var(--accent)" strokeWidth="2" strokeDasharray="2 2" /></>,
+    liar: <><circle cx="16" cy="16" r="10" fill="none" stroke="var(--lie)" strokeWidth="2.4" /><path d="M11 14 h3 M18 14 h3 M11 20 Q16 17 21 20" stroke="var(--lie)" strokeWidth="2" fill="none" /></>,
+    offline: <><path d="M10 10 A9 9 0 1 0 22 10" fill="none" stroke="var(--muted)" strokeWidth="2.4" /><path d="M16 5 V16" stroke="var(--muted)" strokeWidth="2.4" /></>,
+    goal: <><circle cx="16" cy="16" r="10" fill="none" stroke="var(--ok)" strokeWidth="2" /><circle cx="16" cy="16" r="5" fill="none" stroke="var(--ok)" strokeWidth="2" /><circle cx="16" cy="16" r="1.8" fill="var(--ok)" /></>,
+    authority: <>{[0, 1, 2].map((k) => <circle key={k} cx={8 + k * 8} cy="16" r="3.4" fill={k < (rank ?? 0) ? "var(--accent)" : "none"} stroke="var(--accent)" strokeWidth="1.4" />)}</>,
+    post: <path d="M6 8 H26 V21 H14 L9 26 V21 H6 Z" fill="none" stroke="var(--lie)" strokeWidth="2" />,
+    match: <><circle cx="10" cy="22" r="3" fill="var(--water)" /><circle cx="22" cy="22" r="3" fill="var(--gold)" /><path d="M10 19 L16 9 L22 19" fill="none" stroke="var(--muted)" strokeWidth="1.6" /><circle cx="16" cy="8" r="3.4" fill="var(--accent)" /></>,
+  };
+  return <svg className="g-glyph" viewBox="0 0 32 32" aria-hidden="true">{body[icon]}</svg>;
 }

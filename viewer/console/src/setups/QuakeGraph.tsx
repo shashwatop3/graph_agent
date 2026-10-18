@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import day from "./quakeDay.json";
 
 /** The Hualien day's graph as one free stand-in run left it, minute by minute (quakeDay.json, made
@@ -74,18 +74,28 @@ function layout() {
   return { at, bands, height: Math.max(y, last + ROW) + 8 };
 }
 
-export function QuakeGraph() {
+export function QuakeGraph({ captions }: { captions?: string[] }) {
   const { at, bands, height } = useMemo(layout, []);
   const last = DATA.ticks.length - 1;
-  const [tick, setTick] = useState(last);
+  // with captions it tells the story from the start, playing once it is scrolled into view
+  const [tick, setTick] = useState(captions ? 0 : last);
   const [playing, setPlaying] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!captions || !box.current || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    const seen = new IntersectionObserver(([entry]) => {
+      if (entry?.isIntersecting) { setPlaying(true); seen.disconnect(); }
+    }, { threshold: 0.35 });
+    seen.observe(box.current);
+    return () => seen.disconnect();
+  }, [captions]);
   const [hover, setHover] = useState<string | null>(null);
   useEffect(() => {
     if (!playing) return;
     if (tick >= last) { setPlaying(false); return; }
-    const t = window.setTimeout(() => setTick((k) => k + 1), 1400);
+    const t = window.setTimeout(() => setTick((k) => k + 1), captions ? 3200 : 1400);
     return () => window.clearTimeout(t);
-  }, [playing, tick, last]);
+  }, [playing, tick, last, captions]);
 
   const lit = useMemo(() => {
     if (!hover) return null;
@@ -105,7 +115,8 @@ export function QuakeGraph() {
   const byId = new Map(DATA.nodes.map((n) => [n.id, n]));
   const hovered = hover ? byId.get(hover) : undefined;
   return (
-    <div className="qg">
+    <div className="qg" ref={box}>
+      {captions && <p key={tick} className="qg-caption">{captions[tick]}</p>}
       <div className="qg-bar">
         <button className="btn" onClick={() => { if (tick >= last) setTick(0); setPlaying((p) => !p); }} aria-label={playing ? "Pause" : "Play the replay"}>{playing ? "❚❚" : "▶"}</button>
         <input type="range" min={0} max={last} value={tick} onChange={(e) => { setTick(Number(e.target.value)); setPlaying(false); }} aria-label="Time in the replay" />
@@ -157,7 +168,7 @@ export function QuakeGraph() {
       <p className="qg-detail" aria-live="polite">
         {hovered
           ? <>{describe(hovered, tick)}</>
-          : <>Hover a node to light up what it rests on and what rests on it. Drag the slider back to 00:35 to see the early figures before the review.</>}
+          : <>Hover a node: what it rests on, and what rests on it, light up.</>}
       </p>
     </div>
   );
