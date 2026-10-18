@@ -1,0 +1,206 @@
+import { useEffect, useState } from "react";
+import { api, type RunOptions } from "../api";
+import { c } from "../css";
+import type { StreamPeek, TeamSpec } from "../types";
+import { SETUPS, setupById, type Setup } from "./content";
+import { TeamDiagram } from "./TeamDiagram";
+
+type Run = (pack: string, team: TeamSpec, name: string, options: RunOptions) => Promise<void>;
+
+/** The front page: the three ready-made setups, each a card that opens its page. */
+export function SetupsView({ onOpen }: { onOpen: (id: string) => void }) {
+  return (
+    <div className="setups">
+      <section className="setups-hero">
+        <div className="eyebrow">Three ready-made teams</div>
+        <h2>Agents whose only memory is a shared graph</h2>
+        <p>Every agent records what it believes and what each belief rests on. When something turns out wrong, the correction travels the graph: exactly the plans built on it change, and whoever said it stops being trusted. Pick a team and watch it happen.</p>
+      </section>
+      <div className="setup-cards">
+        {SETUPS.map((s) => (
+          <button key={s.id} className="setup-card" style={c(s.colour)} onClick={() => onOpen(s.id)}>
+            <Motif id={s.id} />
+            <span className="tag">{s.kind}</span>
+            <h3>{s.title}</h3>
+            <p>{s.tagline}</p>
+            <span className="more">Read about it, then run it →</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** One setup's page: what happens, who is on the team, what to watch for, and running it. */
+export function SetupPage({ id, onBack, onRun }: { id: string; onBack: () => void; onRun: Run }) {
+  const setup = setupById(id);
+  const [team, setTeam] = useState<TeamSpec | null>(null);
+  const [problem, setProblem] = useState("");
+  useEffect(() => {
+    if (!setup) return;
+    setTeam(null);
+    api.template(setup.pack, setup.template).then(setTeam).catch((e: Error) => setProblem(e.message));
+  }, [setup]);
+  if (!setup) return <p className="none pad">No such setup. <button className="linkish" onClick={onBack}>All setups</button></p>;
+  return (
+    <div className="setup-page" style={c(setup.colour)}>
+      <button className="linkish back" onClick={onBack}>← All setups</button>
+      <section className="setup-hero">
+        <Motif id={setup.id} />
+        <div>
+          <span className="tag">{setup.kind}</span>
+          <h2>{setup.title}</h2>
+          <p>{setup.tagline}</p>
+          <dl className="facts">
+            {setup.facts.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}
+          </dl>
+        </div>
+      </section>
+      <div className="setup-cols">
+        <div className="setup-main">
+          <section className="panel">
+            <div className="ph"><div><div className="eyebrow">What happens</div><h2>The story</h2></div></div>
+            <ol className="story">
+              {setup.story.map((step, i) => (
+                <li key={i} className={step.tone ?? ""}>
+                  <span className="when">{step.when}</span>
+                  <p>{step.what}</p>
+                </li>
+              ))}
+            </ol>
+          </section>
+          <section className="panel">
+            <div className="ph"><div><div className="eyebrow">Drawn from the team that runs</div><h2>The team</h2></div></div>
+            <div className="pb">
+              {team ? <TeamDiagram team={team} layout={setup.layout} /> : <p className="none">{problem || "Loading the team…"}</p>}
+              <ul className="roster">
+                {setup.team.map((t) => <li key={t.node}><b>{t.node}</b><span>{t.does}</span></li>)}
+              </ul>
+            </div>
+          </section>
+          <section className="panel">
+            <div className="ph"><div><div className="eyebrow">While it runs</div><h2>What to watch for</h2></div></div>
+            <div className="pb watch">
+              {setup.watch.map((w) => <div key={w.title}><h3>{w.title}</h3><p>{w.body}</p></div>)}
+            </div>
+          </section>
+        </div>
+        <aside className="setup-side">
+          <RunPanel setup={setup} team={team} onRun={onRun} />
+          {setup.id === "quake-desk" && <RightNow />}
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function RunPanel({ setup, team, onRun }: { setup: Setup; team: TeamSpec | null; onRun: Run }) {
+  const [model, setModel] = useState(setup.models[0]!.value);
+  const [memory, setMemory] = useState("graph");
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState("");
+  async function start() {
+    if (!team) return;
+    setBusy(true);
+    setProblem("");
+    try {
+      const options = { ...setup.options, ...(setup.memory ? { memory } : {}) };
+      await onRun(setup.pack, team, setup.title, { model, options } as RunOptions);
+    } catch (e) {
+      setProblem((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="panel run-panel">
+      <div className="ph"><div><div className="eyebrow">Ready</div><h2>Run it</h2></div></div>
+      <div className="pb insp">
+        <div className="choices" role="radiogroup" aria-label="Model">
+          {setup.models.map((m) => (
+            <label key={m.value} className={`choice ${model === m.value ? "on" : ""}`}>
+              <input type="radio" name="model" checked={model === m.value} onChange={() => setModel(m.value)} />
+              <span><b>{m.label}</b><small>{m.note}</small></span>
+            </label>
+          ))}
+        </div>
+        {setup.memory && (
+          <div className="seg" role="group" aria-label="Memory">
+            <button aria-pressed={memory === "graph"} onClick={() => setMemory("graph")}>Shared graph</button>
+            <button aria-pressed={memory === "notes"} onClick={() => setMemory("notes")}>Shared notes (the baseline)</button>
+          </div>
+        )}
+        {setup.memory && memory === "notes" && <p className="note">The same team with one shared notes file instead of the graph: nothing tells a desk what rested on a fact that changed. Run both and compare the checks.</p>}
+        {setup.id === "quake-desk" && <p className="note">Outward actions are only recorded. A real model reads each item once (about 50 to 100 short requests in a run), from the key in <code>.env</code>, or your own under Your keys.</p>}
+        <button className="btn primary big" disabled={!team || busy} onClick={() => void start()}>{busy ? "Starting…" : `Run ${setup.title.split(":")[0]}`}</button>
+        {problem && <p className="err">{problem}</p>}
+        <p className="note">
+          {setup.pack === "apps"
+            ? <>To change its streams or agents, start from it under <a className="linkish" href="#apps">Make your own</a>.</>
+            : <>To change the team, open it on the <a className="linkish" href="#build">canvas</a>.</>}
+        </p>
+      </div>
+    </section>
+  );
+}
+
+/** The quake desk's sources, read now: the latest quakes USGS has (the same stream the desk reads). */
+function RightNow() {
+  const [peek, setPeek] = useState<StreamPeek | null>(null);
+  const [problem, setProblem] = useState("");
+  useEffect(() => {
+    api.peekStream({ preset: "usgs-quakes", most: 4 }).then(setPeek).catch((e: Error) => setProblem(e.message));
+  }, []);
+  return (
+    <section className="panel right-now">
+      <div className="ph"><div><div className="eyebrow"><i className="live" /> Live, read just now</div><h2>Right now at USGS</h2></div></div>
+      <div className="pb">
+        {!peek && !problem && <p className="none">Reading the USGS feed…</p>}
+        {(problem || peek?.error) && <p className="none">Could not read it just now: {problem || peek?.error}</p>}
+        {peek && !peek.error && (
+          <ul className="bl">
+            {[...peek.items].reverse().map((q, i) => {
+              const mag = /M (\d+(\.\d+)?)/.exec(q.subject)?.[1];
+              return <li key={i}><span><b className="mag">{mag ?? "?"}</b> {q.subject.replace(/^M [\d.]+ - /, "")}</span></li>;
+            })}
+          </ul>
+        )}
+        <p className="note">Magnitude 4.5 and up, worldwide, the last day. The desk reads this every 30 seconds, beside EMSC, GDACS and Bluesky.</p>
+      </div>
+    </section>
+  );
+}
+
+/** A small drawing for each setup: seismic waves, a ring of fields with a fire, a calendar page
+ * whose date moves. */
+function Motif({ id }: { id: string }) {
+  if (id === "quake-desk") {
+    return (
+      <svg className="motif" viewBox="0 0 120 80" aria-hidden="true">
+        <path d="M4 40 H30 L36 22 L44 60 L52 12 L60 66 L68 28 L74 48 L80 40 H116" fill="none" stroke="var(--c)" strokeWidth="2.4" strokeLinejoin="round" />
+        {[14, 24, 34].map((r) => <circle key={r} cx="56" cy="40" r={r} fill="none" stroke="var(--c)" strokeOpacity={0.6 - r / 80} />)}
+      </svg>
+    );
+  }
+  if (id === "fire") {
+    return (
+      <svg className="motif" viewBox="0 0 120 80" aria-hidden="true">
+        {Array.from({ length: 8 }, (_, i) => {
+          const a = -Math.PI / 2 + (i * Math.PI) / 4;
+          const liar = i === 2 || i === 4;
+          return <circle key={i} cx={60 + 30 * Math.cos(a)} cy={40 + 30 * Math.sin(a)} r={6} fill="var(--panel)" stroke={liar ? "var(--lie)" : "var(--c)"} strokeWidth={liar ? 2.2 : 1.6} />;
+        })}
+        <path d="M60 26 C70 36 68 48 60 52 C52 48 50 36 60 26 Z" fill="var(--c)" />
+      </svg>
+    );
+  }
+  return (
+    <svg className="motif" viewBox="0 0 120 80" aria-hidden="true">
+      <rect x="22" y="12" width="62" height="56" rx="7" fill="var(--panel)" stroke="var(--c)" strokeWidth="1.8" />
+      <rect x="22" y="12" width="62" height="14" rx="7" fill="var(--c)" opacity="0.85" />
+      <text x="53" y="52" textAnchor="middle" fontSize="20" fontFamily="var(--f-display)" fill="var(--muted)" textDecoration="line-through">Fri</text>
+      <path d="M78 46 C92 40 98 30 96 20" fill="none" stroke="var(--c)" strokeWidth="1.8" />
+      <text x="100" y="16" fontSize="13" fontFamily="var(--f-display)" fill="var(--c)" textAnchor="middle">Sat</text>
+    </svg>
+  );
+}

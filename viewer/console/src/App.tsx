@@ -3,15 +3,30 @@ import { api, type RunOptions } from "./api";
 import { AppsView } from "./apps/AppsView";
 import { BuildView } from "./build/BuildView";
 import { RunView } from "./run/RunView";
+import { SetupPage, SetupsView } from "./setups/SetupsView";
 import type { Me, RecordedRun, Summary, TeamSpec } from "./types";
 
-type View = { kind: "build" } | { kind: "run"; id: string } | { kind: "runs" } | { kind: "apps" };
+type View =
+  | { kind: "home" }
+  | { kind: "setup"; id: string }
+  | { kind: "build" }
+  | { kind: "run"; id: string }
+  | { kind: "runs" }
+  | { kind: "apps" };
 
 function readHash(): View {
-  const m = /^#run\/(\w+)$/.exec(window.location.hash);
-  if (m) return { kind: "run", id: m[1]! };
-  if (window.location.hash === "#apps") return { kind: "apps" };
-  return window.location.hash === "#runs" ? { kind: "runs" } : { kind: "build" };
+  const hash = window.location.hash;
+  const run = /^#run\/(\w+)$/.exec(hash);
+  if (run) return { kind: "run", id: run[1]! };
+  const setup = /^#setup\/([\w-]+)$/.exec(hash);
+  if (setup) return { kind: "setup", id: setup[1]! };
+  if (hash === "#apps" || hash === "#build" || hash === "#runs") return { kind: hash.slice(1) as "apps" | "build" | "runs" };
+  return { kind: "home" }; // the three ready-made setups
+}
+
+function hashOf(view: View): string {
+  if (view.kind === "run" || view.kind === "setup") return `${view.kind}/${view.id}`;
+  return view.kind === "home" ? "" : view.kind;
 }
 
 export function App() {
@@ -26,7 +41,7 @@ export function App() {
     api.me().then(setMe).catch(() => setMe({ hosted: false, user: null }));
   }, []);
   const go = (next: View) => {
-    window.location.hash = next.kind === "run" ? `run/${next.id}` : next.kind === "build" ? "" : next.kind;
+    window.location.hash = hashOf(next);
     setView(next);
   };
 
@@ -47,8 +62,9 @@ export function App() {
         </div>
         <div className="controls">
           <nav className="seg" aria-label="Views">
-            <button aria-pressed={view.kind === "apps"} onClick={() => go({ kind: "apps" })}>My apps</button>
-            <button aria-pressed={view.kind === "build"} onClick={() => go({ kind: "build" })}>Build</button>
+            <button aria-pressed={view.kind === "home" || view.kind === "setup"} onClick={() => go({ kind: "home" })}>Setups</button>
+            <button aria-pressed={view.kind === "apps"} onClick={() => go({ kind: "apps" })}>Make your own</button>
+            <button aria-pressed={view.kind === "build"} onClick={() => go({ kind: "build" })}>Canvas</button>
             <button aria-pressed={view.kind === "run" || view.kind === "runs"} onClick={() => go({ kind: "runs" })}>Runs</button>
           </nav>
           <ThemeToggle />
@@ -60,8 +76,10 @@ export function App() {
           )}
         </div>
       </header>
+      {view.kind === "home" && <SetupsView onOpen={(id) => go({ kind: "setup", id })} />}
+      {view.kind === "setup" && <SetupPage id={view.id} onBack={() => go({ kind: "home" })} onRun={run} />}
       {view.kind === "build" && <BuildView onRun={run} />}
-      {view.kind === "run" && <RunView spaceId={view.id} onBack={() => go({ kind: "build" })} />}
+      {view.kind === "run" && <RunView spaceId={view.id} onBack={() => go({ kind: "home" })} />}
       {view.kind === "runs" && <Runs onOpen={(id) => go({ kind: "run", id })} />}
       {view.kind === "apps" && <AppsView onRun={run} hosted={me.hosted} />}
     </div>
@@ -127,7 +145,7 @@ function Runs({ onOpen }: { onOpen: (id: string) => void }) {
         <div className="ph"><div><div className="eyebrow">This session</div><h2>Runs</h2></div></div>
         <div className="pb">
           {spaces === null && <p className="none">Loading…</p>}
-          {spaces?.length === 0 && <p className="none">No runs yet. Build a team and press “Run this team”.</p>}
+          {spaces?.length === 0 && <p className="none">No runs yet. Pick one of the setups and press Run.</p>}
           <ul className="bl">
             {spaces?.map((s) => (
               <li key={s.id}>
