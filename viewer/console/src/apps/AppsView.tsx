@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, type RunOptions } from "../api";
 import { c } from "../css";
 import type { AgentSetup, AppsSetup, ConnectionEntry, ConnectionInfo, ConnectionTest, Keys, Preset, SetupView, TeamSpec } from "../types";
+import { StreamsPanel } from "./StreamsPanel";
 
 interface Props {
   onRun: (pack: string, team: TeamSpec, name: string, options: RunOptions) => Promise<void>;
@@ -10,8 +11,9 @@ interface Props {
 
 const nameOf = (e: ConnectionEntry) => String(e.name ?? e.preset ?? "");
 
-/** Your own agents on your own apps, in two steps: connect your apps (each an MCP server; the
- * secrets stay in .env), then say in a few lines what each agent is for and which apps it may use.
+/** Your own agents on your own apps, in steps: connect your apps (each an MCP server; the secrets
+ * stay in .env), pick the live public data the team reads besides (streams: no account needed),
+ * then say in a few lines what each agent is for and which apps it may use.
  * The team, its links and its safety settings are made from that (packs/apps/setup.py). You can
  * keep several teams on the same apps (one file each in my-teams/); the bar on top picks one. */
 export function AppsView({ onRun, hosted }: Props) {
@@ -262,10 +264,19 @@ export function AppsView({ onRun, hosted }: Props) {
         </div>
       </section>
 
+      {setup && (
+        <StreamsPanel
+          streams={setup.streams ?? []}
+          pace={setup.pace}
+          polls={setup.polls}
+          onChange={(patch) => changeSetup({ ...setup, ...patch })}
+        />
+      )}
+
       <section className="panel">
         <div className="ph">
-          <div><div className="eyebrow">Step 2 · {setup?.agents.length ?? 0} agents · {saved && teamId ? `my-teams/${teamId}.json` : "not saved yet"}</div><h2>Your agents</h2></div>
-          <button className="btn" disabled={!agentsChanged && saved} onClick={() => void saveAgents()}>{agentsChanged || !saved ? "Save agents" : "Saved"}</button>
+          <div><div className="eyebrow">Step 3 · {setup?.agents.length ?? 0} agents · {saved && teamId ? `my-teams/${teamId}.json` : "not saved yet"}</div><h2>Your agents</h2></div>
+          <button className="btn" disabled={!agentsChanged && saved} onClick={() => void saveAgents()}>{agentsChanged || !saved ? "Save team" : "Saved"}</button>
         </div>
         <div className="pb insp">
           {!setup && <p className="none">Loading…</p>}
@@ -298,7 +309,7 @@ export function AppsView({ onRun, hosted }: Props) {
       </section>
 
       <section className="panel">
-        <div className="ph"><div><div className="eyebrow">Step 3</div><h2>Run it</h2></div></div>
+        <div className="ph"><div><div className="eyebrow">Step 4</div><h2>Run it</h2></div></div>
         <div className="pb insp">
           <label>Model
             <select value={model} onChange={(e) => setModel(e.target.value)}>
@@ -313,7 +324,7 @@ export function AppsView({ onRun, hosted }: Props) {
               <option value="auto">Run at once</option>
             </select>
           </label>
-          <p className="note">A real model reads your mail, so a run spends from {hosted ? "your own Anthropic key (under Your keys)" : <>the key in <code>.env</code></>} (each request is cached, so a rerun is free). Nothing the apps mark as gated runs unless you chose so above; a mail is read as claims to check, never as instructions.</p>
+          <p className="note">A real model reads your mail and streams, so a run spends from {hosted ? "your own Anthropic key (under Your keys)" : <>the key in <code>.env</code></>} (each request is cached, so a rerun is free). Nothing the apps mark as gated runs unless you chose so above; a mail is read as claims to check, never as instructions.</p>
           <div><button className="btn primary" disabled={busy || !setup} onClick={() => void run()}>{busy ? "Starting…" : "Save and run"}</button></div>
           {runProblem && <p className="err">{runProblem}</p>}
         </div>

@@ -217,6 +217,35 @@ export interface AppsSetup {
   unowned?: string | null;
   approvals?: "auto" | "manual" | "shadow";
   polls?: number;
+  streams?: StreamEntry[];
+  pace?: number | null; // seconds between two polls when played (unset: 30 with streams)
+}
+
+/** One of a team's streams: {preset: "usgs-quakes"} with changes, or a stream in full
+ * (frame/streams.py). */
+export type StreamEntry = Record<string, unknown>;
+
+/** A public stream, as GET /api/streams offers it. */
+export interface PublicStream {
+  name: string;
+  label: string;
+  about: string;
+  kind: "websocket" | "events" | "poll";
+  url: string;
+  every: number;
+  most: number;
+  trusted: boolean;
+  title: string | null;
+  fields: string[];
+  keep: Record<string, string>;
+}
+
+/** What a stream gave when read for a few seconds: what the team would get. */
+export interface StreamPeek {
+  received: number;
+  kept: number;
+  error: string;
+  items: { from: string; subject: string; body: string }[];
 }
 
 /** One of your teams (`team`: its id, its file's name; null: the example, not saved), and the list

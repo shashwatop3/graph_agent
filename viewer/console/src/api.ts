@@ -1,4 +1,4 @@
-import type { AppsSetup, Catalogue, ConnectionEntry, ConnectionInfo, ConnectionTest, Keys, Me, PackInfo, Preset, RecordedRun, RunEvent, SetupView, SpaceState, Summary, TeamSpec, Template, Why } from "./types";
+import type { AppsSetup, Catalogue, ConnectionEntry, ConnectionInfo, ConnectionTest, Keys, Me, PackInfo, Preset, PublicStream, RecordedRun, RunEvent, SetupView, SpaceState, StreamEntry, StreamPeek, Summary, TeamSpec, Template, Why } from "./types";
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -69,6 +69,9 @@ export const api = {
     call<{ saved: string[] }>(`/api/keys/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify({ value }) }),
   deleteKey: (name: string) => call<{ saved: string[] }>(`/api/keys/${encodeURIComponent(name)}`, { method: "DELETE" }),
   checkSetup: (pack: string, setup: AppsSetup) => post<{ problems: string[] }>(`/api/packs/${pack}/setup/check`, setup),
+  // live public data a team can read
+  streams: () => call<{ topics: { topic: string; streams: PublicStream[] }[] }>("/api/streams"),
+  peekStream: (entry: StreamEntry) => post<StreamPeek>("/api/streams/peek", entry),
 };
 
 function teamQuery(team?: string | null): string {

@@ -323,6 +323,17 @@ pre.ctx { max-height: 260px; overflow: auto; white-space: pre-wrap; font-family:
 a.btn { display: inline-flex; align-items: center; text-decoration: none; color: var(--ink); }
 .add-app { margin-top: 14px; display: grid; gap: 8px; }
 .add-app .custom { border: 1px dashed var(--line); border-radius: 10px; padding: 10px; }
+/* live data: a team's streams, and a peek at one */
+.conn .filters { display: grid; gap: 4px; }
+.conn .row2, .add-app .row2, .row2.pace { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; }
+.conn .row2 input, .add-app .row2 label { flex: 1 1 140px; min-width: 0; }
+.conn .sub, .add-app .sub { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.conn .note code { margin-right: 6px; }
+.conn label.most input { width: 6em; }
+.peek { display: grid; gap: 4px; }
+.peek .bl li.peek-item { display: block; }
+.peek pre { margin: 4px 0 0; padding: 6px 8px; border-radius: 8px; background: var(--soft); font-family: var(--f-mono); font-size: 10.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 9em; overflow: auto; }
+.add-app .topic { display: grid; gap: 4px; }
 .agent .row2, .kinds-of .row2 { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; }
 .agent .row2 label { flex: 1 1 160px; }
 .kinds-of .row2 input { flex: 1 1 120px; min-width: 0; }
