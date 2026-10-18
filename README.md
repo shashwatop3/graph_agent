@@ -163,6 +163,14 @@ fly deploy
 fly scale count 1
 ```
 
+**Then on every push:** `.github/workflows/deploy.yml` tests each push to `master` (the Python
+tests against the same pinned services, the page's types and tests) and, when all pass, deploys
+it with Fly's own builder. Give it a deploy token once:
+
+```bash
+fly tokens create deploy | gh secret set FLY_API_TOKEN
+```
+
 `SECRET_KEY` signs the sessions and encrypts everyone's keys. If it changes, everyone must sign
 in again and add their keys again. Recorded runs (`runs/`) are not in the image: that folder is
 your own model cache, and its apps entries hold your real mail.
