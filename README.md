@@ -15,6 +15,88 @@ Fire, that runs the same agents on two backends: a graph store (FalkorDB) and a 
 The project notes live in the Obsidian vault, reached through the
 `docs` symlink in this folder (not tracked by git).
 
+**Try it:** open https://groundwork-agents.fly.dev, sign in with Google, open **Fire sim** and run
+it on the **Scripted stand-in** (free, no key needed). Press Play and watch the false alarm spread
+around the ring and then get caught. Press **Why** on any belief to see the graph path behind it.
+
+## The graph
+
+Each agent has nothing but its part of one FalkorDB graph to remember with. Each run gets its own
+graph (`space_<id>`). The node types and relationships are in `src/graph_agent/core/model.py`, and
+every query is in `src/graph_agent/stores/falkor.py`.
+
+```mermaid
+flowchart LR
+  Agent -- "LINKED / TRUSTS" --> Agent
+  Observation -- "RELAYED_VIA {hop}" --> Agent
+  Observation -- SUPPORTS --> Belief
+  Observation -- ABOUT --> Entity
+  Belief -- ABOUT --> Entity
+  Belief -- DERIVED_FROM --> Belief
+  Action -- DERIVED_FROM --> Belief
+  Entity -- RELATES --> Entity
+  Correction -- "INVALIDATED {new_status, path_len}" --> Belief
+  Correction -. CONTRADICTS .-> Belief
+```
+
+| Node | What it is |
+|---|---|
+| **Agent** | A team member, or an outside source such as a mail sender or a Bluesky poster |
+| **Observation** | One thing an agent received: a sensor reading, a feed item, a message from a teammate. Its `RELAYED_VIA` edges record every agent it passed through, hop by hop. |
+| **Belief** | A claim the agent holds (subject, predicate, value), with an origin (observed, told or derived) and a status (active, suspect, stale or retracted) |
+| **Entity** | What beliefs are about: a field, a quake, a person, a trip |
+| **Action** | Something the agent committed to (water a field, book a trip), linked to the beliefs it relies on |
+| **Correction** | An exposure, a retraction or a reinstatement. Its `INVALIDATED` edges record exactly which beliefs it changed. |
+
+### How the agents query it
+
+The agents read and write the graph only through tools (`src/graph_agent/core/tools.py`):
+`recall`, `explain`, `traverse`, `shortest_path`, `assert_belief`, `retract`, `send` and `act`.
+These are the queries that do the work:
+
+```cypher
+// Where a belief came from: every supporting observation, with the route it took
+MATCH (o:Observation)-[:SUPPORTS]->(b:Belief {id: $id})
+OPTIONAL MATCH (o)-[r:RELAYED_VIA]->(a:Agent)
+RETURN o.id, collect([r.hop, a.id])
+
+// What rests on it: walk DERIVED_FROM backwards, one level per query (breadth-first)
+MATCH (s:Node)<-[:DERIVED_FROM]-(d)
+WHERE s.id IN $frontier AND d.owner = $viewer
+RETURN DISTINCT d.id, labels(d), d.status
+
+// A liar exposed: recount each belief's routes that avoid every exposed agent
+MATCH (b:Belief {owner: $viewer}) WHERE b.status IN ['active', 'suspect']
+MATCH (o:Observation)-[:SUPPORTS]->(b)
+OPTIONAL MATCH (o)-[:RELAYED_VIA]->(a:Agent)
+WITH b, o, collect(a.id) AS route
+WITH b, sum(CASE WHEN size([x IN route WHERE x IN $exposed]) = 0 THEN 1 ELSE 0 END) AS alive
+SET b.support_routes = alive
+
+// Write the outcome, with the correction that caused it
+UNWIND $changes AS ch
+MATCH (c:Node {id: $cid}), (b:Node {id: ch.id})
+SET b.status = ch.status
+CREATE (c)-[:INVALIDATED {new_status: ch.status, path_len: ch.path_len}]->(b)
+```
+
+### Where the decisions come from the graph
+
+- **What to trust.** When the checker refutes a claim, it blames the first agent on that claim's
+  `RELAYED_VIA` route: the one who made it up, not the honest teammates who passed it on. That
+  agent is exposed, and any belief left with no route around them turns **stale**.
+- **What to redo.** A belief that goes stale or is retracted turns everything built on it
+  (`DERIVED_FROM`, any depth) **suspect**. That includes actions, so the offsite's Actions desk
+  rebooks exactly the trips that relied on the old date and leaves the agenda alone.
+- **What to say.** Agents pass on a belief with `send`. The receiver gets a new Observation whose
+  route is one hop longer, so a lie can always be traced back to where it started.
+- **What to forgive.** When an agent is trusted again, a stale belief comes back if one of its
+  routes now avoids everyone still exposed. A suspect belief comes back once everything it was
+  derived from is active again.
+- **The comparison.** Ring Fire runs the same agents on a relational store (PostgreSQL) as well,
+  and the offsite has a shared-notes baseline. With shared notes, nothing tells an agent what
+  rested on a fact that changed.
+
 ## Layout
 
 The main project is generic. Domains are packs on top of it; Ring Fire (the benchmark game) is one
