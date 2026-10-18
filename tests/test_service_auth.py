@@ -264,11 +264,13 @@ def test_connecting_gmail_asks_google_for_read_only_access(hosted, monkeypatch):
     narrow = {"scope": "openid " + auth.READ[0]}  # a box left unticked
     assert connect_google(client, monkeypatch, tokens=narrow).status_code == 400
     assert not client.get("/api/keys").json()["google"]
-    done = connect_google(client, monkeypatch)
-    assert done.status_code == 303 and done.headers["location"] == "/#apps"
+    # long, so the encrypted file cannot hold it by chance (its base64 can hold a short "r1")
+    refresh = "refresh-token-never-written-in-the-clear"
+    done = connect_google(client, monkeypatch, tokens={"refresh_token": refresh})
+    assert done.status_code == 303 and done.headers["location"] == "/#settings"
     keys = client.get("/api/keys").json()
     assert keys["google"] and keys["saved"] == []  # the refresh token is not a key you see
-    assert "r1" not in (hosted / "users" / "1" / "secrets.json").read_text()
+    assert refresh not in (hosted / "users" / "1" / "secrets.json").read_text()
     for name in ("GOOGLE_REFRESH_TOKEN", "GOOGLE_ACCESS_TOKEN"):
         assert client.put(f"/api/keys/{name}", json={"value": "x"}).status_code == 400
 

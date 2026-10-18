@@ -280,7 +280,7 @@ def router() -> APIRouter:
         save_secret(user, REFRESH, str(refresh))
         ends = time.time() + int(tokens.get("expires_in", 3600))
         _access[user.id] = (str(tokens["access_token"]), ends)
-        response = RedirectResponse("/#apps", status_code=303)
+        response = RedirectResponse("/#settings", status_code=303)  # where Connect is
         response.delete_cookie(STATE, path="/auth")
         return response
 

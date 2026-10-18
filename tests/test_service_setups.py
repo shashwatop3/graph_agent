@@ -1,4 +1,4 @@
-"""The console's front page offers three ready-made setups (viewer/console/src/setups/content.ts):
+"""The console's setups page offers four ready-made setups (viewer/console/src/setups/content.ts):
 each must name a template the service has, and the free ones must have a stand-in."""
 
 import re
@@ -29,8 +29,8 @@ def setups() -> list[tuple[str, str, bool]]:
     return found
 
 
-def test_the_page_offers_three_setups():
-    assert [p for p, _, _ in setups()] == ["apps", "ringfire", "offsite"]
+def test_the_page_offers_four_setups():
+    assert [p for p, _, _ in setups()] == ["hualien", "apps", "ringfire", "offsite"]
 
 
 @pytest.mark.parametrize(("pack", "template", "free"), setups())
