@@ -102,7 +102,7 @@ def test_a_team_with_live_data_is_played_at_its_pace():
     pack = pack_named("life")
     team = pack.team(pack.templates()[0].name, {})
     team.settings.pace = 0.6
-    space = Spaces().create(pack, team, model="stand-in", keep=False)
+    space = Spaces().create(pack, team, model="stand-in")
     try:
         space.play()  # the page's own delay is smaller: the team's pace wins
         time.sleep(1.0)
