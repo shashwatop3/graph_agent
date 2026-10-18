@@ -3,6 +3,7 @@ import { api, type RunOptions } from "../api";
 import { c } from "../css";
 import type { StreamPeek, TeamSpec } from "../types";
 import { SETUPS, setupById, type Setup } from "./content";
+import { GuideView } from "./GuideView";
 import { TeamDiagram } from "./TeamDiagram";
 
 type Run = (pack: string, team: TeamSpec, name: string, options: RunOptions) => Promise<void>;
@@ -84,8 +85,9 @@ export function SetupPage({ id, onBack, onRun }: { id: string; onBack: () => voi
       </section>
       <div className="setup-cols">
         <div className="setup-main">
+          {setup.guide && <GuideView guide={setup.guide} />}
           <section className="panel">
-            <div className="ph"><div><div className="eyebrow">What happens</div><h2>The story</h2></div></div>
+            <div className="ph"><div><div className="eyebrow">What happens</div><h2>{setup.guide ? "This game, day by day" : "The story"}</h2></div></div>
             <ol className="story">
               {setup.story.map((step, i) => (
                 <li key={i} className={step.tone ?? ""}>

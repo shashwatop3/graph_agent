@@ -93,3 +93,39 @@
 .key-hero input { flex: 1 1 260px; min-width: 0; height: 36px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-family: var(--f-mono); }
 .settings pre { margin: 10px 0 0; padding: 10px 12px; background: var(--soft); border-radius: 8px; overflow-x: auto; font-size: 12px; }
 .settings pre code { background: none; padding: 0; }
+
+/* a setup's long explainer (setups/GuideView.tsx) */
+.g-lead { margin: 0; font-size: 14.5px; line-height: 1.65; }
+.g-top { margin: 0 0 10px; }
+.g-game { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 18px; align-items: center; }
+@media (max-width: 760px) { .g-game { grid-template-columns: minmax(0, 1fr); } }
+.g-track { margin-top: 14px; max-width: 440px; }
+.g-ring { max-width: 340px; justify-self: center; }
+.g-rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; padding-top: 0; }
+.g-rules > div { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--soft); }
+.g-rules h3, .g-minds h3 { font-family: var(--f-display); font-size: 15px; margin: 0 0 4px; }
+.g-rules p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
+.g-score { margin: 10px 0 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13.5px; color: var(--muted); }
+.g-day { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0; }
+.g-day li { position: relative; padding: 12px 12px 4px; border-top: 3px solid var(--fire); }
+.g-day li::before { content: ""; position: absolute; top: -8px; left: 10px; width: 13px; height: 13px; border-radius: 50%; background: var(--panel); border: 3px solid var(--fire); }
+.g-day b { font-family: var(--f-display); font-size: 14px; }
+.g-day p { margin: 4px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
+.g-screen { display: grid; grid-template-columns: 170px minmax(0, 1fr); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+@media (max-width: 700px) { .g-screen { grid-template-columns: minmax(0, 1fr); } .g-tabs { flex-direction: row !important; flex-wrap: wrap; } }
+.g-tabs { display: flex; flex-direction: column; background: var(--soft); padding: 6px; gap: 2px; }
+.g-tabs button { text-align: left; border: 0; background: none; padding: 7px 10px; border-radius: 7px; font-size: 13px; color: var(--muted); }
+.g-tabs button.on { background: var(--panel); color: var(--ink); font-weight: 600; box-shadow: 0 1px 0 var(--line); }
+.g-pane { padding: 12px 14px; min-width: 0; }
+.g-pane p { margin: 0 0 10px; font-size: 13.5px; line-height: 1.55; }
+.g-pane pre { margin: 0; padding: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; font-family: var(--f-mono); font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+.g-pane pre code { background: none; padding: 0; }
+.g-tools { margin: 0; display: grid; gap: 8px; }
+.g-tools > div { display: grid; grid-template-columns: minmax(200px, 280px) minmax(0, 1fr); gap: 12px; align-items: baseline; }
+@media (max-width: 640px) { .g-tools > div { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
+.g-tools dt code { font-family: var(--f-mono); font-size: 12px; background: var(--soft); padding: 2px 6px; border-radius: 5px; overflow-wrap: anywhere; }
+.g-tools dd { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+.g-minds { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.g-minds > div { border: 1px solid var(--line); border-left: 4px solid var(--c); border-radius: 10px; padding: 10px 12px; }
+.g-minds h3 { color: var(--c); }
+.g-minds ul { margin: 6px 0 0; padding-left: 16px; display: grid; gap: 6px; font-size: 13px; line-height: 1.5; color: var(--muted); }

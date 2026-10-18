@@ -3,6 +3,8 @@
  * its page is the team that runs. The words follow the packs' own docstrings: offsite/world.py,
  * ringfire/console.py, apps/run.py (QUAKE_DESK). */
 
+import { FIRE_GUIDE, type Guide } from "./guide";
+
 export interface Model { value: string; label: string; note: string }
 
 export interface Setup {
@@ -21,6 +23,7 @@ export interface Setup {
   models: Model[];
   options: Record<string, string>; // the pack's run options this setup runs with
   memory?: boolean; // offers the shared-notes baseline beside the graph
+  guide?: Guide; // the long explainer: the game, what an agent reads, its tools, a real run
 }
 
 const STAND_IN: Model = { value: "stand-in", label: "Scripted stand-in", note: "Free and instant: a scripted team plays every turn, the same each time." };
@@ -89,6 +92,7 @@ export const SETUPS: Setup[] = [
     layout: "ring",
     models: [STAND_IN, HAIKU, SONNET],
     options: {},
+    guide: FIRE_GUIDE,
   },
   {
     id: "offsite",
