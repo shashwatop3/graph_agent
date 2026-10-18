@@ -220,6 +220,8 @@ export interface AppsSetup {
   polls?: number;
   streams?: StreamEntry[];
   pace?: number | null; // seconds between two polls when played (unset: 30 with streams)
+  reading?: string; // the team's notes on how to read its items (naming things, what to skip)
+  router_prompt?: string; // the router's instructions to the reading model (unset: the default)
 }
 
 /** One of a team's streams: {preset: "usgs-quakes"} with changes, or a stream in full

@@ -266,3 +266,15 @@
 .mt-why { margin: 4px 0 0; font-size: 13px; color: var(--muted); min-height: 1.6em; }
 .mt-why b { color: var(--ink); }
 .qg-caption { margin: 0; font-size: 14.5px; min-height: 1.6em; animation: g-in .45s ease both; }
+
+/* Make your own: steps 1 and 2 side by side, then 3 (how items are read) and 4 (run) across */
+.wrap .apps { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+@media (max-width: 900px) { .wrap .apps { grid-template-columns: minmax(0, 1fr); } }
+.apps .reading, .apps .run-bar, .apps .keys-note { grid-column: 1 / -1; }
+.apps .keys-note { margin: 0; }
+.apps .reading textarea { width: 100%; font-family: var(--f-mono); font-size: 12px; }
+.apps .reading details summary { cursor: pointer; font-size: 12.5px; color: var(--accent); margin-bottom: 8px; }
+.run-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 16px; }
+.run-row label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.run-row .note { flex: 1 1 320px; margin: 0; }
+.run-row .err { flex-basis: 100%; }

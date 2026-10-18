@@ -96,6 +96,9 @@ class Setup(Strict):
     # how to read what comes in, for the model that lists each item's claims: how to name the
     # things it is about, so two sources' reports of one thing meet ("a quake: q-<place>-<date>")
     reading: str = ""
+    # the router's instructions to the model that reads each item ("": the default, apps/pack.py
+    # EXTRACT_PROMPT); the kinds of thing, the known entities and the predicates follow them
+    router_prompt: str = ""
 
 
 def things_of(setup: Setup) -> dict[str, list[str]]:
@@ -197,7 +200,10 @@ def team_of(setup: Setup, connections: Sequence[Connection]) -> TeamSpec:
         for s in live
     ]
     pace = setup.pace if setup.pace is not None else (30 if live else 0)
-    router = NodeSpec(id="router", type="router", label="Router", config={"fallback": unowned})
+    config: dict[str, Any] = {"fallback": unowned}
+    if setup.router_prompt.strip():
+        config["prompt"] = setup.router_prompt
+    router = NodeSpec(id="router", type="router", label="Router", config=config)
     agents = [
         NodeSpec(
             id=a.name,

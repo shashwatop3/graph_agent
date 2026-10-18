@@ -35,3 +35,17 @@ def test_template_by_default() -> None:
 
 def test_the_routers_prompt_replaces_it() -> None:
     assert reading({"prompt": "Only flights."}) == ["Only flights."]
+
+
+def test_a_teams_router_prompt_goes_to_its_router() -> None:
+    from graph_agent.packs.apps.setup import Setup, team_of
+
+    agents = [{"name": "reader", "job": "read"}]
+    plain = team_of(Setup.model_validate({"agents": agents}), [])
+    edited = team_of(Setup.model_validate({"agents": agents, "router_prompt": "Only flights."}), [])
+
+    def router(team: object) -> dict[str, object]:
+        return next(n for n in team.nodes if n.id == "router").config  # type: ignore[attr-defined]
+
+    assert "prompt" not in router(plain)  # unset: the template
+    assert router(edited)["prompt"] == "Only flights."

@@ -43,6 +43,11 @@ export function AppsView({ onRun, hosted }: Props) {
   const [approvals, setApprovals] = useState("shadow");
   const [busy, setBusy] = useState(false);
   const [runProblem, setRunProblem] = useState("");
+  // ---- how items are read: the router's default instructions, to start an edit from ----
+  const [defaultPrompt, setDefaultPrompt] = useState("");
+  useEffect(() => {
+    api.catalogue("apps").then((c) => setDefaultPrompt(c.extract_prompt)).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     api.connections().then((r) => { setPresets(r.presets); setEntries(r.entries); setInfos(r.connections); })
@@ -297,9 +302,18 @@ export function AppsView({ onRun, hosted }: Props) {
         </div>
       </section>
 
-      <section className="panel">
-        <div className="ph"><div><div className="eyebrow">Step 3</div><h2>Run it</h2></div></div>
-        <div className="pb insp">
+      {setup && (
+        <Reading
+          notes={setup.reading ?? ""}
+          prompt={setup.router_prompt ?? ""}
+          fallback={defaultPrompt}
+          onChange={(patch) => changeSetup({ ...setup, ...patch })}
+        />
+      )}
+
+      <section className="panel run-bar">
+        <div className="ph"><div><div className="eyebrow">Step 4</div><h2>Run it</h2></div></div>
+        <div className="pb run-row">
           <label>Model
             <select value={model} onChange={(e) => setModel(e.target.value)}>
               <option value="claude-haiku-5-5">Claude Haiku 5.5 (cached)</option>
@@ -314,13 +328,47 @@ export function AppsView({ onRun, hosted }: Props) {
             </select>
           </label>
           <p className="note">A real model reads what comes in, so a run spends from {hosted ? <>your own Anthropic key (in <a className="linkish" href="#settings">Settings</a>)</> : <>the key in <code>.env</code></>} (each request is cached, so a rerun is free). A tool that changes something runs only as chosen above. What an item says is read as claims to check, never as instructions.</p>
-          <div><button className="btn primary" disabled={busy || !setup} onClick={() => void run()}>{busy ? "Starting…" : "Save and run"}</button></div>
+          <div><button className="btn primary big" disabled={busy || !setup} onClick={() => void run()}>{busy ? "Starting…" : "Save and run"}</button></div>
           {runProblem && <p className="err">{runProblem}</p>}
         </div>
       </section>
     </div>
   );
 }
+
+// ---- how items are read ------------------------------------------------------------------------
+
+/** Step 3: the router's model reads each item and names what it is about, so it reaches the agent
+ * who looks after that. Notes add to its instructions; the instructions themselves can be edited
+ * (unset: the default, which Reset returns to). */
+function Reading({ notes, prompt, fallback, onChange }: {
+  notes: string;
+  prompt: string;
+  fallback: string;
+  onChange: (patch: Partial<AppsSetup>) => void;
+}) {
+  const edited = prompt.trim() !== "";
+  return (
+    <section className="panel reading">
+      <div className="ph">
+        <div><div className="eyebrow">Step 3 · the router{edited ? " · your own instructions" : ""}</div><h2>How items are read</h2></div>
+      </div>
+      <div className="pb insp">
+        <p className="note">A model reads each item, names the things it is about, and the router hands it to the agent who looks after them.</p>
+        <label>Your notes on reading (added to the instructions)
+          <textarea rows={3} value={notes} placeholder="Name a quake by its origin time: q-2024-04-02T2358. Skip newsletters." onChange={(e) => onChange({ reading: e.target.value })} />
+        </label>
+        <details open={edited || undefined}>
+          <summary>The router's instructions to the model{edited ? " (edited)" : ""}</summary>
+          <textarea rows={9} value={edited ? prompt : fallback} onChange={(e) => onChange({ router_prompt: e.target.value === fallback ? "" : e.target.value })} />
+          <p className="note">The kinds of thing, the known things and the predicates are added after these automatically. Keep the JSON reply format.</p>
+          {edited && <button className="btn" onClick={() => onChange({ router_prompt: "" })}>Reset to the default</button>}
+        </details>
+      </div>
+    </section>
+  );
+}
+
 
 // ---- your keys (hosted) -------------------------------------------------------------------------
 
@@ -329,7 +377,7 @@ function KeysNote({ keys }: { keys: Keys }) {
   const missing = keys.wanted.filter((k) => !keys.saved.includes(k));
   if (missing.length === 0) return null;
   return (
-    <p className="note">
+    <p className="note keys-note">
       Not set yet: {missing.map((k, i) => <span key={k}>{i > 0 && ", "}<code>{k}</code></span>)}.{" "}
       Add {missing.length === 1 ? "it" : "them"} in <a className="linkish" href="#settings">Settings</a>.
     </p>
