@@ -69,6 +69,23 @@ export function Inspector({ node, team, catalogue, onChange, onLinks, onDelete }
       {node.type === "stream" && (
         <label>Feed<input value={String(node.config?.feed ?? "")} onChange={(e) => set({ config: { ...node.config, feed: e.target.value } })} /></label>
       )}
+      {node.type === "router" && (
+        <fieldset>
+          <legend>How it reads items</legend>
+          <p className="note">A model reads each incoming item and names the things it is about; the router then hands the item to whoever owns them (see Owns on the agents). Items about nothing anyone owns go to the fallback.</p>
+          {catalogue.extract_prompt ? (
+            <>
+              <label>Instructions to the model
+                <textarea rows={12} value={String(node.config?.prompt ?? catalogue.extract_prompt)} onChange={(e) => set({ config: { ...node.config, prompt: e.target.value } })} />
+              </label>
+              <p className="note">The kinds of thing, the known entities and the predicates are added after these instructions automatically. Keep the JSON reply format.</p>
+              {node.config?.prompt != null && <button className="btn" onClick={() => { const { prompt: _drop, ...rest } = node.config ?? {}; set({ config: rest }); }}>Reset to the template</button>}
+            </>
+          ) : (
+            <p className="note">This pack reads items with its own built-in instructions.</p>
+          )}
+        </fieldset>
+      )}
       <fieldset>
         <legend>Owns</legend>
         <div className="chips">

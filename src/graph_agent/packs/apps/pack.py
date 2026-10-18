@@ -106,7 +106,7 @@ class AppsPack(BasePack):
 
     # ---- reading an item ------------------------------------------------------------------------
 
-    def extract(self, rt: Runtime, item: Item) -> Item:
+    def extract(self, rt: Runtime, item: Item, prompt: str | None = None) -> Item:
         if item.claims or rt.client is None:
             return item
         known = "\n".join(
@@ -123,7 +123,8 @@ class AppsPack(BasePack):
             f"{item.payload.get('to')}\nSubject: {item.payload.get('subject')}\n\n"
             f"{item.payload.get('body')}"
         )
-        reply = rt.client.complete(EXTRACT_PROMPT, [{"role": "user", "content": text}], [])
+        system = prompt or EXTRACT_PROMPT
+        reply = rt.client.complete(system, [{"role": "user", "content": text}], [])
         self.extract_tokens[0] += reply.tokens_in
         self.extract_tokens[1] += reply.tokens_out
         parties = {"me", address(str(item.payload.get("from", "")))}

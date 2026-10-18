@@ -145,6 +145,7 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
                 "act",
             ],
             "predicates": extra.predicates,
+            "extract_prompt": extra.extract_prompt,
             "triggers": TRIGGERS,
             "links": LINKS,
         }

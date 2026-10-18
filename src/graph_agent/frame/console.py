@@ -46,6 +46,7 @@ class PackCatalogue:
     nodes: list[dict[str, str]] = field(default_factory=list[dict[str, str]])
     tools: list[dict[str, Any]] = field(default_factory=list[dict[str, Any]])
     predicates: dict[str, str] = field(default_factory=dict[str, str])
+    extract_prompt: str = ""  # the router's default reading instructions, when a model reads items
 
 
 @dataclass

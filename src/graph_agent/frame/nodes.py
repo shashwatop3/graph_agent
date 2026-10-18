@@ -334,20 +334,26 @@ def recipients(rt: Runtime, item: Item, fallback: str | None) -> list[str]:
     return found
 
 
-# (runtime, item) -> the item with `about` and `claims` filled in
-Extractor = Callable[[Runtime, Item], Item]
+# (runtime, item) -> the item with `about` and `claims` filled in; a pack that reads items with a
+# model also takes `prompt=`, the router's own instructions for that reading (config: prompt)
+Extractor = Callable[..., Item]
 
 
 class RouterNode(Node):
     """Links an item to the entities it is about (with the pack's extractor when the item does not
     say), then delivers it to their owners. Items about nothing anyone owns go to `fallback`."""
 
-    description = "Links items to entities and delivers them to the owners (config: fallback)."
+    description = (
+        "Delivers each item to the nodes that own what it is about. A model reads the item to find "
+        "that out (config: prompt, its instructions), so what it picks up is only as good as that "
+        "reading; the delivery itself is plain ownership (config: fallback, for items nobody owns)."
+    )
 
     def receive(self, item: Item, stream: str | None = None) -> None:
         extract: Extractor | None = getattr(self.rt.pack, "extract", None)
         if extract is not None and (not item.about or not item.claims):
-            item = extract(self.rt, item)
+            prompt = self.spec.config.get("prompt")
+            item = extract(self.rt, item, prompt=str(prompt)) if prompt else extract(self.rt, item)
         via = [stream, self.id] if stream else [self.id]
         self.rt.route(item, recipients(self.rt, item, self.spec.config.get("fallback")), via=via)
 

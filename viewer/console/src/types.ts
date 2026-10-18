@@ -50,6 +50,7 @@ export interface Catalogue {
   tools: { name: string; description: string; outward: boolean; checking: boolean }[];
   graph_tools: string[];
   predicates: Record<string, string>;
+  extract_prompt: string;
   triggers: Record<TriggerKind, string>;
   links: Record<LinkKind, string>;
 }
@@ -163,15 +164,14 @@ export interface RunEvent { seq: number; tick: number; kind: string; [key: strin
 export interface Why {
   viewer: string;
   belief: BeliefView;
-  upstream: { observation: string; kind: string; sender: string | null; tick: number; route: string[] | null; item: string | null; source_belief: string | null }[];
+  upstream: { observation: string; kind: string; sender: string | null; tick: number; route: string[] | null; item: string | null; subject: string | null; source_belief: string | null }[];
   downstream: { node: string; belief: string; status: string }[];
   derived_from: { belief: string; status: string; text: string }[];
   dependents: { id: string; hops: number; status: string; text: string }[];
   cut_by_distrust: string[];
   changes: Change[];
   actions: { id: string; tool: string; status: string; arguments: Record<string, unknown> }[];
-  cypher: Record<string, string>;
-  live: Record<string, { rows: string[][]; ms: number }>;
+  calls: { tick: number; tool: string; arguments: Record<string, unknown>; result: string }[]; // its own calls naming the belief
   store: string;
 }
 

@@ -29,7 +29,7 @@ from graph_agent.frame.spec import TeamSpec
 from graph_agent.frame.streams import LiveStream, Stream
 from graph_agent.harness.llm import ModelClient
 
-from .pack import vocabulary
+from .pack import EXTRACT_PROMPT, vocabulary
 from .run import CONNECTIONS, EXAMPLES, ROOT, TEAMS, build_apps, load_setup
 from .setup import Setup, problems, streams_of, team_of, things_of
 
@@ -129,7 +129,9 @@ class AppsConsole:
         return team_of(self.setup(name), self.connections())
 
     def catalogue(self) -> PackCatalogue:
-        return PackCatalogue(predicates=vocabulary(things_of(self.setup())))
+        return PackCatalogue(
+            predicates=vocabulary(things_of(self.setup())), extract_prompt=EXTRACT_PROMPT
+        )
 
     def stand_in(self, team: TeamSpec) -> ModelClient:
         raise ValueError(
