@@ -1,5 +1,5 @@
 """The streams a team can read with no account and no key: `{"preset": "usgs-quakes"}` in a
-team's streams is all it takes (streams.py says what each field means).
+team's streams is all it takes (frame/streams.py says what each field means).
 
 Each one was read on 2026-10-18 and answered without a key. Each says how much it sends, so a
 team is not drowned: a firehose (Bluesky, Wikipedia) needs a `keep` filter of yours, and at most

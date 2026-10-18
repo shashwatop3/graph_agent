@@ -26,11 +26,12 @@ from graph_agent.frame.console import (
 from graph_agent.frame.events import EventLog
 from graph_agent.frame.nodes import approvals
 from graph_agent.frame.spec import TeamSpec
+from graph_agent.frame.streams import LiveStream, Stream
 from graph_agent.harness.llm import ModelClient
 
 from .pack import vocabulary
 from .run import CONNECTIONS, EXAMPLE_AGENTS, ROOT, TEAMS, build_apps, load_setup
-from .setup import Setup, problems, team_of, things_of
+from .setup import Setup, problems, streams_of, team_of, things_of
 
 
 class AppsConsole:
@@ -55,14 +56,17 @@ class AppsConsole:
         connections_file: Path = CONNECTIONS,
         secrets: Callable[[], Mapping[str, str]] | None = None,
         presets: Mapping[str, dict[str, Any]] | None = None,
+        allow: Callable[[Stream], None] | None = None,
     ) -> None:
         # the repository's files and .env by default; a hosted console gives each person their
-        # own files, their own keys (read again each time: they may have just added one) and its
-        # own presets (Google through one shared server)
+        # own files, their own keys (read again each time: they may have just added one), its
+        # own presets (Google through one shared server) and a rule for streams (`allow` raises
+        # ValueError for one it may not read)
         self.teams_dir = teams_dir
         self.connections_file = connections_file
         self.secrets = secrets
         self.presets = presets
+        self.allow = allow
 
     def connections(self) -> list[Connection]:
         """Yours, from connections.json (their secrets from .env, or your own keys)."""
@@ -135,7 +139,10 @@ class AppsConsole:
     ) -> Session:
         if options.get("approvals") in ("auto", "manual", "shadow"):
             team.settings.approvals = options["approvals"]  # type: ignore[assignment]
-        runtime, pack = build_apps(team, self.connections(), client, store, log)
+        keys = self.secrets() if self.secrets is not None else None
+        runtime, pack = build_apps(
+            team, self.connections(), client, store, log, secrets=keys, allow=self.allow
+        )
 
         def world() -> dict[str, Any]:
             seen = [e for e in runtime.log.events if e.kind == "item"]
@@ -143,6 +150,17 @@ class AppsConsole:
                 "lens": "apps",
                 "approvals": runtime.settings.approvals,
                 "feeds": sorted(runtime.feeds),
+                "streams": [
+                    {
+                        "name": name,
+                        "received": feed.received,
+                        "kept": feed.kept,
+                        "skipped": feed.skipped,
+                        "error": feed.error,
+                    }
+                    for name, feed in sorted(runtime.feeds.items())
+                    if isinstance(feed, LiveStream)
+                ],
                 "items": [
                     {
                         "id": e.data["item"],
@@ -193,7 +211,7 @@ class AppsConsole:
             "setup": setup.model_dump(mode="json"),
             "saved": team is not None,
             "kinds": things_of(setup),
-            "problems": problems(setup, self.connections()),
+            "problems": self._problems(setup),
         }
 
     def save_setup(
@@ -214,7 +232,18 @@ class AppsConsole:
             self._file(team).write_text(
                 setup.model_dump_json(indent=2, exclude_defaults=True) + "\n"
             )
-        return {"problems": problems(setup, self.connections()), "team": team}
+        return {"problems": self._problems(setup), "team": team}
+
+    def _problems(self, setup: Setup) -> list[str]:
+        """What is wrong with the setup, and (hosted) the streams it may not read."""
+        found = problems(setup, self.connections())
+        if self.allow is not None and not found:
+            for stream in streams_of(setup.streams):
+                try:
+                    self.allow(stream)
+                except ValueError as error:
+                    found.append(str(error))
+        return found
 
     def delete_setup(self, team: str) -> None:
         file = self._file(team)

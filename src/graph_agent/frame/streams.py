@@ -3,19 +3,19 @@ without any account, that come to a team as items, like a feed (feeds.py) but wi
 
 A stream says where it is and how to read what it sends:
 
-    {"name": "quakes", "kind": "poll", "every": 60,
-     "url": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_day.geojson",
-     "items": "features", "id": "id", "title": "properties.title",
-     "fields": ["properties.mag", "properties.place", "properties.time|ms"],
+    {"name": "github-status", "kind": "poll", "every": 120,
+     "url": "https://www.githubstatus.com/api/v2/incidents.json",
+     "items": "incidents", "id": "id", "title": "name",
+     "fields": ["name", "status", "impact", "updated_at"],
      "trusted": true}
 
   kind      "websocket" (wss://, `hello` is sent once connected: a subscription), "events" (a
             server-sent event stream), or "poll" (a page read every `every` seconds, "json" or
             "rss" by `format`)
-  items     where a page (or a message) lists its items, as a path ("features"); none: the
+  items     where a page (or a message) lists its items, as a path ("incidents"); none: the
             message is one item (a list: each of its elements); an RSS page's items are found
   id        what names an item. The same id with other `fields` comes again, as an update: a
-            quake's magnitude, revised. None: every message is new
+            reading revised, an incident resolved. None: every message is new
   sender    who an item is from ("user", "did"): a source in the graph that can be caught lying
             and distrusted. None: the stream itself, which `trusted` makes a system of record
   fields    what the team reads of each item ("path" or "path|ms", "path|s": an epoch time, as
@@ -25,8 +25,8 @@ A stream says where it is and how to read what it sends:
   most      at most this many items a poll, the newest (a firehose is cut down, not queued)
 
 A path is keys and list indexes with dots ("commit.record.text", "lineStatuses.0.reason"); in
-an RSS or Atom item, the tags' own names ("title", "alertlevel"). The catalogue of streams that
-need no key is public_streams.py.
+an RSS or Atom item, the tags' own names ("title", "alertlevel"). The streams that need no key
+are listed in packs/apps/public_streams.py.
 
 A websocket or event stream is read in a thread of its own from the start of the run, and what
 came since the last tick is handed over each tick; a page is read when `every` seconds have gone.
@@ -48,7 +48,7 @@ import httpx
 from pydantic import Field, model_validator
 
 from .connections import Strict, resolve
-from .runtime import Item
+from .runtime import Item, Runtime
 
 USER_AGENT = "cascade-console/0.1 (a team of agents reading public data)"
 MAX_BYTES = 6_000_000  # a page larger than this is not read
@@ -410,3 +410,22 @@ def peek(
             for i in items[: stream.most]
         ],
     }
+
+
+def attach_streams(
+    rt: Runtime,
+    streams: list[Stream],
+    secrets: Mapping[str, str] | None = None,
+    get: Callable[[str, dict[str, str]], str] | None = None,
+) -> dict[str, LiveStream]:
+    """Give the run its streams (a stream node with config feed "quakes" reads the one named
+    "quakes"); they stop when the run closes. `get`: how pages are read (tests)."""
+    opened: dict[str, LiveStream] = {}
+    for stream in streams:
+        if stream.name in rt.feeds:
+            raise ValueError(f"two feeds are named {stream.name!r}: rename one")
+        live = LiveStream(stream, secrets, get)
+        rt.feeds[stream.name] = live
+        rt.closers.append(live.close)
+        opened[stream.name] = live
+    return opened

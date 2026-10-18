@@ -17,7 +17,7 @@ otherwise.
 
 import json
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -28,10 +28,11 @@ from graph_agent.frame.events import EventLog
 from graph_agent.frame.feeds import attach
 from graph_agent.frame.runtime import Runtime
 from graph_agent.frame.spec import TeamSpec
+from graph_agent.frame.streams import Stream, attach_streams
 from graph_agent.harness.llm import ModelClient
 
 from .pack import AppsPack
-from .setup import THINGS, Setup, problems
+from .setup import THINGS, Setup, problems, streams_of
 
 ROOT = Path(__file__).resolve().parents[4]
 CONNECTIONS = ROOT / "connections.json"
@@ -93,16 +94,32 @@ def build_apps(
     *,
     servers: Mapping[str, Any] | None = None,
     today: date | None = None,
+    secrets: Mapping[str, str] | None = None,
+    allow: Callable[[Stream], None] | None = None,
+    pages: Callable[[str, dict[str, str]], str] | None = None,
 ) -> tuple[Runtime, AppsPack]:
-    """The team (team_of a setup, or one edited on the canvas) on its connections, ready to run.
-    `servers`: connection name -> a server to use instead of starting it (tests)."""
+    """The team (team_of a setup, or one edited on the canvas) on its connections and streams,
+    ready to run. `secrets`: what the streams look their "$NAMES" up in (None: the environment);
+    `allow`: raises ValueError for a stream this console may not read (hosted: one not on the
+    public internet). `servers`: connection name -> a server to use instead of starting it, and
+    `pages`: how the streams' pages are read (tests)."""
     things = team.settings.extra.get("things") or THINGS
+    streams = streams_of(team.settings.extra.get("streams") or [])
+    for stream in streams:
+        if allow is not None:
+            allow(stream)
     trusted = [feed.name for c in connections for feed in c.feeds if feed.trusted]
+    trusted += [s.name for s in streams if s.trusted]
     me = next((c.resolve(feed.me) for c in connections for feed in c.feeds if feed.me), "")
     pack = AppsPack(things, trusted, me)
     runtime = Runtime(team, pack, store, client, log=log)
     pack.setup(runtime)
     attach(runtime, list(connections), servers, today)
+    try:
+        attach_streams(runtime, streams, secrets, pages)
+    except ValueError:
+        runtime.close()  # the connections just opened are not left running
+        raise
     return runtime, pack
 
 

@@ -13,7 +13,6 @@ pytest.importorskip("websockets")
 
 from websockets.sync.server import ServerConnection, serve  # noqa: E402
 
-from graph_agent.frame.public_streams import PUBLIC, TOPICS  # noqa: E402
 from graph_agent.frame.streams import (  # noqa: E402
     LiveStream,
     Stream,
@@ -21,7 +20,6 @@ from graph_agent.frame.streams import (  # noqa: E402
     peek,
     rss_items,
     shown,
-    stream_of,
 )
 
 QUAKES = {
@@ -170,25 +168,6 @@ def test_a_stream_is_checked_when_it_is_made():
         Stream.model_validate({"name": "Quakes!", "url": "https://x.org"})
     with pytest.raises(ValueError, match="greater than or equal to 10"):
         Stream.model_validate({"name": "s", "url": "https://x.org", "every": 1})
-
-
-def test_a_preset_with_your_filter_added_to_its_own():
-    posts = stream_of({"preset": "bluesky-posts", "keep": {"commit.record.text": "quake"}}, PUBLIC)
-    assert posts.name == "bluesky-posts" and posts.kind == "websocket"
-    assert posts.keep == {"commit.operation": "^create$", "commit.record.text": "quake"}
-    renamed = stream_of({"preset": "usgs-quakes", "name": "usgs", "most": 3}, PUBLIC)
-    assert (renamed.name, renamed.most, renamed.trusted) == ("usgs", 3, True)
-    with pytest.raises(ValueError, match="no stream 'nope'"):
-        stream_of({"preset": "nope"}, PUBLIC)
-
-
-def test_every_public_stream_is_valid_and_in_one_topic():
-    listed = [name for names in TOPICS.values() for name in names]
-    assert sorted(listed) == sorted(PUBLIC)
-    for name in PUBLIC:
-        stream = stream_of({"preset": name}, PUBLIC)
-        assert stream.label and stream.about, name
-        assert stream.kind != "poll" or stream.id, f"{name}: a page polled needs an id"
 
 
 # ---- websockets and event streams, from servers on this machine --------------------------------

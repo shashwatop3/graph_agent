@@ -102,23 +102,28 @@ class Space:
                 self.runtime.step()
 
     def play(self, delay: float = 0.0) -> None:
-        """Run tick after tick in the background until it is done or paused."""
+        """Run tick after tick in the background until it is done or paused, at least `delay`
+        seconds apart, or the team's pace (live data: how often it is read)."""
         if self.running:
             return
         self.running = True
+        delay = max(delay, self.runtime.settings.pace)
 
         def loop() -> None:
+            me = threading.current_thread()  # paused and played again: the new loop goes on
             try:
-                while self.running and not self.finished:
+                while self.running and self._thread is me and not self.finished:
                     self.step()
-                    if delay:
-                        time.sleep(delay)
+                    ends = time.time() + delay
+                    while self.running and self._thread is me and time.time() < ends:
+                        time.sleep(min(0.2, delay))  # paused: stops waiting
             except Exception as error:  # shown in the console, not lost in a thread
                 self.error = f"{type(error).__name__}: {error}"
             finally:
-                self.running = False
-                if self.finished:
-                    self.finish()
+                if self._thread is me:  # not a loop played again since
+                    self.running = False
+                    if self.finished:
+                        self.finish()
 
         self._thread = threading.Thread(target=loop, daemon=True)
         self._thread.start()

@@ -98,6 +98,9 @@ class Settings(Strict):
     fan_out: bool = True
     # an outside source one node catches lying: distrusted by that node only, or by the team
     quarantine: Literal["self", "team"] = "self"
+    # played in the console: at least this many seconds between two ticks (live data: how often
+    # it is read, and so how long a run lasts)
+    pace: float = 0.0
     extra: dict[str, Any] = Field(default_factory=dict[str, Any])  # for the pack
 
 

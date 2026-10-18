@@ -7,6 +7,8 @@
     PUT  /api/packs/{pack}/setup?team=  save it (no team: as a new one);  POST .../setup/check
     DELETE /api/packs/{pack}/setup?team=  delete that team
     GET /api/keys, PUT|DELETE /api/keys/{NAME}   hosted only: your keys (values never sent back)
+    GET  /api/streams                  the public streams a team can read, by topic
+    POST /api/streams/peek             read one stream for a few seconds: what the team would get
 
 A connection names its secrets ("$TODOIST_API_KEY"). Locally you put the values in .env, and what
 writes a file or starts a server's command is refused unless the request comes from this console
@@ -20,6 +22,8 @@ import ipaddress
 import json
 import re
 import socket
+import threading
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlparse
@@ -27,17 +31,23 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ValidationError
 
-from ..frame.connections import Connection, connect, from_entry, load_env, tool_table
+from ..frame.connections import Connection, connect, from_entry, load_env, resolve, tool_table
 from ..frame.feeds import ConnectionFeed, NeedsSignIn
 from ..frame.presets import PRESETS
+from ..frame.streams import Stream, peek, stream_of
+from ..packs.apps.public_streams import PUBLIC, TOPICS
+from ..packs.apps.setup import streams_of
 from .auth import ACCESS, RESERVED, current_user, google_connected, hosted_presets, keys_for
 from .registry import pack_named
 from .spaces import ROOT
 from .users import LOCAL as LOCAL_USER
-from .users import User, delete_secret, hosted, save_secret, secret_names
+from .users import User, delete_secret, hosted, save_secret, secret_names, secrets_of
 
 CONNECTIONS = ROOT / "connections.json"  # the local person's; hosted, each has one in their folder
 LOCAL = {"127.0.0.1", "localhost", "::1"}
+PEEK_SECONDS = 6.0
+_peeking: set[str] = set()  # who is peeking at a stream now (one at a time each)
+_peeking_lock = threading.Lock()
 
 
 def local_only(request: Request) -> None:
@@ -126,12 +136,12 @@ def hosted_rules(entry: dict[str, Any], connection: Connection) -> None:
     public_https(connection.name, connection.resolve(connection.url or ""))
 
 
-def public_https(name: str, url: str) -> None:
-    """Refuse a URL that is not https, or whose host is not on the public internet: this server's
-    own address, its network, or the cloud's metadata service are not anyone's app."""
+def public_https(name: str, url: str, scheme: str = "https") -> None:
+    """Refuse a URL that is not https (or `scheme`), or whose host is not on the public internet:
+    this server's own address, its network, or the cloud's metadata service are not anyone's."""
     parsed = urlparse(url)
-    if parsed.scheme != "https" or not parsed.hostname:
-        raise HTTPException(400, f"{name}: the url must start with https://")
+    if parsed.scheme != scheme or not parsed.hostname:
+        raise HTTPException(400, f"{name}: the url must start with {scheme}://")
     try:
         found = socket.getaddrinfo(parsed.hostname, parsed.port or 443, proto=socket.IPPROTO_TCP)
     except (socket.gaierror, UnicodeError) as error:
@@ -139,6 +149,16 @@ def public_https(name: str, url: str) -> None:
     addresses = {str(info[4][0]).split("%")[0] for info in found}
     if not all(ipaddress.ip_address(a).is_global for a in addresses):
         raise HTTPException(400, f"{name}: {parsed.hostname} is not on the public internet")
+
+
+def public_stream(stream: Stream, secrets: Mapping[str, str] | None = None) -> None:
+    """Hosted: a stream must be on the public internet too (https://, or wss:// for a
+    websocket). Raises ValueError, as a team's problems are."""
+    scheme = "wss" if stream.kind == "websocket" else "https"
+    try:
+        public_https(f"stream {stream.name}", resolve(stream.url, secrets), scheme)
+    except HTTPException as error:
+        raise ValueError(error.detail) from None
 
 
 def needs(missing: list[str]) -> str:
@@ -216,6 +236,46 @@ def router() -> APIRouter:
             return {"ok": True, "tools": tool_table(tools), "feeds": feeds}
         finally:
             tools.close()
+
+    # ---- streams --------------------------------------------------------------------------------
+
+    @api.get("/api/streams")
+    def streams() -> dict[str, Any]:
+        def shown(name: str) -> dict[str, Any]:
+            stream = stream_of({"preset": name}, PUBLIC)
+            return {"name": name, **stream.model_dump(mode="json", exclude={"name"})}
+
+        return {
+            "topics": [
+                {"topic": topic, "streams": [shown(n) for n in names]}
+                for topic, names in TOPICS.items()
+            ]
+        }
+
+    @api.post("/api/streams/peek", dependencies=[Depends(local_only)])
+    def peek_stream(entry: dict[str, Any], user: User = You) -> dict[str, Any]:
+        """Read the stream for a few seconds (a page: once). Never raises for what the stream
+        does: the answer says what went wrong."""
+        try:
+            (stream,) = streams_of([entry])
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+        keys = secrets_of(user) if hosted() else None
+        if hosted():
+            try:
+                public_stream(stream, keys)
+            except ValueError as error:
+                raise HTTPException(400, str(error)) from error
+        with _peeking_lock:
+            if user.id in _peeking:
+                raise HTTPException(429, "one stream at a time: wait for the last to finish")
+            _peeking.add(user.id)
+        try:
+            if not hosted():
+                load_env(ROOT / ".env")
+            return peek(stream, keys, PEEK_SECONDS)
+        finally:
+            _peeking.discard(user.id)
 
     # ---- a pack's setup form --------------------------------------------------------------------
 
