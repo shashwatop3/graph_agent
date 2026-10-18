@@ -18,6 +18,7 @@ pytestmark = pytest.mark.integration
 
 # Stores compared against MemoryStore.
 OTHER_STORES = {"falkor": FalkorStore, "postgres": PostgresStore}
+NAMES = ["falkor", pytest.param("postgres", marks=pytest.mark.postgres)]
 
 
 def snapshot(store, belief_ids):
@@ -29,7 +30,7 @@ def snapshot(store, belief_ids):
     )
 
 
-@pytest.mark.parametrize("name", OTHER_STORES)
+@pytest.mark.parametrize("name", NAMES)
 @pytest.mark.parametrize("seed", range(25))
 def test_store_matches_the_reference_store(name, seed):
     reference, other = MemoryStore(), OTHER_STORES[name]()
@@ -55,7 +56,7 @@ def test_store_matches_the_reference_store(name, seed):
         other.close()
 
 
-@pytest.mark.parametrize("name", OTHER_STORES)
+@pytest.mark.parametrize("name", NAMES)
 @pytest.mark.parametrize("seed", range(10))
 def test_shortest_distances_match_the_reference_store(name, seed):
     reference, other = MemoryStore(), OTHER_STORES[name]()
@@ -72,7 +73,7 @@ def test_shortest_distances_match_the_reference_store(name, seed):
         other.close()
 
 
-@pytest.mark.parametrize("name", OTHER_STORES)
+@pytest.mark.parametrize("name", NAMES)
 @pytest.mark.parametrize("seed", range(10))
 def test_entity_distances_match_the_reference_store(name, seed):
     reference, other = MemoryStore(), OTHER_STORES[name]()

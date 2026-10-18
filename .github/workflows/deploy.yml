@@ -13,15 +13,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # the same pinned FalkorDB and PostgreSQL the tests use locally (docker-compose.yml)
-      - name: Start the services
-        run: docker compose up -d --wait
+      # the same pinned FalkorDB the tests use locally (docker-compose.yml). PostgreSQL is left out:
+      # only the benchmark's store comparison uses it, so its tests (marked postgres) run locally.
+      - name: Start FalkorDB
+        run: docker compose up -d --wait falkordb
 
       - uses: astral-sh/setup-uv@v6
       - name: Python tests
         run: |
           uv sync --frozen --extra service
-          uv run pytest -q
+          uv run pytest -q -m "not postgres"
 
       - uses: actions/setup-node@v4
         with:

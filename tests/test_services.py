@@ -37,6 +37,7 @@ def test_falkordb_has_the_graph_module():
     assert "graph" in names
 
 
+@pytest.mark.postgres
 def test_postgres_runs_a_recursive_query():
     with psycopg.connect(POSTGRES_DSN) as conn:
         rows = conn.execute(

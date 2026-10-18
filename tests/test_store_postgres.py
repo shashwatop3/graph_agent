@@ -7,7 +7,7 @@ import pytest
 from graph_agent.stores.postgres import PostgresStore
 from store_contract import StoreContract
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.postgres]
 
 
 class TestPostgresStore(StoreContract):

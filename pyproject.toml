@@ -38,6 +38,7 @@ dev = [
 testpaths = ["tests"]
 markers = [
     "integration: needs the Docker Compose services running (docker compose up -d --wait)",
+    "postgres: needs PostgreSQL, which only the store comparison uses (CI skips these)",
 ]
 
 [tool.ruff]
