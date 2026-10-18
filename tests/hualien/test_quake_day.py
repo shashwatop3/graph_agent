@@ -1,6 +1,10 @@
 """The Hualien day: three real quakes from five sources, matched to their quakes, and four posts."""
 
+import json
+from pathlib import Path
+
 from graph_agent.packs.hualien.run import run_quake
+from graph_agent.packs.hualien.snapshot import day_graph
 from graph_agent.packs.hualien.standin import desk_team as stand_in
 from graph_agent.packs.hualien.teams import day_team
 from graph_agent.packs.hualien.world import DAY, RUMOUR, QuakeWorld, Reading, quake_name
@@ -79,3 +83,9 @@ def test_the_day_runs_in_the_console(tmp_path, monkeypatch):
     assert all(state["score"]["checks"].values())
     assert [q["id"] for q in state["world"]["quakes"]] == [MAIN, FIRST, SECOND]
     assert state["world"]["quakes"][0]["bulletin"] == "M7.4, 40 km deep, tsunami: yes"
+
+
+def test_the_setup_pages_drawing_is_what_a_run_gives():
+    """viewer/console/src/setups/quakeDay.json is made by `python -m ...hualien.snapshot`."""
+    drawn = Path(__file__).parents[2] / "viewer/console/src/setups/quakeDay.json"
+    assert json.loads(drawn.read_text()) == json.loads(json.dumps(day_graph()))
