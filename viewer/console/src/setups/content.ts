@@ -52,7 +52,7 @@ export const SETUPS: Setup[] = [
       { node: "Checker", does: "Code, not a model: tests what the team was told against the evidence, and quarantines a sender caught lying." },
     ],
     watch: [
-      { title: "One quake, many reports", body: "Open a quake's belief and press Why: every agency's figure and the posts about it hang off one node, each with where it came from." },
+      { title: "One quake, many reports", body: "Click a quake's belief to open its why-chain: every agency's figure and the posts about it hang off one node, each with where it came from." },
       { title: "A revision", body: "When USGS turns automatic into reviewed, the older figure is superseded and everything resting on it updates, without anyone being told by hand." },
       { title: "A poster caught", body: "Watch the Memory tab for an exposure: the poster, the claim that gave them away, and the beliefs it withdrew." },
     ],

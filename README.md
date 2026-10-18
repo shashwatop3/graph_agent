@@ -17,7 +17,7 @@ The project notes live in the Obsidian vault, reached through the
 
 **Try it:** open https://groundwork-agents.fly.dev, sign in with Google, open **Fire sim** and run
 it on the **Scripted stand-in** (free, no key needed). Press Play and watch the false alarm spread
-around the ring and then get caught. Press **Why** on any belief to see the graph path behind it.
+around the ring and then get caught. Click an agent, then one of its beliefs, to see the graph path behind it.
 
 ## The graph
 

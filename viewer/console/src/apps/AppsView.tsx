@@ -17,7 +17,7 @@ const nameOf = (e: ConnectionEntry) => String(e.name ?? e.preset ?? "");
  * The team, its links and its safety settings are made from that (packs/apps/setup.py). You can
  * keep several teams on the same apps (one file each in my-teams/); the bar on top picks one. */
 export function AppsView({ onRun, hosted }: Props) {
-  const where = hosted ? "under Your keys" : "in .env";
+  const where = hosted ? "in Settings" : "in .env";
   // ---- your keys (hosted) ----
   const [keys, setKeys] = useState<Keys | null>(null);
   // ---- your apps ----
@@ -51,12 +51,7 @@ export function AppsView({ onRun, hosted }: Props) {
     if (hosted) api.keys().then(setKeys).catch((e: Error) => setAppsProblem(e.message));
   }, [hosted]);
 
-  /** After a key is saved or removed (or Google disconnected): the keys, and what each app
-   * still needs. */
-  function keysChanged(change: Partial<Keys>) {
-    setKeys((k) => (k ? { ...k, ...change } : k));
-    api.connections().then((r) => setInfos(r.connections)).catch(() => undefined);
-  }
+
 
   function show(v: SetupView) {
     setTeams(v.teams);
@@ -232,7 +227,7 @@ export function AppsView({ onRun, hosted }: Props) {
         </div>
       </section>
 
-      {keys && <KeysPanel keys={keys} onChange={keysChanged} />}
+      {keys && <KeysNote keys={keys} />}
 
       {setup && (
         <StreamsPanel
@@ -245,7 +240,7 @@ export function AppsView({ onRun, hosted }: Props) {
           <details className="accounts" open={entries.length > 0 || undefined}>
             <summary>Your own accounts · optional · {entries.length} connected · {ready} ready</summary>
             {hosted
-              ? <p className="note">Gmail, Calendar, Todoist or any MCP server: it does the sign-in and the API calls. An app names the secrets it needs (like <code>$TODOIST_API_KEY</code>) and you add their values under Your keys, where they are kept encrypted and never shown again.</p>
+              ? <p className="note">Gmail, Calendar, Todoist or any MCP server: it does the sign-in and the API calls. An app names the secrets it needs (like <code>$TODOIST_API_KEY</code>) and you add their values in <a className="linkish" href="#settings">Settings</a>, where they are kept encrypted and never shown again.</p>
               : <p className="note">Gmail, Calendar, Todoist or any MCP server: it does the sign-in and the API calls. Secrets never go in here: an app names them (like <code>$TODOIST_API_KEY</code>) and you put the values in <code>.env</code> at the project's root. Every team shares these.</p>}
             {entries.map((entry) => {
               const name = nameOf(entry);
@@ -318,7 +313,7 @@ export function AppsView({ onRun, hosted }: Props) {
               <option value="auto">Run at once</option>
             </select>
           </label>
-          <p className="note">A real model reads what comes in, so a run spends from {hosted ? "your own Anthropic key (under Your keys)" : <>the key in <code>.env</code></>} (each request is cached, so a rerun is free). A tool that changes something runs only as chosen above. What an item says is read as claims to check, never as instructions.</p>
+          <p className="note">A real model reads what comes in, so a run spends from {hosted ? <>your own Anthropic key (in <a className="linkish" href="#settings">Settings</a>)</> : <>the key in <code>.env</code></>} (each request is cached, so a rerun is free). A tool that changes something runs only as chosen above. What an item says is read as claims to check, never as instructions.</p>
           <div><button className="btn primary" disabled={busy || !setup} onClick={() => void run()}>{busy ? "Starting…" : "Save and run"}</button></div>
           {runProblem && <p className="err">{runProblem}</p>}
         </div>
@@ -329,75 +324,15 @@ export function AppsView({ onRun, hosted }: Props) {
 
 // ---- your keys (hosted) -------------------------------------------------------------------------
 
-/** The secrets your apps and a real model need, kept encrypted on the server. A value is sent
- * once, when you save it, and never shown again: a saved key can only be replaced or removed. */
-function KeysPanel({ keys, onChange }: { keys: Keys; onChange: (change: Partial<Keys>) => void }) {
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [other, setOther] = useState("");
-  const [extra, setExtra] = useState<string[]>([]); // names added here, not saved yet
-  const [deleting, setDeleting] = useState(false); // asked to confirm deleting the account
-  const [problem, setProblem] = useState("");
-  const names = [...new Set([...keys.wanted, ...keys.saved, ...extra])].sort();
-
-  async function save(name: string) {
-    try {
-      const r = await api.saveKey(name, values[name] ?? "");
-      setValues((v) => ({ ...v, [name]: "" }));
-      setProblem("");
-      onChange({ saved: r.saved });
-    } catch (e) {
-      setProblem((e as Error).message);
-    }
-  }
-  async function remove(name: string) {
-    try { onChange({ saved: (await api.deleteKey(name)).saved }); } catch (e) { setProblem((e as Error).message); }
-  }
-  async function disconnect() {
-    try { onChange(await api.disconnectGoogle()); } catch (e) { setProblem((e as Error).message); }
-  }
-  async function deleteAccount() {
-    try { await api.deleteMe(); window.location.assign("/"); } catch (e) { setProblem((e as Error).message); }
-  }
-
+/** The keys a run here needs and you have not saved yet; they are kept on the Settings page. */
+function KeysNote({ keys }: { keys: Keys }) {
+  const missing = keys.wanted.filter((k) => !keys.saved.includes(k));
+  if (missing.length === 0) return null;
   return (
-    <section className="panel">
-      <div className="ph"><div><div className="eyebrow">Kept encrypted · never shown again</div><h2>Your keys</h2></div></div>
-      <div className="pb insp">
-        <p className="note">Your Anthropic key pays for your own runs (from console.anthropic.com). An app's token, like Todoist's, comes from that app's settings. Only your runs use them.</p>
-        <div className="key-row">
-          <code>Google</code>
-          <span className="tag" style={c(keys.google ? "var(--ok)" : "var(--stale)")}>{keys.google ? "connected" : "not connected"}</span>
-          <span className="muted grow">Gmail and Calendar, read-only: Groundwork can never send, delete or change anything there</span>
-          {keys.google
-            ? <button className="btn danger" onClick={() => void disconnect()}>Disconnect</button>
-            : <a className="btn primary" href="/auth/google">Connect Gmail and Calendar</a>}
-        </div>
-        {names.map((name) => {
-          const saved = keys.saved.includes(name);
-          return (
-            <div key={name} className="key-row">
-              <code>{name}</code>
-              <span className="tag" style={c(saved ? "var(--ok)" : "var(--stale)")}>{saved ? "saved" : "not set"}</span>
-              <input type="password" autoComplete="off" placeholder={saved ? "replace it" : "paste it here"} value={values[name] ?? ""} onChange={(e) => setValues((v) => ({ ...v, [name]: e.target.value }))} />
-              <button className="btn" disabled={!(values[name] ?? "").trim()} onClick={() => void save(name)}>Save</button>
-              {saved && <button className="btn danger" onClick={() => void remove(name)}>Remove</button>}
-            </div>
-          );
-        })}
-        <label>Another key, by the name an app uses<input value={other} placeholder="NOTES_TOKEN" onChange={(e) => setOther(e.target.value.toUpperCase())} /></label>
-        <div><button className="btn" disabled={!/^[A-Z_][A-Z0-9_]*$/.test(other)} onClick={() => { setExtra((x) => [...x, other]); setOther(""); }}>+ Add it to the list</button></div>
-        {problem && <p className="err">{problem}</p>}
-        {deleting
-          ? (
-            <p className="note">
-              Delete your account? Your keys, apps, teams, runs and cache are removed, and Google's access is revoked.{" "}
-              <button className="btn danger" onClick={() => void deleteAccount()}>Yes, delete it all</button>{" "}
-              <button className="linkish" onClick={() => setDeleting(false)}>Keep it</button>
-            </p>
-          )
-          : <div><button className="btn danger" onClick={() => setDeleting(true)}>Delete my account…</button></div>}
-      </div>
-    </section>
+    <p className="note">
+      Not set yet: {missing.map((k, i) => <span key={k}>{i > 0 && ", "}<code>{k}</code></span>)}.{" "}
+      Add {missing.length === 1 ? "it" : "them"} in <a className="linkish" href="#settings">Settings</a>.
+    </p>
   );
 }
 
@@ -408,7 +343,7 @@ function AppCard({ entry, info, test, testing, where, onTest, onChange, onRemove
   info: ConnectionInfo | undefined;
   test: ConnectionTest | undefined;
   testing: boolean;
-  where: string; // where its secrets are kept: "in .env", or "under Your keys"
+  where: string; // where its secrets are kept: "in .env", or "in Settings"
 
   onTest: () => void;
   onChange: (patch: Partial<ConnectionEntry>) => void;
@@ -521,7 +456,7 @@ function AddApp({ presets, taken, hosted, onAdd }: { presets: Preset[]; taken: s
           ) : (
             <label>URL<input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com/mcp" /></label>
           )}
-          <label>{how === "command" ? "Settings it reads" : "Headers"}, one per line, secrets as $NAME from {hosted ? "Your keys" : ".env"}
+          <label>{how === "command" ? "Settings it reads" : "Headers"}, one per line, secrets as $NAME from {hosted ? "Settings" : ".env"}
             <textarea rows={2} value={secrets} onChange={(e) => setSecrets(e.target.value)} placeholder={how === "command" ? "API_KEY=$NOTES_KEY" : "Authorization=Bearer $NOTES_TOKEN"} />
           </label>
           <div><button className="btn" onClick={add}>Add it</button></div>

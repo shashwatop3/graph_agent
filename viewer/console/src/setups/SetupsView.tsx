@@ -7,26 +7,52 @@ import { TeamDiagram } from "./TeamDiagram";
 
 type Run = (pack: string, team: TeamSpec, name: string, options: RunOptions) => Promise<void>;
 
-/** The front page: the three ready-made setups, each a card that opens its page. */
+/** The setups page: how to try a setup, step by step, what each one shows, and a card for each. */
 export function SetupsView({ onOpen }: { onOpen: (id: string) => void }) {
   return (
     <div className="setups">
       <section className="setups-hero">
         <div className="eyebrow">Three ready-made teams</div>
-        <h2>Agents whose only memory is a shared graph</h2>
-        <p>Every agent records what it believes and what each belief rests on. When something turns out wrong, the correction travels the graph: exactly the plans built on it change, and whoever said it stops being trusted. Pick a team and watch it happen.</p>
+        <h2>Pick a team and watch the graph do the work</h2>
+        <p>Each setup is a full team with its own world: a live feed, a simulation or a scripted week. Two run free with a scripted stand-in; all three can run on a real Claude model with your own key.</p>
       </section>
-      <div className="setup-cards">
-        {SETUPS.map((s) => (
-          <button key={s.id} className="setup-card" style={c(s.colour)} onClick={() => onOpen(s.id)}>
-            <Motif id={s.id} />
-            <span className="tag">{s.kind}</span>
-            <h3>{s.title}</h3>
-            <p>{s.tagline}</p>
-            <span className="more">Read about it, then run it →</span>
-          </button>
-        ))}
-      </div>
+      <ol className="tutorial">
+        <li><h3>Pick a setup</h3><p>Open one below and read its story: what happens, who is on the team, what to watch for. The team diagram is drawn from the team that will run.</p></li>
+        <li><h3>Choose a model</h3><p><b>Scripted stand-in</b> is free and instant, the same every time. A real model (Haiku or Sonnet) needs your Anthropic key in <a className="linkish" href="#settings">Settings</a>; every request is cached, so a rerun is free.</p></li>
+        <li><h3>Run, then play</h3><p>Press Run. On the timeline, <b>Step ⏵</b> plays one tick, or play to the end. The network shows who told whom: a message not believed is drawn in magenta, a cut trust in red.</p></li>
+        <li><h3>Ask why</h3><p>Click an agent to see what it heard, thought, said and believes. Click one of its beliefs for the why-chain: the observations behind it and the route each took, and open the <b>Memory</b> tab for corrections and what they changed.</p></li>
+      </ol>
+      <section className="panel">
+        <div className="ph"><div><div className="eyebrow">At a glance</div><h2>What each one shows</h2></div></div>
+        <div className="pb">
+          <table className="proves">
+            <thead><tr><th>Setup</th><th>What happens</th><th>What the graph does</th><th>Cost</th></tr></thead>
+            <tbody>
+              <tr><td><b>Fire sim</b></td><td>Eight keepers warn each other about a spreading fire; two of them lie.</td><td>Traces each warning along its relay route, blames the liar, forgives the honest relays.</td><td>Free (stand-in)</td></tr>
+              <tr><td><b>Team offsite</b></td><td>Five desks plan an offsite; the date moves, a guest drops out, a scam arrives.</td><td>One correction reaches exactly the plans built on it. Compare with the shared-notes baseline.</td><td>Free (stand-in)</td></tr>
+              <tr><td><b>Live quake desk</b></td><td>Agencies and Bluesky report the same quakes, live.</td><td>Many reports meet on one quake; revisions supersede; a poster caught exaggerating is distrusted.</td><td>A real model</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <SetupCards onOpen={onOpen} />
+    </div>
+  );
+}
+
+/** A card for each setup, opening its page. */
+export function SetupCards({ onOpen }: { onOpen: (id: string) => void }) {
+  return (
+    <div className="setup-cards">
+      {SETUPS.map((s) => (
+        <button key={s.id} className="setup-card" style={c(s.colour)} onClick={() => onOpen(s.id)}>
+          <Motif id={s.id} />
+          <span className="tag">{s.kind}</span>
+          <h3>{s.title}</h3>
+          <p>{s.tagline}</p>
+          <span className="more">Read about it, then run it →</span>
+        </button>
+      ))}
     </div>
   );
 }
@@ -131,14 +157,10 @@ function RunPanel({ setup, team, onRun }: { setup: Setup; team: TeamSpec | null;
           </div>
         )}
         {setup.memory && memory === "notes" && <p className="note">The same team with one shared notes file instead of the graph: nothing tells a desk what rested on a fact that changed. Run both and compare the checks.</p>}
-        {setup.id === "quake-desk" && <p className="note">Outward actions are only recorded. A real model reads each item once (about 50 to 100 short requests in a run), from the key in <code>.env</code>, or your own under Your keys.</p>}
+        {setup.id === "quake-desk" && <p className="note">Outward actions are only recorded. A real model reads each item once (about 50 to 100 short requests in a run), from your Anthropic key in <a className="linkish" href="#settings">Settings</a> (or <code>.env</code> when it runs on your machine).</p>}
         <button className="btn primary big" disabled={!team || busy} onClick={() => void start()}>{busy ? "Starting…" : `Run ${setup.title.split(":")[0]}`}</button>
         {problem && <p className="err">{problem}</p>}
-        <p className="note">
-          {setup.pack === "apps"
-            ? <>To change its streams or agents, start from it under <a className="linkish" href="#apps">Make your own</a>.</>
-            : <>To change the team, open it on the <a className="linkish" href="#build">canvas</a>.</>}
-        </p>
+        {setup.pack === "apps" && <p className="note">To change its streams or agents, start from it under <a className="linkish" href="#apps">Make your own</a>.</p>}
       </div>
     </section>
   );

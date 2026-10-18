@@ -1,16 +1,18 @@
 import { useEffect, useState } from "react";
 import { api, type RunOptions } from "./api";
 import { AppsView } from "./apps/AppsView";
-import { BuildView } from "./build/BuildView";
+import { Landing } from "./landing/Landing";
 import { RunView } from "./run/RunView";
+import { SettingsView } from "./settings/SettingsView";
 import { SetupPage, SetupsView } from "./setups/SetupsView";
 import type { Me, RecordedRun, Summary, TeamSpec } from "./types";
 import logo from "./logo.svg";
 
 type View =
   | { kind: "home" }
+  | { kind: "setups" }
   | { kind: "setup"; id: string }
-  | { kind: "build" }
+  | { kind: "settings" }
   | { kind: "run"; id: string }
   | { kind: "runs" }
   | { kind: "apps" };
@@ -21,8 +23,11 @@ function readHash(): View {
   if (run) return { kind: "run", id: run[1]! };
   const setup = /^#setup\/([\w-]+)$/.exec(hash);
   if (setup) return { kind: "setup", id: setup[1]! };
-  if (hash === "#apps" || hash === "#build" || hash === "#runs") return { kind: hash.slice(1) as "apps" | "build" | "runs" };
-  return { kind: "home" }; // the three ready-made setups
+  if (hash === "#build") return { kind: "apps" }; // the old canvas: Make your own is the one editor now
+  if (hash === "#apps" || hash === "#setups" || hash === "#runs" || hash === "#settings") {
+    return { kind: hash.slice(1) as "apps" | "setups" | "runs" | "settings" };
+  }
+  return { kind: "home" }; // the landing page
 }
 
 function hashOf(view: View): string {
@@ -38,6 +43,7 @@ export function App() {
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
+  useEffect(() => { window.scrollTo(0, 0); }, [view.kind]); // a new page opens at its top
   useEffect(() => {
     api.me().then(setMe).catch(() => setMe({ hosted: false, user: null }));
   }, []);
@@ -63,10 +69,11 @@ export function App() {
         </div>
         <div className="controls">
           <nav className="seg" aria-label="Views">
-            <button aria-pressed={view.kind === "home" || view.kind === "setup"} onClick={() => go({ kind: "home" })}>Setups</button>
+            <button aria-pressed={view.kind === "home"} onClick={() => go({ kind: "home" })}>Overview</button>
+            <button aria-pressed={view.kind === "setups" || view.kind === "setup"} onClick={() => go({ kind: "setups" })}>Setups</button>
             <button aria-pressed={view.kind === "apps"} onClick={() => go({ kind: "apps" })}>Make your own</button>
-            <button aria-pressed={view.kind === "build"} onClick={() => go({ kind: "build" })}>Canvas</button>
             <button aria-pressed={view.kind === "run" || view.kind === "runs"} onClick={() => go({ kind: "runs" })}>Runs</button>
+            <button aria-pressed={view.kind === "settings"} onClick={() => go({ kind: "settings" })}>Settings</button>
           </nav>
           <ThemeToggle />
           {me.user && (
@@ -77,12 +84,13 @@ export function App() {
           )}
         </div>
       </header>
-      {view.kind === "home" && <SetupsView onOpen={(id) => go({ kind: "setup", id })} />}
-      {view.kind === "setup" && <SetupPage id={view.id} onBack={() => go({ kind: "home" })} onRun={run} />}
-      {view.kind === "build" && <BuildView onRun={run} />}
-      {view.kind === "run" && <RunView spaceId={view.id} onBack={() => go({ kind: "home" })} />}
+      {view.kind === "home" && <Landing onSetups={() => go({ kind: "setups" })} onOpen={(id) => go({ kind: "setup", id })} />}
+      {view.kind === "setups" && <SetupsView onOpen={(id) => go({ kind: "setup", id })} />}
+      {view.kind === "setup" && <SetupPage id={view.id} onBack={() => go({ kind: "setups" })} onRun={run} />}
+      {view.kind === "run" && <RunView spaceId={view.id} onBack={() => go({ kind: "setups" })} />}
       {view.kind === "runs" && <Runs onOpen={(id) => go({ kind: "run", id })} />}
       {view.kind === "apps" && <AppsView onRun={run} hosted={me.hosted} />}
+      {view.kind === "settings" && <SettingsView hosted={me.hosted} />}
     </div>
   );
 }
