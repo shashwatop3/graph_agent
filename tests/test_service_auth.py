@@ -391,3 +391,8 @@ def test_the_terms_page_is_public_and_names_the_contact(monkeypatch):  # noqa: A
     assert response.status_code == 200
     assert "terms of service" in response.text and "your own" in response.text
     assert "owner@example.com &lt;b&gt;" in response.text
+
+
+def test_search_console_can_fetch_its_verification_file():
+    text = TestClient(create_app()).get("/google460a6c536786a230.html").text
+    assert text == "google-site-verification: google460a6c536786a230.html"

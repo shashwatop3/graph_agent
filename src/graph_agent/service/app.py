@@ -402,6 +402,10 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
     def terms() -> HTMLResponse:
         return HTMLResponse(terms_page())
 
+    @app.get("/google460a6c536786a230.html")
+    def google_site_verification() -> HTMLResponse:  # Search Console's proof that this site is ours
+        return HTMLResponse("google-site-verification: google460a6c536786a230.html")
+
     # ---- the console ----------------------------------------------------------------------------
 
     if CONSOLE.exists():
