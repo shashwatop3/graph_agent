@@ -44,6 +44,7 @@ from .connections import router as connections_router
 from .privacy import page as privacy_page
 from .registry import forget_packs, pack_named, packs_for
 from .spaces import ROOT, Spaces
+from .terms import page as terms_page
 from .users import COOKIE, User, data_dir, hosted, secret_key, secrets_of
 
 CONSOLE = ROOT / "viewer" / "console" / "dist"
@@ -396,6 +397,10 @@ def create_app(spaces: Spaces | None = None) -> FastAPI:
     @app.get("/privacy")
     def privacy() -> HTMLResponse:
         return HTMLResponse(privacy_page())
+
+    @app.get("/terms")
+    def terms() -> HTMLResponse:
+        return HTMLResponse(terms_page())
 
     # ---- the console ----------------------------------------------------------------------------
 

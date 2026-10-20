@@ -383,3 +383,11 @@ def test_the_privacy_page_says_what_google_asks_it_to(monkeypatch):  # noqa: ANN
     text = TestClient(create_app()).get("/privacy").text
     assert "Limited Use" in text and "read-only" in text and "your own" in text
     assert "owner@example.com &lt;b&gt;" in text
+
+
+def test_the_terms_page_is_public_and_names_the_contact(monkeypatch):  # noqa: ANN001
+    monkeypatch.setenv("GRAPH_AGENT_CONTACT", "owner@example.com <b>")
+    response = TestClient(create_app()).get("/terms")
+    assert response.status_code == 200
+    assert "terms of service" in response.text and "your own" in response.text
+    assert "owner@example.com &lt;b&gt;" in response.text
